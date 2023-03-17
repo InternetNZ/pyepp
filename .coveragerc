@@ -1,0 +1,11 @@
+[run]
+branch = True
+source =
+   pyepp
+
+[paths]
+source =
+   pyepp/*
+
+[report]
+fail_under = 85

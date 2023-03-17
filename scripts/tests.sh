@@ -5,7 +5,7 @@ command -v git>/dev/null && (cd "$(git rev-parse --show-toplevel)" || exit)
 set -e
 
 # run unit tests and collect data for coverage
-coverage run -m pytest tests/
+coverage run -m pytest ./tests/
 
 # coverage report
 coverage report -m
