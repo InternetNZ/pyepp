@@ -8,15 +8,36 @@ import logging
 
 from bs4 import BeautifulSoup
 
-from command_templates import LOGOUT_XML, LOGIN_XML, HELLO_XML
-from helper import xml_pretty
+from pyepp.command_templates import LOGOUT_XML, LOGIN_XML, HELLO_XML
+from pyepp.helper import xml_pretty
 
 LENGTH_FIELD_SIZE = 4
 CRLF_SIZE = 2
 
 
 class EppCommunicatorException(Exception):
-    pass
+    """
+    EPP communicator exception
+    """
+
+
+def _get_format_32():
+    """
+    Get the size of C integers. We need 32 bits unsigned.
+
+    From http://www.bortzmeyer.org/4934.html
+    """
+    format_32 = ">I"
+    if struct.calcsize(format_32) < LENGTH_FIELD_SIZE:
+        format_32 = ">L"
+        if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
+            logging.error("Could not setup a secure connection.")
+    elif struct.calcsize(format_32) > LENGTH_FIELD_SIZE:
+        format_32 = ">H"
+        if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
+            logging.error("Could not setup a secure connection.")
+
+    return format_32
 
 
 class EppCommunicator:
@@ -24,6 +45,7 @@ class EppCommunicator:
     An EPP client for connecting to EPP server.
     """
 
+    # pylint: disable=too-many-instance-attributes
     def __init__(self, host, port, client_cert, client_key):
         self._host = host
         self._port = port
@@ -32,39 +54,22 @@ class EppCommunicator:
         self._client_cert = client_cert
         self._client_key = client_key
 
-        self._format_32 = self._format_32()
+        self._format_32 = _get_format_32()
 
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self._context.load_default_certs()
+        self._context.load_cert_chain(certfile=client_cert, keyfile=client_key)
+
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
         self._socket.settimeout(10)
-        self._socket.connect((self._host, int(self._port)))
 
         try:
-            self._ssl = ssl.wrap_socket(
-                self._socket,
-                certfile=self._client_cert,
-                keyfile=self._client_key)
+            self._ssl_socket = self._context.wrap_socket(self._socket, server_hostname=host)
+            self._ssl_socket.connect((self._host, int(self._port)))
             self.greeting = self._read()
             logging.debug(BeautifulSoup(self.greeting, 'xml'))
         except socket.error as ex:
-            logging.error("Could not setup a sec sure connection. " + str(ex))
-
-    def _format_32(self):
-        """
-        Get the size of C integers. We need 32 bits unsigned.
-
-        From http://www.bortzmeyer.org/4934.html
-        """
-        format_32 = ">I"
-        if struct.calcsize(format_32) < LENGTH_FIELD_SIZE:
-            format_32 = ">L"
-            if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
-                logging.error("Could not setup a secure connection.")
-        elif struct.calcsize(format_32) > LENGTH_FIELD_SIZE:
-            format_32 = ">H"
-            if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
-                logging.error("Could not setup a secure connection.")
-
-        return format_32
+            logging.error("Could not setup a sec sure connection. %s", str(ex))
 
     def _unpack_data(self, data):
         """
@@ -94,7 +99,7 @@ class EppCommunicator:
         :return: Response
         :rtype: bytes
         """
-        length = self._ssl.read(LENGTH_FIELD_SIZE)
+        length = self._ssl_socket.read(LENGTH_FIELD_SIZE)
         buffer = bytes()
 
         if not length:
@@ -103,8 +108,8 @@ class EppCommunicator:
         total_bytes = self._unpack_data(length) - LENGTH_FIELD_SIZE
         while len(buffer) < total_bytes:
             total_bytes = total_bytes - len(buffer)
-            buffer += self._ssl.recv(total_bytes)
-            logging.info(f'Received {len(buffer)}/{total_bytes} bytes')
+            buffer += self._ssl_socket.recv(total_bytes)
+            logging.info('Received %s/%s bytes', len(buffer), total_bytes)
         return buffer
 
     def _write(self, xml):
@@ -120,9 +125,9 @@ class EppCommunicator:
         # +2 for the CRLF at the end
         length = self._pack_data(len(xml) + LENGTH_FIELD_SIZE + CRLF_SIZE)
 
-        self._ssl.send(length)
+        self._ssl_socket.send(length)
         xml += "\r\n"
-        return self._ssl.send(xml.encode("utf-8"))
+        return self._ssl_socket.send(xml.encode("utf-8"))
 
     def _execute_command(self, cmd):
         """
@@ -133,7 +138,7 @@ class EppCommunicator:
         :return: Response
         :rtype: bytes
         """
-        logging.debug("Sending xml to server :\n{0}".format(cmd))
+        logging.debug("Sending xml to server :\n%s", cmd)
 
         self._write(cmd)
 
@@ -141,7 +146,7 @@ class EppCommunicator:
         if response is None:
             raise EppCommunicatorException("Cannot connect to server. Please re-login!")
 
-        logging.debug("Received xml response from server :\n{0}".format(response))
+        logging.debug("Received xml response from server :\n%s", response)
 
         return response
 
@@ -152,12 +157,12 @@ class EppCommunicator:
         :param str cmd: XML Command
 
         :return: XML Response
-        :rtype: str
+        :rtype: dict
         """
         try:
 
-            r = self._execute_command(cmd)
-            xml_response = BeautifulSoup(r, 'xml')
+            raw_response = self._execute_command(cmd)
+            xml_response = BeautifulSoup(raw_response, 'xml')
 
             response = xml_response.find('response')
             result = xml_response.find('result')
@@ -165,14 +170,14 @@ class EppCommunicator:
 
             try:
                 code = int(result.get('code'))
-            except AttributeError:
-                raise EppCommunicatorException("Could not get result code.")
+            except AttributeError as exc:
+                raise EppCommunicatorException("Could not get result code.") from exc
 
             reason = None
             if code not in (1000, 1500):
                 reason = result.find('reason').string if result.find('reason') else None
 
-            logging.debug("Command executed:\n{}".format(xml_pretty(xml_response)))
+            logging.debug("Command executed:\n%s", xml_pretty(xml_response))
 
             return {'code': code, 'message': message, 'reason': reason, 'response': response}
         except EppCommunicatorException as epp_ex:
@@ -205,12 +210,12 @@ class EppCommunicator:
         result = self.execute(cmd)
 
         if result.get('code') == 1000:
-            logging.info("User {0} logged in to {1}:{2}".format(self._user, self._host, self._port))
+            logging.info("User %s logged in to %s:%s", self._user, self._host, self._port)
         elif result.get('code') == 2004:
-            raise EppCommunicatorException('Incorrect user name or password. Please try again!')
+            raise EppCommunicatorException("Incorrect user name or password. Please try again!")
         else:
-            raise EppCommunicatorException('Something went wrong! Code: {} - Message: {} - Reason {}'.
-                                           format(result.get('code'), result.get('message'), result.get('reason')))
+            raise EppCommunicatorException(f"Something went wrong! Code: {result.get('code')} - Message: "
+                                           f"{result.get('message')} - Reason {result.get('reason')}")
 
         return result
 
@@ -221,4 +226,4 @@ class EppCommunicator:
 
         self.execute(LOGOUT_XML)
         self._socket.close()
-        logging.info("User {0} logged out from {1}:{2}".format(self._user, self._host, self._port))
+        logging.info("User %s logged out from %s:%s", self._user, self._host, self._port)
