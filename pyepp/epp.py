@@ -21,7 +21,7 @@ class EppCommunicatorException(Exception):
     """
 
 
-def _get_format_32():
+def get_format_32():
     """
     Get the size of C integers. We need 32 bits unsigned.
 
@@ -55,7 +55,7 @@ class EppCommunicator:
         self._client_cert = client_cert
         self._client_key = client_key
 
-        self._format_32 = _get_format_32()
+        self._format_32 = get_format_32()
 
         self._context = None
         self._socket = None

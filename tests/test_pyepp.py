@@ -29,6 +29,13 @@ class PyEPPTests(unittest.TestCase):
         self.assertEqual(greeting, "greeting")
 
     @patch.object(EppCommunicator, "_read")
+    def test_connect_exception(self, mock_read):
+        mock_read.side_effect = Exception
+        epp = EppCommunicator(**self.epp_config)
+
+        self.assertRaises(EppCommunicatorException, epp.connect)
+
+    @patch.object(EppCommunicator, "_read")
     def test_hello(self, mock_read):
         mock_read.return_value = "greeting"
         epp = EppCommunicator(**self.epp_config)
@@ -107,7 +114,7 @@ class PyEPPTests(unittest.TestCase):
         result = epp.execute(HELLO_XML)
         self.assertDictEqual(result, expected_result)
 
-    def test_execute_with_error(self):
+    def test_execute(self):
         epp = EppCommunicator(**self.epp_config)
         epp.connect = MagicMock(return_value=None)
         epp.greeting = "greeting"
@@ -127,6 +134,43 @@ class PyEPPTests(unittest.TestCase):
         result = epp.execute(HELLO_XML)
         self.assertDictEqual(result, expected_result)
 
+    def test_execute_epp_exception(self):
+        epp = EppCommunicator(**self.epp_config)
+        epp.connect = MagicMock(return_value=None)
+        epp.greeting = "greeting"
+        epp._execute_command = MagicMock(side_effect=EppCommunicatorException)
+
+        self.assertRaises(EppCommunicatorException, epp.execute, HELLO_XML)
+
+    def test_execute_general_exception(self):
+        epp = EppCommunicator(**self.epp_config)
+        epp.connect = MagicMock(return_value=None)
+        epp.greeting = "greeting"
+        epp._execute_command = MagicMock(side_effect=Exception)
+
+        self.assertRaises(EppCommunicatorException, epp.execute, HELLO_XML)
+
+    def test_read(self):
+        epp = EppCommunicator(**self.epp_config)
+        expected_result = b'<?xml version="1.0" encoding="UTF-8"?>\n<epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:fury="urn:ietf:params:xml:ns:fury-1.0" xmlns:droplist="urn:ietf:params:xml:ns:droplist-1.0" xmlns:idn="urn:ietf:params:xml:ns:idn-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1" xmlns:launch="urn:ietf:params:xml:ns:launch-1.0" xmlns:mark="urn:ietf:params:xml:ns:mark-1.0" xmlns:smd="urn:ietf:params:xml:ns:signedMark-1.0" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:fee="urn:ietf:params:xml:ns:fee-0.11">\n    <greeting>\n        <svID>EPP Server Version: 8.0.4 (de4e6cbdab9536033563b335e4fa4555cf24c931)</svID>\n        <svDate>2023-03-30T20:56:22.740Z</svDate>\n        <svcMenu>\n            <version>1.0</version>\n            <lang>fr</lang>\n            <lang>en</lang>\n            <objURI>urn:ietf:params:xml:ns:epp-1.0</objURI>\n            <objURI>urn:ietf:params:xml:ns:domain-1.0</objURI>\n            <objURI>urn:ietf:params:xml:ns:host-1.0</objURI>\n            <objURI>urn:ietf:params:xml:ns:contact-1.0</objURI>\n            <svcExtension>\n                <extURI>urn:ietf:params:xml:ns:rgp-1.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:fury-1.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:fury-2.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:droplist-1.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:fury-rgp-1.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:idn-1.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI>\n                <extURI>urn:ietf:params:xml:ns:launch-1.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:mark-1.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:signedMark-1.0</extURI>\n                <extURI>urn:ietf:params:xml:ns:fee-0.11</extURI>\n                <extURI>urn:ietf:params:xml:ns:fee-0.9</extURI>\n                <extURI>http://www.w3.org/2000/09/xmldsig#</extURI>\n            </svcExtension>\n        </svcMenu>\n        <dcp>\n            <access>\n                <none/>\n            </access>\n            <statement>\n                <purpose>\n                    <admin/>\n                </purpose>\n                <recipient>\n                    <ours/>\n                </recipient>\n                <retention>\n                    <legal/>\n                </retention>\n            </statement>\n        </dcp>\n    </greeting>\n</epp>'
+        epp._ssl_socket = MagicMock(
+            read=MagicMock(return_value=b'\x00\x00\n\t'),
+            recv=MagicMock(return_value=expected_result)
+        )
+
+        result = epp._read()
+        self.assertEqual(result, expected_result)
+
+    def test_write(self):
+        epp = EppCommunicator(**self.epp_config)
+        expected_result = 103
+        epp._ssl_socket = MagicMock(
+            send=MagicMock(return_value=expected_result),
+        )
+
+        result = epp._write(HELLO_XML)
+
+        self.assertEqual(result, expected_result)
 
 
 if __name__ == "__main__":
