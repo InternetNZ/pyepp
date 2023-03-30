@@ -194,7 +194,7 @@ class EppCommunicator:
             if code not in (1000, 1500):
                 reason = result.find('reason').string if result.find('reason') else None
 
-            logging.debug("Command executed:\n%s", xml_pretty(xml_response))
+            logging.debug("Command executed:\n%s", xml_response)
 
             return {'code': code, 'message': message, 'reason': reason, 'response': str(response)}
         except EppCommunicatorException as epp_ex:
