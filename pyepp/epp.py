@@ -9,7 +9,6 @@ import logging
 from bs4 import BeautifulSoup
 
 from pyepp.command_templates import LOGOUT_XML, LOGIN_XML, HELLO_XML
-from pyepp.helper import xml_pretty
 
 LENGTH_FIELD_SIZE = 4
 CRLF_SIZE = 2
