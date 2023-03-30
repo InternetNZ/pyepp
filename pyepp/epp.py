@@ -31,11 +31,13 @@ def _get_format_32():
     if struct.calcsize(format_32) < LENGTH_FIELD_SIZE:
         format_32 = ">L"
         if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
-            logging.error("Could not setup a secure connection.")
+            logging.error("Integer size does not match the length size!")
+            raise EppCommunicatorException("Integer size does not match the length size!")
     elif struct.calcsize(format_32) > LENGTH_FIELD_SIZE:
         format_32 = ">H"
         if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
-            logging.error("Could not setup a secure connection.")
+            logging.error("Integer size does not match the length size!")
+            raise EppCommunicatorException("Integer size does not match the length size!")
 
     return format_32
 
@@ -50,26 +52,15 @@ class EppCommunicator:
         self._host = host
         self._port = port
         self._user = None
-
         self._client_cert = client_cert
         self._client_key = client_key
 
         self._format_32 = _get_format_32()
 
-        self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        self._context.load_default_certs()
-        self._context.load_cert_chain(certfile=client_cert, keyfile=client_key)
-
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-        self._socket.settimeout(10)
-
-        try:
-            self._ssl_socket = self._context.wrap_socket(self._socket, server_hostname=host)
-            self._ssl_socket.connect((self._host, int(self._port)))
-            self.greeting = self._read()
-            logging.debug(BeautifulSoup(self.greeting, 'xml'))
-        except socket.error as ex:
-            logging.error("Could not setup a sec sure connection. %s", str(ex))
+        self._context = None
+        self._socket = None
+        self._ssl_socket = None
+        self.greeting = None
 
     def _unpack_data(self, data):
         """
@@ -150,6 +141,30 @@ class EppCommunicator:
 
         return response
 
+    def connect(self):
+        """
+        Initial connect to the server.
+
+        :return: Greeting message
+        :rtype: xml in str
+        """
+        try:
+            self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            self._context.load_default_certs()
+            self._context.load_cert_chain(certfile=self._client_cert, keyfile=self._client_key)
+
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+            self._socket.settimeout(10)
+
+            self._ssl_socket = self._context.wrap_socket(self._socket, server_hostname=self._host)
+            self._ssl_socket.connect((self._host, int(self._port)))
+            self.greeting = self._read()
+            logging.debug(BeautifulSoup(self.greeting, 'xml'))
+            return self.greeting
+        except Exception as ex:
+            logging.error("Could not setup a sec sure connection. %s", str(ex))
+            raise EppCommunicatorException("Could not setup a sec sure connection") from ex
+
     def execute(self, cmd):
         """
         Execute the command. Sending the request to the server and receive the response.
@@ -160,6 +175,8 @@ class EppCommunicator:
         :rtype: dict
         """
         try:
+            if not self.greeting:
+                raise EppCommunicatorException("The connection to the server has not been established yet!")
 
             raw_response = self._execute_command(cmd)
             xml_response = BeautifulSoup(raw_response, 'xml')
@@ -179,7 +196,7 @@ class EppCommunicator:
 
             logging.debug("Command executed:\n%s", xml_pretty(xml_response))
 
-            return {'code': code, 'message': message, 'reason': reason, 'response': response}
+            return {'code': code, 'message': message, 'reason': reason, 'response': str(response)}
         except EppCommunicatorException as epp_ex:
             raise epp_ex
         except Exception as ex:
@@ -202,7 +219,9 @@ class EppCommunicator:
 
         :param str user: username
         :param str password: password
-        :return:
+
+        :return: login
+        :rtype: xml
         """
         self._user = user
 
@@ -224,6 +243,8 @@ class EppCommunicator:
         Logout the user from EPP server.
         """
 
-        self.execute(LOGOUT_XML)
+        logout = self.execute(LOGOUT_XML)
         self._socket.close()
         logging.info("User %s logged out from %s:%s", self._user, self._host, self._port)
+
+        return logout
