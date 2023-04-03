@@ -5,6 +5,7 @@ import ssl
 import socket
 import struct
 import logging
+from enum import Enum
 
 from bs4 import BeautifulSoup
 
@@ -18,6 +19,12 @@ class EppCommunicatorException(Exception):
     """
     EPP communicator exception
     """
+
+
+class EppErrorCode(Enum):
+    SUCCESS = 1000
+    SUCCESS_END_SESSION = 1500
+    PARAMETER_RANGE_ERROR = 2004
 
 
 def get_format_32():
@@ -190,7 +197,7 @@ class EppCommunicator:
                 raise EppCommunicatorException("Could not get result code.") from exc
 
             reason = None
-            if code not in (1000, 1500):
+            if code not in (EppErrorCode.SUCCESS.value, EppErrorCode.SUCCESS_END_SESSION.value):
                 reason = result.find('reason').string if result.find('reason') else None
 
             logging.debug("Command executed:\n%s", xml_response)
@@ -227,9 +234,9 @@ class EppCommunicator:
         cmd = LOGIN_XML.format(user=user, password=password)
         result = self.execute(cmd)
 
-        if result.get('code') == 1000:
+        if result.get('code') == EppErrorCode.SUCCESS.value:
             logging.info("User %s logged in to %s:%s", self._user, self._host, self._port)
-        elif result.get('code') == 2004:
+        elif result.get('code') == EppErrorCode.PARAMETER_RANGE_ERROR.value:
             raise EppCommunicatorException("Incorrect user name or password. Please try again!")
         else:
             raise EppCommunicatorException(f"Something went wrong! Code: {result.get('code')} - Message: "
