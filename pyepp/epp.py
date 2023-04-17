@@ -21,7 +21,10 @@ class EppCommunicatorException(Exception):
     """
 
 
-class EppErrorCode(Enum):
+class EppResultCode(Enum):
+    """
+    EPP result codes enum
+    """
     SUCCESS = 1000
     SUCCESS_END_SESSION = 1500
     PARAMETER_RANGE_ERROR = 2004
@@ -55,6 +58,13 @@ class EppCommunicator:
 
     # pylint: disable=too-many-instance-attributes
     def __init__(self, host, port, client_cert, client_key):
+        """
+
+        :param str host: Host name
+        :param str port: Port number
+        :param str client_cert: Path client certificate
+        :param str client_key: Path to client key
+        """
         self._host = host
         self._port = port
         self._user = None
@@ -67,6 +77,12 @@ class EppCommunicator:
         self._socket = None
         self._ssl_socket = None
         self.greeting = None
+
+    @property
+    def user(self):
+        """User property
+        """
+        return self._user
 
     def _unpack_data(self, data):
         """
@@ -197,12 +213,24 @@ class EppCommunicator:
                 raise EppCommunicatorException("Could not get result code.") from exc
 
             reason = None
-            if code not in (EppErrorCode.SUCCESS.value, EppErrorCode.SUCCESS_END_SESSION.value):
+            if code not in (EppResultCode.SUCCESS.value, EppResultCode.SUCCESS_END_SESSION.value):
                 reason = result.find('reason').string if result.find('reason') else None
+
+            client_transaction_id = response.find('clTRID').text if response.find('clTRID') else None
+            server_transaction_id = response.find('svTRID').text if response.find('svTRID') else None
+            registry_object_id = response.find('roid').text if response.find('roid') else None
 
             logging.debug("Command executed:\n%s", xml_response)
 
-            return {'code': code, 'message': message, 'reason': reason, 'response': str(response)}
+            return {
+                'code': code,
+                'message': message,
+                'reason': reason,
+                'raw_response': response,
+                'client_transaction_id': client_transaction_id,
+                'server_transaction_id': server_transaction_id,
+                'registry_object_id': registry_object_id,
+            }
         except EppCommunicatorException as epp_ex:
             raise epp_ex
         except Exception as ex:
@@ -234,9 +262,9 @@ class EppCommunicator:
         cmd = LOGIN_XML.format(user=user, password=password)
         result = self.execute(cmd)
 
-        if result.get('code') == EppErrorCode.SUCCESS.value:
+        if result.get('code') == EppResultCode.SUCCESS.value:
             logging.info("User %s logged in to %s:%s", self._user, self._host, self._port)
-        elif result.get('code') == EppErrorCode.PARAMETER_RANGE_ERROR.value:
+        elif result.get('code') == EppResultCode.PARAMETER_RANGE_ERROR.value:
             raise EppCommunicatorException("Incorrect user name or password. Please try again!")
         else:
             raise EppCommunicatorException(f"Something went wrong! Code: {result.get('code')} - Message: "
