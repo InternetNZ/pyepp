@@ -226,7 +226,7 @@ class EppCommunicator:
                 'code': code,
                 'message': message,
                 'reason': reason,
-                'raw_response': response,
+                'raw_response': str(response),
                 'client_transaction_id': client_transaction_id,
                 'server_transaction_id': server_transaction_id,
                 'registry_object_id': registry_object_id,
