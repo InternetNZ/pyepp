@@ -13,6 +13,7 @@ from pyepp.epp import EppResultCode
 
 @dataclass
 class AddressData:
+    """Address data class"""
     street_1: str
     city: str
     country_code: str
@@ -24,6 +25,7 @@ class AddressData:
 
 @dataclass
 class PostalInfoData:
+    """Postal Info data class"""
     name: str
     organization: Optional[str] = ''
     address: Optional[AddressData] = None
@@ -31,6 +33,8 @@ class PostalInfoData:
 
 @dataclass
 class ContactData:
+    """Contact data class"""
+    # pylint: disable=invalid-name,too-many-instance-attributes
     id: str
     email: str
     postal_info: Optional[PostalInfoData] = None
@@ -52,9 +56,6 @@ class Contact(BaseCommand):
     """
     Epp Contact
     """
-
-    def __init__(self, epp_communicator):
-        super().__init__(epp_communicator)
 
     def _data_to_dict(self, data: ContactData) -> dict:
         """Convert dataclass to dictionary.
@@ -202,8 +203,8 @@ class Contact(BaseCommand):
         params['add_status'] = add_status
         params['remove_status'] = remove_status
 
-        params['postalinfo_change'] = True if contact.postal_info else None
-        params['address_change'] = True if contact.postal_info.address else False
+        params['postalinfo_change'] = bool(contact.postal_info)
+        params['address_change'] = bool(contact.postal_info.address)
 
         result = self.execute(CONTACT_UPDATE_XML, **params)
 

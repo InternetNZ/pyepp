@@ -116,4 +116,3 @@ class BaseCommand:
         :return: data
         :rtype: dict
         """
-        pass
