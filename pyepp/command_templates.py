@@ -41,7 +41,7 @@ CONTACT_CHECK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
   <command>
     <check>
       <contact:check xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">
-      {% for id in contact_ids %}
+      {% for id in ids %}
         <contact:id>{{ id }}</contact:id>
       {% endfor %}
       </contact:check>
@@ -55,7 +55,7 @@ CONTACT_INFO_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
   <command>
     <info>
       <contact:info xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">
-        <contact:id>{{ contact_id }}</contact:id>
+        <contact:id>{{ id }}</contact:id>
       </contact:info>
     </info>
     <clTRID>{{ client_transaction_id }}</clTRID>

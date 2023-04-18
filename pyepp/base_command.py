@@ -5,6 +5,8 @@ import random
 import uuid
 import string
 
+from dataclasses import dataclass
+
 from html import escape
 from jinja2 import Environment, BaseLoader
 
@@ -32,7 +34,7 @@ class BaseCommand:
                                             trim_blocks=True,
                                             lstrip_blocks=True)
 
-    def execute(self, xml_command,  **kwargs):
+    def execute(self, xml_command, **kwargs):
         """
         Execute epp command.
 
@@ -105,3 +107,13 @@ class BaseCommand:
                 result[key] = escape(str(value))
 
         return result
+
+    def _data_to_dict(self, data: dataclass) -> dict:
+        """Convert dataclass to dict.
+
+        :param dataclass data: data
+
+        :return: data
+        :rtype: dict
+        """
+        pass
