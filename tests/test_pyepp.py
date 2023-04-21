@@ -3,8 +3,7 @@ pyepp module unit tests
 """
 import unittest
 
-from unittest.mock import MagicMock, patch, Mock
-from bs4 import Tag
+from unittest.mock import MagicMock, patch
 
 from pyepp.command_templates import HELLO_XML
 from pyepp.epp import EppCommunicator, EppCommunicatorException

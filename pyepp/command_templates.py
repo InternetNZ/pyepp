@@ -71,11 +71,11 @@ CONTACT_CREAT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         <contact:id>{{ id }}</contact:id>
           <contact:postalInfo type="loc">
             <contact:name>{{ name }}</contact:name>
-            <contact:org>{{ organization }}</contact:org>
+            {% if organization %} <contact:org>{{ organization }}</contact:org> {% endif %}
             <contact:addr>
               <contact:street>{{ street_1 }}</contact:street>
-              <contact:street>{{ street_2 }}</contact:street>
-              <contact:street>{{ street_3 }}</contact:street>
+              {% if street_2 %} <contact:street>{{ street_2 }}</contact:street> {% endif %}
+              {% if street_3 %} <contact:street>{{ street_3 }}</contact:street> {% endif %}
               <contact:city>{{ city }}</contact:city>
               {% if province %} <contact:sp>{{ province }}</contact:sp> {% endif %}
               {% if postal_code %} <contact:pc>{{ postal_code }}</contact:pc> {% endif %}

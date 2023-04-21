@@ -1,14 +1,15 @@
 """
 Base command
 """
-import random
 import uuid
-import string
 
+import pyepp.helper as helper
 from dataclasses import dataclass
 
 from html import escape
 from jinja2 import Environment, BaseLoader
+
+from pyepp.epp import EppCommunicator
 
 
 class ErrorCodeInResultException(Exception):
@@ -24,7 +25,7 @@ class BaseCommand:
     """
     PARAMS = ()
 
-    def __init__(self, epp_communicator):
+    def __init__(self, epp_communicator: EppCommunicator) -> None:
         """
 
         :param EppCommunicator epp_communicator: EPP Communicator object
@@ -34,7 +35,7 @@ class BaseCommand:
                                             trim_blocks=True,
                                             lstrip_blocks=True)
 
-    def execute(self, xml_command, **kwargs):
+    def execute(self, xml_command: str, **kwargs: str) -> dict:
         """
         Execute epp command.
 
@@ -57,7 +58,7 @@ class BaseCommand:
         result = self._epp_communicator.execute(cmd)
         return result
 
-    def _prepare_command(self, cmd, **kwargs):
+    def _prepare_command(self, cmd: str, **kwargs: str) -> str:
         """
         Prepare the command to be executed.
 
@@ -71,7 +72,7 @@ class BaseCommand:
             kwargs['client_transaction_id'] = str(uuid.uuid4())
 
         if cmd.find('password') != -1 and not kwargs.get('password'):
-            kwargs['password'] = ''.join([random.choice(string.ascii_letters + string.digits) for _ in range(16)])
+            kwargs['password'] = helper.generate_password(16)
 
         kwargs = {key: value for key, value in kwargs.items() if value}
 
@@ -82,7 +83,7 @@ class BaseCommand:
 
         return xml
 
-    def __escape_list(self, input_list):
+    def __escape_list(self, input_list: list) -> list:
         result = []
 
         for value in input_list:
@@ -95,7 +96,7 @@ class BaseCommand:
 
         return result
 
-    def __escape_dict(self, input_dict):
+    def __escape_dict(self, input_dict: dict) -> dict:
         result = {}
 
         for key, value in input_dict.items():
