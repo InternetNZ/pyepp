@@ -86,7 +86,7 @@ class Contact(BaseCommand):
         """
         result = self.execute(CONTACT_CHECK_XML, ids=contact_ids)
 
-        if result.get('code') != EppResultCode.SUCCESS.value:
+        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
             return result
 
         raw_response = BeautifulSoup(result.get('raw_response'), 'xml')
@@ -116,6 +116,9 @@ class Contact(BaseCommand):
         :rtype: dict
         """
         result = self.execute(CONTACT_INFO_XML, id=contact_id)
+
+        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
+            return result
 
         raw_response = BeautifulSoup(result.get('raw_response'), 'xml')
 

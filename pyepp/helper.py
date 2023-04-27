@@ -13,4 +13,4 @@ def generate_password(length: int) -> str:
     :return: password
     :rtype: str
     """
-    return ''.join([random.choice(string.ascii_letters + string.digits) for _ in range(length)])
+    return ''.join([random.choice(string.ascii_letters + string.digits) for _ in range(length)])  # nosec

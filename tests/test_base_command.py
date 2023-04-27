@@ -11,9 +11,6 @@ from pyepp.epp import EppCommunicator
 
 class BaseCommandTest(unittest.TestCase):
 
-    def setUp(self) -> None:
-        self.text_command = None
-
     @patch('pyepp.base_command.uuid.uuid4')
     def test_prepare_command_client_transaction_id(self, mock_uuid):
         command = """<?xml version="1.0" encoding="UTF-8"?>

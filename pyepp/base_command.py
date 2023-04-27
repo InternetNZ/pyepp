@@ -3,12 +3,11 @@ Base command
 """
 import uuid
 
-import pyepp.helper as helper
 from dataclasses import dataclass
-
 from html import escape
 from jinja2 import Environment, BaseLoader
 
+import pyepp.helper as helper  # pylint: disable=consider-using-from-import
 from pyepp.epp import EppCommunicator
 
 
@@ -33,7 +32,8 @@ class BaseCommand:
         self._epp_communicator = epp_communicator
         self._template_engine = Environment(loader=BaseLoader(),
                                             trim_blocks=True,
-                                            lstrip_blocks=True)
+                                            lstrip_blocks=True,
+                                            autoescape=True)
 
     def execute(self, xml_command: str, **kwargs: str) -> dict:
         """
