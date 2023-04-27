@@ -12,7 +12,7 @@ from pyepp.epp import EppCommunicator
 class BaseCommandTest(unittest.TestCase):
 
     @patch('pyepp.base_command.uuid.uuid4')
-    def test_prepare_command_client_transaction_id(self, mock_uuid):
+    def test_prepare_command_client_transaction_id(self, mock_uuid) -> None:
         command = """<?xml version="1.0" encoding="UTF-8"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><clTRID>{{ client_transaction_id }}</clTRID></command></epp>"""
         expected_result = """<?xml version="1.0" encoding="UTF-8"?>
@@ -26,7 +26,7 @@ class BaseCommandTest(unittest.TestCase):
         self.assertEqual(expected_result, resul)
 
     @patch('pyepp.base_command.helper.generate_password')
-    def test_prepare_command_password(self, mock_generate_password):
+    def test_prepare_command_password(self, mock_generate_password) -> None:
         command = """<?xml version="1.0" encoding="UTF-8"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><contact:authInfo><contact:pw>{{ password }}</contact:pw></contact:authInfo></command></epp>"""
         expected_result = """<?xml version="1.0" encoding="UTF-8"?>
@@ -39,7 +39,7 @@ class BaseCommandTest(unittest.TestCase):
 
         self.assertEqual(expected_result, resul)
 
-    def test_escape_list(self):
+    def test_escape_list(self) -> None:
         test_list = [
             ['hi&', '<world>'],
             {'key': '<hello&world>'},
@@ -58,7 +58,7 @@ class BaseCommandTest(unittest.TestCase):
 
         self.assertEqual(expected_result, result)
 
-    def test_escape_dict(self):
+    def test_escape_dict(self) -> None:
         test_list = {
             'key1': ['hi&', '<world>'],
             'key2': {'key': '<hello&world>'},
@@ -77,7 +77,7 @@ class BaseCommandTest(unittest.TestCase):
 
         self.assertEqual(expected_result, result)
 
-    def test_execute(self):
+    def test_execute(self) -> None:
         command = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
   <command>
