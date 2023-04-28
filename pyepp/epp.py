@@ -5,6 +5,7 @@ import ssl
 import socket
 import struct
 import logging
+from enum import Enum
 
 from bs4 import BeautifulSoup
 
@@ -20,7 +21,16 @@ class EppCommunicatorException(Exception):
     """
 
 
-def get_format_32():
+class EppResultCode(Enum):
+    """
+    EPP result codes enum
+    """
+    SUCCESS = 1000
+    SUCCESS_END_SESSION = 1500
+    PARAMETER_RANGE_ERROR = 2004
+
+
+def get_format_32() -> str:
     """
     Get the size of C integers. We need 32 bits unsigned.
 
@@ -47,7 +57,13 @@ class EppCommunicator:
     """
 
     # pylint: disable=too-many-instance-attributes
-    def __init__(self, host, port, client_cert, client_key):
+    def __init__(self, host: str, port: str, client_cert: str, client_key: str) -> None:
+        """
+        :param str host: Host name
+        :param str port: Port number
+        :param str client_cert: Path client certificate
+        :param str client_key: Path to client key
+        """
         self._host = host
         self._port = port
         self._user = None
@@ -61,7 +77,13 @@ class EppCommunicator:
         self._ssl_socket = None
         self.greeting = None
 
-    def _unpack_data(self, data):
+    @property
+    def user(self):
+        """User property
+        """
+        return self._user
+
+    def _unpack_data(self, data: int) -> str:
         """
         Unpack data.
 
@@ -72,7 +94,7 @@ class EppCommunicator:
         """
         return struct.unpack(self._format_32, data)[0]
 
-    def _pack_data(self, data):
+    def _pack_data(self, data: int) -> bytes:
         """
         Pack the data.
 
@@ -82,7 +104,7 @@ class EppCommunicator:
         """
         return struct.pack(self._format_32, data)
 
-    def _read(self):
+    def _read(self) -> bytes:
         """
         Read the response from the socket.
 
@@ -102,7 +124,7 @@ class EppCommunicator:
             logging.info('Received %s/%s bytes', len(buffer), total_bytes)
         return buffer
 
-    def _write(self, xml):
+    def _write(self, xml: str) -> int:
         """
         Write the request into the socket.
 
@@ -119,7 +141,7 @@ class EppCommunicator:
         xml += "\r\n"
         return self._ssl_socket.send(xml.encode("utf-8"))
 
-    def _execute_command(self, cmd):
+    def _execute_command(self, cmd: str) -> bytes:
         """
         Execute the command. Sending the request to the server and receive the response.
 
@@ -140,12 +162,14 @@ class EppCommunicator:
 
         return response
 
-    def connect(self):
+    def connect(self) -> bytes:
         """
         Initial connect to the server.
 
         :return: Greeting message
-        :rtype: xml in str
+        :rtype: bytes
+
+        :raises EppCommunicatorException: When there is any errors
         """
         try:
             self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -164,7 +188,7 @@ class EppCommunicator:
             logging.error("Could not setup a sec sure connection. %s", str(ex))
             raise EppCommunicatorException("Could not setup a sec sure connection") from ex
 
-    def execute(self, cmd):
+    def execute(self, cmd: str) -> dict:
         """
         Execute the command. Sending the request to the server and receive the response.
 
@@ -172,6 +196,8 @@ class EppCommunicator:
 
         :return: XML Response
         :rtype: dict
+
+        :raises EppCommunicatorException: When there is any errors.
         """
         try:
             if not self.greeting:
@@ -190,29 +216,41 @@ class EppCommunicator:
                 raise EppCommunicatorException("Could not get result code.") from exc
 
             reason = None
-            if code not in (1000, 1500):
+            if code not in (EppResultCode.SUCCESS.value, EppResultCode.SUCCESS_END_SESSION.value):
                 reason = result.find('reason').string if result.find('reason') else None
+
+            client_transaction_id = response.find('clTRID').text if response.find('clTRID') else None
+            server_transaction_id = response.find('svTRID').text if response.find('svTRID') else None
+            registry_object_id = response.find('roid').text if response.find('roid') else None
 
             logging.debug("Command executed:\n%s", xml_response)
 
-            return {'code': code, 'message': message, 'reason': reason, 'response': str(response)}
+            return {
+                'code': code,
+                'message': message,
+                'reason': reason,
+                'raw_response': str(response),
+                'client_transaction_id': client_transaction_id,
+                'server_transaction_id': server_transaction_id,
+                'registry_object_id': registry_object_id,
+            }
         except EppCommunicatorException as epp_ex:
             raise epp_ex
         except Exception as ex:
             raise EppCommunicatorException(ex) from ex
 
-    def hello(self):
+    def hello(self) -> bytes:
         """
         Send Hello command the server.
 
         :return: Greeting response
-        :rtype: xml
+        :rtype: bytes
         """
         logging.debug("Send Hello command to the server!")
         greeting = self._execute_command(HELLO_XML)
         return greeting
 
-    def login(self, user, password):
+    def login(self, user: str, password: str) -> dict:
         """
         Login the user to EPP server.
 
@@ -220,16 +258,18 @@ class EppCommunicator:
         :param str password: password
 
         :return: login
-        :rtype: xml
+        :rtype: dict
+
+        :raises EppCommunicatorException: When there are any errors.
         """
         self._user = user
 
         cmd = LOGIN_XML.format(user=user, password=password)
         result = self.execute(cmd)
 
-        if result.get('code') == 1000:
+        if result.get('code') == EppResultCode.SUCCESS.value:
             logging.info("User %s logged in to %s:%s", self._user, self._host, self._port)
-        elif result.get('code') == 2004:
+        elif result.get('code') == EppResultCode.PARAMETER_RANGE_ERROR.value:
             raise EppCommunicatorException("Incorrect user name or password. Please try again!")
         else:
             raise EppCommunicatorException(f"Something went wrong! Code: {result.get('code')} - Message: "
@@ -237,7 +277,7 @@ class EppCommunicator:
 
         return result
 
-    def logout(self):
+    def logout(self) -> dict:
         """
         Logout the user from EPP server.
         """
