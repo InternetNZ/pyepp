@@ -19,7 +19,7 @@ class ContactTest(unittest.TestCase):
     def test_data_to_dict(self) -> None:
         data = ContactData(
             id='id',
-            registry_object_id='registry_object_id',
+            repository_object_id='repository_object_id',
             status=['status1', 'status2'],
             create_date='create_date',
             creat_client_id='creat_client_id',
@@ -47,7 +47,7 @@ class ContactTest(unittest.TestCase):
 
         expected_result = {
             'id': 'id',
-            'registry_object_id': 'registry_object_id',
+            'repository_object_id': 'repository_object_id',
             'status': ['status1', 'status2'],
             'create_date': 'create_date',
             'creat_client_id': 'creat_client_id',
@@ -111,7 +111,7 @@ class ContactTest(unittest.TestCase):
                             '</trID>\n'
                             '</response>',
             'reason': None,
-            'registry_object_id': None,
+            'repository_object_id': None,
             'result_data': {'contact1': {'avail': True, 'reason': None},
                             'contact2': {'avail': False,
                                          'reason': 'Selected contact ID is not '
@@ -176,7 +176,7 @@ class ContactTest(unittest.TestCase):
                             '</trID>\n'
                             '</response>',
             'reason': None,
-            'registry_object_id': '9175701-INZ',
+            'repository_object_id': '9175701-INZ',
             'server_transaction_id': 'CIRA-000062211375-0000000003'
         }
 
@@ -218,7 +218,7 @@ class ContactTest(unittest.TestCase):
                             '</trID>\n'
                             '</response>',
             'reason': None,
-            'registry_object_id': '9175701-INZ',
+            'repository_object_id': '9175701-INZ',
             'result_data': ContactData(id='inz-contact-1',
                                        email='inz@internet.net.nz',
                                        postal_info={'address': {'city': 'Wellington',
@@ -237,7 +237,7 @@ class ContactTest(unittest.TestCase):
                                        password='PassWord',
                                        client_transaction_id='',
                                        server_transaction_id='',
-                                       registry_object_id='9175701-INZ',
+                                       repository_object_id='9175701-INZ',
                                        create_date='2023-02-23T02:59:16.784Z',
                                        creat_client_id='933',
                                        sponsoring_client_id='933',
@@ -273,7 +273,7 @@ class ContactTest(unittest.TestCase):
                                            '</trID>\n'
                                            '</response>',
                            'reason': None,
-                           'registry_object_id': None,
+                           'repository_object_id': None,
                            'server_transaction_id': 'CIRA-000062214171-0000000003'}
 
         create_params = ContactData(
@@ -316,7 +316,7 @@ class ContactTest(unittest.TestCase):
                                            '</trID>\n'
                                            '</response>',
                            'reason': None,
-                           'registry_object_id': None,
+                           'repository_object_id': None,
                            'server_transaction_id': 'CIRA-000062220522-0000000004'}
 
         epp_communicator = MagicMock(EppCommunicator)
@@ -347,7 +347,7 @@ class ContactTest(unittest.TestCase):
                                            '</trID>\n'
                                            '</response>',
                            'reason': None,
-                           'registry_object_id': None,
+                           'repository_object_id': None,
                            'server_transaction_id': 'CIRA-000062223355-0000000004'}
 
         epp_communicator = MagicMock(EppCommunicator)

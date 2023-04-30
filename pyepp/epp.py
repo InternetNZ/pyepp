@@ -221,7 +221,7 @@ class EppCommunicator:
 
             client_transaction_id = response.find('clTRID').text if response.find('clTRID') else None
             server_transaction_id = response.find('svTRID').text if response.find('svTRID') else None
-            registry_object_id = response.find('roid').text if response.find('roid') else None
+            repository_object_id = response.find('roid').text if response.find('roid') else None
 
             logging.debug("Command executed:\n%s", xml_response)
 
@@ -232,7 +232,7 @@ class EppCommunicator:
                 'raw_response': str(response),
                 'client_transaction_id': client_transaction_id,
                 'server_transaction_id': server_transaction_id,
-                'registry_object_id': registry_object_id,
+                'repository_object_id': repository_object_id,
             }
         except EppCommunicatorException as epp_ex:
             raise epp_ex

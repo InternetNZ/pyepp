@@ -56,7 +56,7 @@ class ContactTest(unittest.TestCase):
                                            '</trID>\n'
                                            '</response>',
                            'reason': None,
-                           'registry_object_id': None,
+                           'repository_object_id': None,
                            'result_data': {'inz3.nz': {'avail': True, 'reason': None},
                                            'inz2.nz': {'avail': True, 'reason': None},
                                            'inz1.nz': {'avail': False, 'reason': 'Registered'}},
