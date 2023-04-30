@@ -31,11 +31,11 @@ class Domain(BaseCommand):
         domains_check_data = raw_response.find_all('cd')
 
         result_data = {}
-        for contact_cd in domains_check_data:
-            contact = contact_cd.find('name')
-            available = contact.get('avail') in ('true', '1')
-            reason = contact_cd.find('reason').text if not available else None
-            result_data[contact.text] = {
+        for domain_cd in domains_check_data:
+            domain = domain_cd.find('name')
+            available = domain.get('avail') in ('true', '1')
+            reason = domain_cd.find('reason').text if not available else None
+            result_data[domain.text] = {
                 'avail': available,
                 'reason': reason,
             }
