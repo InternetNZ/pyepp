@@ -44,7 +44,7 @@ class ContactData:
     password: Optional[str] = ''
     client_transaction_id: Optional[str] = ''
     server_transaction_id: Optional[str] = ''
-    registry_object_id: Optional[str] = ''
+    repository_object_id: Optional[str] = ''
     create_date: Optional[str] = ''
     creat_client_id: Optional[str] = ''
     sponsoring_client_id: Optional[str] = ''
@@ -124,7 +124,7 @@ class Contact(BaseCommand):
 
         result_data = {
             'id': raw_response.find('id').text,
-            'registry_object_id': raw_response.find('roid').text,
+            'repository_object_id': raw_response.find('roid').text,
             'status': [status.text for status in raw_response.find_all('status')],
             'create_date': raw_response.find('crDate').text,
             'creat_client_id': raw_response.find('crID').text,

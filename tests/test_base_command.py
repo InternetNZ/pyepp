@@ -123,7 +123,7 @@ class BaseCommandTest(unittest.TestCase):
                 'raw_response': 'raw_response',
                 'client_transaction_id': 'client_transaction_id',
                 'server_transaction_id': 'server_transaction_id',
-                'registry_object_id': 'registry_object_id',
+                'repository_object_id': 'repository_object_id',
             }
 
         params = {

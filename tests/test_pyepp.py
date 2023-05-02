@@ -109,7 +109,7 @@ class PyEPPTests(unittest.TestCase):
              'raw_response': '<response><result code="2000"><msg>There is an error</msg><reason>Because!</reason></result><trID><svTRID>CIRA-000057351729-0000000001</svTRID></trID></response>',
              'client_transaction_id': None,
              'server_transaction_id': 'CIRA-000057351729-0000000001',
-             'registry_object_id': None,
+             'repository_object_id': None,
              }
 
         epp.connect()
@@ -133,7 +133,7 @@ class PyEPPTests(unittest.TestCase):
 </response>''',
              'client_transaction_id': None,
              'server_transaction_id': 'CIRA-000057351729-0000000001',
-             'registry_object_id': None,
+             'repository_object_id': None,
              }
 
         epp.connect()

@@ -180,3 +180,19 @@ DOMAIN_CHECK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
+DOMAIN_INFO_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+  <command>
+    <info>
+      <domain:info xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:name hosts="all">{{ domain_name }}</domain:name>
+        {% if udai %}
+        <domain:authInfo>
+          <domain:pw>{{ udai }}</domain:pw>
+        </domain:authInfo>
+        {% endif %}
+      </domain:info>
+    </info>
+  </command>
+</epp>"""
