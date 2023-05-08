@@ -4,7 +4,7 @@ Domain unit tests
 import unittest
 from unittest.mock import MagicMock
 
-from pyepp.domain import Domain, DomainData
+from pyepp.domain import Domain, DomainData, DSRecordData, DNSSECAlgorithm, DigestTypeEnum
 from pyepp.epp import EppCommunicator
 
 
@@ -148,20 +148,70 @@ class DomainTest(unittest.TestCase):
                            'result_data': DomainData(domain_name='internet.nz',
                                                      sponsoring_client_id='933',
                                                      status=[''],
-                                                     name_server=None,
-                                                     host=[],
+                                                     host=None,
                                                      registrant='inz-contact-1',
+                                                     admin='inz-contact-1',
+                                                     tech='inz-contact-1',
+                                                     billing=None,
                                                      create_date='2023-02-23T21:56:22.713Z',
                                                      creat_client_id='933',
                                                      update_client_id='CIRA_RAR_1',
                                                      update_date='2023-02-24T21:59:27.901Z',
                                                      expiry_date='2024-02-23T21:56:22.713Z',
                                                      transfer_date=None,
-                                                     password=None),
+                                                     password=None,
+                                                     period=None),
                            'server_transaction_id': 'CIRA-000063163743-0000000003'}
 
         domain.execute = MagicMock(return_value=execute_result)
 
         result = domain.info('internet.nz')
+
+        self.assertDictEqual(result, expected_result)
+
+    def test_create(self) -> None:
+        expected_result = {'client_transaction_id': '96aaf073-5741-47bd-b1eb-b5abcf4206fa',
+                           'code': 1000,
+                           'message': 'Command completed successfully',
+                           'raw_response': '<response>\n'
+                                           '<result code="1000">\n'
+                                           '<msg>Command completed successfully</msg>\n'
+                                           '</result>\n'
+                                           '<resData>\n'
+                                           '<domain:creData>\n'
+                                           '<domain:name>internet.nz</domain:name>\n'
+                                           '<domain:crDate>2023-05-07T23:36:25.681Z</domain:crDate>\n'
+                                           '<domain:exDate>2026-05-07T23:36:25.681Z</domain:exDate>\n'
+                                           '</domain:creData>\n'
+                                           '</resData>\n'
+                                           '<trID>\n'
+                                           '<clTRID>96aaf073-5741-47bd-b1eb-b5abcf4206fa</clTRID>\n'
+                                           '<svTRID>CIRA-000064317159-0000000003</svTRID>\n'
+                                           '</trID>\n'
+                                           '</response>',
+                           'reason': None,
+                           'repository_object_id': None,
+                           'server_transaction_id': 'CIRA-000064317159-0000000003'}
+
+        create_params = DomainData(
+            domain_name='internet.nz',
+            registrant='inz-contact-3',
+            admin='inz-contact-1',
+            tech='inz-contact-1',
+            billing='inz-contact-3',
+            period=3,
+            host=['01y.test-indwrx2vkicn2otgm3otav5wpnzvjd.co.nz', '0d9x6239.drdomain.co.nz'],
+            dns_sec=DSRecordData(
+                key_tag=1235,
+                algorithm=DNSSECAlgorithm.DSA_SHA_1.value,
+                digest_type=DigestTypeEnum.SHA_1.value,
+                digest='8cdb09364147aed879d12c68d615f98af5900b73'
+            ),
+        )
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=expected_result)
+
+        result = domain.create(create_params)
 
         self.assertDictEqual(result, expected_result)

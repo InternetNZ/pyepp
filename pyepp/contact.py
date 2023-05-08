@@ -159,7 +159,6 @@ class Contact(BaseCommand):
 
         return result
 
-    # pylint: disable=too-many-arguments,too-many-locals
     def create(self, contact: ContactData) -> dict:
         """Create a contact object.
 
