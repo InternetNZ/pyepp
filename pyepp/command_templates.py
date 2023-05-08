@@ -196,3 +196,64 @@ DOMAIN_INFO_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     </info>
   </command>
 </epp>"""
+
+DOMAIN_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+  <command>
+    <create>
+      <domain:create xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:name>{{ domain_name }}</domain:name>
+        <domain:period unit='y'>{{ period }}</domain:period>
+        {% if host %}
+        <domain:ns>
+        {% for ns in host %}
+          <domain:hostObj>{{ ns }}</domain:hostObj>
+        {% endfor %}
+        </domain:ns>
+        {% endif %}
+        <domain:registrant>{{ registrant }}</domain:registrant>
+        {% if admin %}
+        <domain:contact type="admin">{{ admin }}</domain:contact>
+        {% endif %}
+        {% if tech %}
+        <domain:contact type="tech">{{ tech }}</domain:contact>
+        {% endif %}
+        {% if billing %}
+        <domain:contact type="billing">{{ billing }}</domain:contact>
+        {% endif %}
+        <domain:authInfo>
+          <domain:pw>{{ password }}</domain:pw>
+        </domain:authInfo>
+      </domain:create>
+    </create>
+    {% if dns_sec %}
+    <extension>
+      <secDNS:create xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+        <secDNS:dsData>
+          <secDNS:keyTag>{{ dns_sec.get('key_tag') }}</secDNS:keyTag>
+          <secDNS:alg>{{ dns_sec.get('algorithm') }}</secDNS:alg>
+          <secDNS:digestType>{{ dns_sec.get('digest_type') }}</secDNS:digestType>
+          <secDNS:digest>{{ dns_sec.get('digest') }}</secDNS:digest>
+          {% if dns_sec.get('dns_key') %}
+          <secDNS:keyData>
+            <secDNS:flags>{{ dns_sec.get('dns_key').get('flag') }}</secDNS:flags>
+            <secDNS:protocol>{{ dns_sec.get('dns_key').get('protocol') }}</secDNS:protocol>
+            <secDNS:alg>{{ dns_sec.get('dns_key').get('algorithm') }}</secDNS:alg>
+            <secDNS:pubKey>{{ dns_sec.get('dns_key').get('public_key') }}</secDNS:pubKey>
+          </secDNS:keyData>
+          {% endif %}
+        </secDNS:dsData>
+        {% if dns_key %}
+        <secDNS:keyData>
+          <secDNS:flags>{{ dns_key.dns_key.get('flag') }}</secDNS:flags>
+          <secDNS:protocol>{{ dns_key.dns_key.get('protocol') }}</secDNS:protocol>
+          <secDNS:alg>{{ dns_key.dns_key.get('algorithm') }}</secDNS:alg>
+          <secDNS:pubKey>{{ dns_key.dns_key.get('public_key') }}</secDNS:pubKey>
+        </secDNS:keyData>
+        {% endif %}
+      </secDNS:create>
+    </extension>
+    {% endif %}
+    <clTRID>{{ client_transaction_id }}</clTRID>
+  </command>
+</epp>"""

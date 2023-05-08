@@ -91,8 +91,10 @@ class BaseCommand:
                 result.append(self.__escape_list(value))
             elif isinstance(value, dict):
                 result.append(self.__escape_dict(value))
-            else:
-                result.append(escape(str(value)))
+            elif isinstance(value, str):
+                result.append(escape(value))
+            elif value:
+                result.append(value)
 
         return result
 
@@ -104,8 +106,10 @@ class BaseCommand:
                 result[key] = self.__escape_list(value)
             elif isinstance(value, dict):
                 result[key] = self.__escape_dict(value)
-            else:
-                result[key] = escape(str(value))
+            elif isinstance(value, str):
+                result[key] = escape(value)
+            elif value:
+                result[key] = value
 
         return result
 
