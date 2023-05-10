@@ -8,7 +8,7 @@ from typing import Optional
 from bs4 import BeautifulSoup
 
 from pyepp.base_command import BaseCommand
-from pyepp.command_templates import DOMAIN_CHECK_XML, DOMAIN_INFO_XML, DOMAIN_CREATE_XML
+from pyepp.command_templates import DOMAIN_CHECK_XML, DOMAIN_INFO_XML, DOMAIN_CREATE_XML, DOMAIN_DELETE_XML
 from pyepp.epp import EppResultCode
 
 
@@ -202,5 +202,17 @@ class Domain(BaseCommand):
         params = self._data_to_dict(domain)
 
         result = self.execute(DOMAIN_CREATE_XML, **params)
+
+        return result
+
+    def delete(self, domain_name: str) -> dict:
+        """Delete a domain object.
+
+        :param str domain_name: Domain Name
+
+        :return: Response object
+        :rtype: dict
+        """
+        result = self.execute(DOMAIN_DELETE_XML, domain_name=domain_name)
 
         return result
