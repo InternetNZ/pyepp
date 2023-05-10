@@ -215,3 +215,28 @@ class DomainTest(unittest.TestCase):
         result = domain.create(create_params)
 
         self.assertDictEqual(result, expected_result)
+
+    def test_delete(self) -> None:
+        expected_result = {'client_transaction_id': 'b9c0c77d-b2d9-47c7-9edb-b4d4988c2e7d',
+                           'code': 1000,
+                           'message': 'Command completed successfully',
+                           'raw_response': '<response>\n'
+                                           '<result code="1000">\n'
+                                           '<msg>Command completed successfully</msg>\n'
+                                           '</result>\n'
+                                           '<trID>\n'
+                                           '<clTRID>b9c0c77d-b2d9-47c7-9edb-b4d4988c2e7d</clTRID>\n'
+                                           '<svTRID>CIRA-000064688525-0000000004</svTRID>\n'
+                                           '</trID>\n'
+                                           '</response>',
+                           'reason': None,
+                           'repository_object_id': None,
+                           'server_transaction_id': 'CIRA-000064688525-0000000004'}
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=expected_result)
+
+        result = domain.delete('internet.nz')
+
+        self.assertDictEqual(result, expected_result)

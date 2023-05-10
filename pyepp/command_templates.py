@@ -257,3 +257,15 @@ DOMAIN_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
+DOMAIN_DELETE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+  <command>
+    <delete>
+      <domain:delete xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:name>{{ domain_name }}</domain:name>
+      </domain:delete>
+    </delete>
+    <clTRID>{{ client_transaction_id }}</clTRID>
+  </command>
+</epp>"""
