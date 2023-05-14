@@ -269,3 +269,19 @@ DOMAIN_DELETE_XML = """<?xml version="1.0" encoding="UTF-8"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
+DOMAIN_RENEW_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+  <command>
+    <renew>
+      <domain:renew xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:name>{{ domain_name }}</domain:name>
+        <domain:curExpDate>{{ expiry_date }}</domain:curExpDate>
+        {% if period %}
+        <domain:period unit='y'>{{ period }}</domain:period>
+        {% endif %}
+      </domain:renew>
+    </renew>
+    <clTRID>{{ client_transaction_id }}</clTRID>
+  </command>
+</epp>"""

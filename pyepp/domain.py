@@ -4,11 +4,13 @@ Domain Mapping Module
 from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Optional
+from datetime import date
 
 from bs4 import BeautifulSoup
 
 from pyepp.base_command import BaseCommand
-from pyepp.command_templates import DOMAIN_CHECK_XML, DOMAIN_INFO_XML, DOMAIN_CREATE_XML, DOMAIN_DELETE_XML
+from pyepp.command_templates import DOMAIN_CHECK_XML, DOMAIN_INFO_XML, DOMAIN_CREATE_XML, DOMAIN_DELETE_XML, \
+    DOMAIN_RENEW_XML
 from pyepp.epp import EppResultCode
 
 
@@ -214,5 +216,22 @@ class Domain(BaseCommand):
         :rtype: dict
         """
         result = self.execute(DOMAIN_DELETE_XML, domain_name=domain_name)
+
+        return result
+
+    def renew(self, domain_name: str, expiry_date: date, period: Optional[int] = 1) -> dict:
+        """Extends the registration period of a domain name. It also maintains existing status values.
+
+        :param str domain_name: Domain Name
+        :param date expiry_date: expiry date
+        :param int period: period
+
+        :return: Response object
+        :rtype: dict
+        """
+        result = self.execute(DOMAIN_RENEW_XML,
+                              domain_name=domain_name,
+                              expiry_date=expiry_date.strftime("%Y-%m-%d"),
+                              period=str(period))
 
         return result
