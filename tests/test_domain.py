@@ -2,6 +2,7 @@
 Domain unit tests
 """
 import unittest
+from datetime import date
 from unittest.mock import MagicMock
 
 from pyepp.domain import Domain, DomainData, DSRecordData, DNSSECAlgorithm, DigestTypeEnum
@@ -238,5 +239,36 @@ class DomainTest(unittest.TestCase):
         domain.execute = MagicMock(return_value=expected_result)
 
         result = domain.delete('internet.nz')
+
+        self.assertDictEqual(result, expected_result)
+
+    def test_renew(self) -> None:
+        expected_result = {'client_transaction_id': '3fc04fc6-0b40-4979-99c0-fa91e9da573f',
+                           'code': 1000,
+                           'message': 'Command completed successfully',
+                           'raw_response': '<response>\n'
+                                           '<result code="1000">\n'
+                                           '<msg>Command completed successfully</msg>\n'
+                                           '</result>\n'
+                                           '<resData>\n'
+                                           '<domain:renData>\n'
+                                           '<domain:name>internet.nz</domain:name>\n'
+                                           '<domain:exDate>2026-01-21T21:56:22.713Z</domain:exDate>\n'
+                                           '</domain:renData>\n'
+                                           '</resData>\n'
+                                           '<trID>\n'
+                                           '<clTRID>3fc04fc6-0b40-4979-99c0-fa91e9da573f</clTRID>\n'
+                                           '<svTRID>CIRA-000065618145-0000000004</svTRID>\n'
+                                           '</trID>\n'
+                                           '</response>',
+                           'reason': None,
+                           'repository_object_id': None,
+                           'server_transaction_id': 'CIRA-000065618145-0000000004'}
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=expected_result)
+
+        result = domain.renew(domain_name='internet.nz', expiry_date=date(2024, 1, 1), period=2)
 
         self.assertDictEqual(result, expected_result)
