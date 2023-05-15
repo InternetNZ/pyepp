@@ -272,3 +272,38 @@ class DomainTest(unittest.TestCase):
         result = domain.renew(domain_name='internet.nz', expiry_date=date(2024, 1, 1), period=2)
 
         self.assertDictEqual(result, expected_result)
+
+    def test_transfer(self) -> None:
+        expected_result = {'client_transaction_id': '3fc04fc6-0b40-4979-99c0-fa91e9da573f',
+                           'code': 1000,
+                           'message': 'Command completed successfully',
+                           'raw_response': '<response>\n'
+                                           '<result code="1000">\n'
+                                           '<msg>Command completed successfully</msg>\n'
+                                           '</result>\n'
+                                           '<resData>\n'
+                                           '<domain:renData>\n'
+                                           '<domain:name>internet.nz</domain:name>\n'
+                                           '<domain:reID>ClientX</domain:reID>\n'
+                                           '<domain:reDate>2000-06-08T22:00:00.0Z</domain:reDate>\n'
+                                           '<domain:acID>ClientY</domain:acID>\n'
+                                           '<domain:acDate>2000-06-13T22:00:00.0Z</domain:acDate>\n'
+                                           '<domain:exDate>2002-09-08T22:00:00.0Z</domain:exDate>\n'
+                                           '</domain:renData>\n'
+                                           '</resData>\n'
+                                           '<trID>\n'
+                                           '<clTRID>3fc04fc6-0b40-4979-99c0-fa91e9da573f</clTRID>\n'
+                                           '<svTRID>CIRA-000065618145-0000000004</svTRID>\n'
+                                           '</trID>\n'
+                                           '</response>',
+                           'reason': None,
+                           'repository_object_id': None,
+                           'server_transaction_id': 'CIRA-000065618145-0000000004'}
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=expected_result)
+
+        result = domain.transfer(domain_name='internet.nz', password='PassWord', period=1)
+
+        self.assertDictEqual(result, expected_result)
