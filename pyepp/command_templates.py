@@ -285,3 +285,21 @@ DOMAIN_RENEW_XML = """<?xml version="1.0" encoding="UTF-8"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
+TRANSFER_REQUEST_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+<command>
+  <transfer op="request">
+    <domain:transfer xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+      <domain:name>{{ domain_name }}</domain:name>
+      {% if period %}
+      <domain:period unit='y'>{{ period }}</domain:period>
+      {% endif %}
+      <domain:authInfo>
+        <domain:pw>{{ password }}</domains:pw>
+      </domain:authInfo>
+    </domain:transfer>
+  </transfer>
+  <clTRID>{{ client_transaction_id }}</clTRID>
+</command>
+</epp>"""

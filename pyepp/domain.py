@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import DOMAIN_CHECK_XML, DOMAIN_INFO_XML, DOMAIN_CREATE_XML, DOMAIN_DELETE_XML, \
-    DOMAIN_RENEW_XML
+    DOMAIN_RENEW_XML, TRANSFER_REQUEST_XML
 from pyepp.epp import EppResultCode
 
 
@@ -233,5 +233,23 @@ class Domain(BaseCommand):
                               domain_name=domain_name,
                               expiry_date=expiry_date.strftime("%Y-%m-%d"),
                               period=str(period))
+
+        return result
+
+    def transfer(self, domain_name: str, password: str, period: Optional[int] = None, ) -> dict:
+        """transfers the sponsorship of a domain name from another Registrar to the Registrar
+        submitting the request.
+
+        :param str domain_name: Domain Name
+        :param str password: The authorization password for the domain object
+        :param int period: period
+
+        :return: Response object
+        :rtype: dict
+        """
+        result = self.execute(TRANSFER_REQUEST_XML,
+                              domain_name=domain_name,
+                              password=password,
+                              period=str(period) if period else None)
 
         return result
