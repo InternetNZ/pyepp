@@ -307,3 +307,40 @@ class DomainTest(unittest.TestCase):
         result = domain.transfer(domain_name='internet.nz', password='PassWord', period=1)
 
         self.assertDictEqual(result, expected_result)
+
+    def test_domain_update(self) -> None:
+        expected_result = {'client_transaction_id': 'd2066d60-fc5e-4b7a-9001-893ca2957857',
+                           'code': 1000,
+                           'message': 'Command completed successfully',
+                           'raw_response': '<response>\n'
+                                           '<result code="1000">\n'
+                                           '<msg>Command completed successfully</msg>\n'
+                                           '</result>\n'
+                                           '<trID>\n'
+                                           '<clTRID>d2066d60-fc5e-4b7a-9001-893ca2957857</clTRID>\n'
+                                           '<svTRID>CIRA-000068457178-0000000004</svTRID>\n'
+                                           '</trID>\n'
+                                           '</response>',
+                           'reason': None,
+                           'repository_object_id': None,
+                           'server_transaction_id': 'CIRA-000068457178-0000000004'}
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=expected_result)
+        domain.info = MagicMock(return_value={
+            'result_data': DomainData(
+                domain_name='internet.nz',
+                registrant='registrant1',
+                admin='old-admin',
+                tech='old-tech',
+                period=1
+            )
+        })
+
+        result = domain.update(domain_name='internet.nz',
+                               password='PassWord',
+                               admin='contact-admin',
+                               tech='contact-tech')
+
+        self.assertDictEqual(result, expected_result)

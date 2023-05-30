@@ -35,12 +35,12 @@ class BaseCommand:
                                             lstrip_blocks=True,
                                             autoescape=True)
 
-    def execute(self, xml_command: str, **kwargs: str) -> dict:
+    def execute(self, xml_command: str, **kwargs) -> dict:
         """
         Execute epp command.
 
         :param str xml_command: XML command
-        :param dict kwargs: Keyword arguments
+        :param kwargs: Keyword arguments
 
         :return: Response Object
         :rtype: dict
