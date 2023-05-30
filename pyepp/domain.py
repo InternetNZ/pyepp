@@ -255,6 +255,7 @@ class Domain(BaseCommand):
 
         return result
 
+    # pylint: disable=too-many-arguments,too-many-locals
     def update(self, domain_name: str,
                registrant: Optional[str] = None,
                admin: Optional[str] = None,
@@ -293,9 +294,9 @@ class Domain(BaseCommand):
             remove_admin = domain_info.admin if admin else None
             remove_tech = domain_info.tech if tech else None
 
-        add = True if admin or tech or add_billings or add_statues or add_hosts else False
-        remove = True if remove_admin or remove_tech or remove_billings or remove_statues or remove_hosts else False
-        change = True if registrant or password else False
+        add = bool(admin or tech or add_billings or add_statues or add_hosts)
+        remove = bool(remove_admin or remove_tech or remove_billings or remove_statues or remove_hosts)
+        change = bool(registrant or password)
 
         result = self.execute(DOMAIN_UPDATE_XML,
                               add=add,
