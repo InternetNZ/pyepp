@@ -303,3 +303,73 @@ TRANSFER_REQUEST_XML = """<?xml version="1.0" encoding="UTF-8"?>
   <clTRID>{{ client_transaction_id }}</clTRID>
 </command>
 </epp>"""
+
+DOMAIN_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+  <command>
+    <update>
+      <domain:update xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+        <domain:name>{{ domain_name }}</domain:name>
+        {% if add %}
+        <domain:add>
+          {% if admin %}
+          <domain:contact type="admin">{{ admin }}</domain:contact>
+          {% endif %}
+          {% if tech %}
+          <domain:contact type="tech">{{ tech }}</domain:contact>
+          {% endif %}
+          {% for add_billing in add_billings %}
+          <domain:contact type="billing">{{ add_billing }}</domain:contact>
+          {% endfor %}
+          {% for add_statue in add_statues %}
+          <domain:status s="{{ add_statue[0] }}" lang="en">{{ add_statue[1] }}</domain:status>
+          {% endfor %}
+          {% if add_hosts %}
+          <domain:ns>
+            {% for host in add_hosts %}
+            <domain:hostObj>{{ host }}</domain:hostObj>
+            {% endfor %}
+          </domain:ns>
+          {% endif %}
+        </domain:add>
+        {% endif %}
+        {% if remove %}
+        <domain:rem>
+          {% if remove_admin %}
+          <domain:contact type="admin">{{ remove_admin }}</domain:contact>
+          {% endif %}
+          {% if remove_tech %}
+          <domain:contact type="tech">{{ remove_tech }}</domain:contact>
+          {% endif %}
+          {% for remove_billing in remove_billings %}
+          <domain:contact type="billing">{{ remove_billing }}</domain:contact>
+          {% endfor %}
+          {% for remove_statue in remove_statues %}
+          <domain:status s="{{ remove_statue }}" />
+          {% endfor %}
+          {% if remove_hosts %}
+          <domain:ns>
+            {% for host in remove_hosts %}
+            <domain:hostObj>{{ host }}</domain:hostObj>
+            {% endfor %}
+          </domain:ns>
+          {% endif %}
+        </domain:rem>
+        {% endif %}
+        {% if change %}
+        <domain:chg>
+          {% if registrant %}
+          <domain:registrant>{{ registrant }}</domain:registrant>
+          {% endif %}
+          {% if password %}
+          <domain:authInfo>
+            <domain:pw>{{ password }}</domain:pw>
+          </domain:authInfo>
+          {% endif %}
+        </domain:chg>
+        {% endif %}
+      </domain:update>
+    </update>
+    <clTRID>{{ client_transaction_id }}</clTRID>
+  </command>
+</epp>"""

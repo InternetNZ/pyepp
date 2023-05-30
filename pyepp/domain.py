@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import DOMAIN_CHECK_XML, DOMAIN_INFO_XML, DOMAIN_CREATE_XML, DOMAIN_DELETE_XML, \
-    DOMAIN_RENEW_XML, TRANSFER_REQUEST_XML
+    DOMAIN_RENEW_XML, TRANSFER_REQUEST_XML, DOMAIN_UPDATE_XML
 from pyepp.epp import EppResultCode
 
 
@@ -160,7 +160,8 @@ class Domain(BaseCommand):
             'registrant': raw_response.find('registrant').text,
             'admin': raw_response.find('contact', {'type': 'admin'}).text,
             'tech': raw_response.find('contact', {'type': 'tech'}).text,
-            'billing': raw_response.find('contact', {'type': 'billing'}).text if raw_response.find('billing') else None,
+            'billing': [billing.text for billing in raw_response.find_all('contact', {'type': 'billing'})]
+            if raw_response.find('contact', {'type': 'billing'}) else None,
             'create_date': raw_response.find('crDate').text if raw_response.find('crDate') else None,
             'creat_client_id': raw_response.find('crID').text if raw_response.find('crID') else None,
             'expiry_date': raw_response.find('exDate').text if raw_response.find('exDate') else None,
@@ -251,5 +252,68 @@ class Domain(BaseCommand):
                               domain_name=domain_name,
                               password=password,
                               period=str(period) if period else None)
+
+        return result
+
+    # pylint: disable=too-many-arguments,too-many-locals
+    def update(self, domain_name: str,
+               registrant: Optional[str] = None,
+               admin: Optional[str] = None,
+               tech:  Optional[str] = None,
+               add_billings: Optional[list[str]] = None,
+               remove_billings: Optional[list[str]] = None,
+               add_statues: Optional[list[tuple]] = None,
+               remove_statues: Optional[list[str]] = None,
+               add_hosts: Optional[list[str]] = None,
+               remove_hosts: Optional[list[str]] = None,
+               password: Optional[str] = None
+               ) -> dict:
+        """
+
+        :param str domain_name: Domain name to be updated
+        :param str registrant: A contact id to replace the current registrant
+        :param str admin: A contact id to replace the current admin
+        :param str tech: A contact id to replace the current tech
+        :param list[str] add_billings: A list of contact ids to add to the billing contacts
+        :param list[str] remove_billings: A list of contact ids to remove from the billing contacts
+        :param list[tuple] add_statues: List of statuses to be added tio the domain name. The tuple must contain two
+            elements. The first one will be the Status Code and the second element will be Descriptions.
+        :param list[str] remove_statues: A list of statues to be removed from the domain name.
+        :param list[str] add_hosts: A list of host names to be added to the domain name.
+        :param list[str] remove_hosts: A list of host names to be removed from the domain name.
+        :param str password: A new password to replace the old password.
+
+        :return: Response object
+        :rtype: dict
+        """
+        remove_admin = None
+        remove_tech = None
+
+        if admin or tech:
+            domain_info = self.info(domain_name=domain_name).get('result_data')
+            remove_admin = domain_info.admin if admin else None
+            remove_tech = domain_info.tech if tech else None
+
+        add = bool(admin or tech or add_billings or add_statues or add_hosts)
+        remove = bool(remove_admin or remove_tech or remove_billings or remove_statues or remove_hosts)
+        change = bool(registrant or password)
+
+        result = self.execute(DOMAIN_UPDATE_XML,
+                              add=add,
+                              remove=remove,
+                              change=change,
+                              domain_name=domain_name,
+                              admin=admin,
+                              remove_admin=remove_admin,
+                              tech=tech,
+                              remove_tech=remove_tech,
+                              add_billings=add_billings,
+                              remove_billings=remove_billings,
+                              add_statues=add_statues,
+                              remove_statues=remove_statues,
+                              add_hosts=add_hosts,
+                              remove_hosts=remove_hosts,
+                              password=password,
+                              registrant=registrant)
 
         return result
