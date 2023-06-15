@@ -373,3 +373,17 @@ DOMAIN_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
+HOST_CHECK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+  <command>
+    <check>
+      <host:check xmlns:host="urn:ietf:params:xml:ns:host-1.0">
+        {% for host_name in host_names %}
+        <host:name>{{ host_name }}</host:name>
+        {% endfor %}
+      </host:check>
+    </check>
+    <clTRID>{{ client_transaction_id }}</clTRID>
+  </command>
+</epp>"""
