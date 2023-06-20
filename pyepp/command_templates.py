@@ -387,3 +387,15 @@ HOST_CHECK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
+HOST_INFO_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+ <command>
+   <info>
+     <host:info xmlns:host="urn:ietf:params:xml:ns:host-1.0">
+       <host:name>{{ host_name }}</host:name>
+     </host:info>
+   </info>
+   <clTRID>{{ client_transaction_id }}</clTRID>
+ </command>
+</epp>"""
