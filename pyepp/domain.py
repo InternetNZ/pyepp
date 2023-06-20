@@ -153,7 +153,6 @@ class Domain(BaseCommand):
 
         result_data = {
             'domain_name': raw_response.find('name').text,
-            # 'repository_object_id': raw_response.find('roid').text,
             'sponsoring_client_id': raw_response.find('clID').text,
             'status': [status.text for status in raw_response.find_all('status')],
             'host': [host.text for host in raw_response.find_all('hostObj')] if raw_response.find('ns') else None,
