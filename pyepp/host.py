@@ -39,9 +39,9 @@ class Host(BaseCommand):
     def _data_to_dict(self, data: HostData) -> dict:
         """Convert dataclass to dictionary.
 
-        :param ContactData data: Contact details
+        :param HostData data: Host name details
 
-        :return: Contact details
+        :return: Host name details
         :rtype: dict
         """
         data_dict = asdict(data)

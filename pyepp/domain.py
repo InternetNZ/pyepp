@@ -96,9 +96,9 @@ class Domain(BaseCommand):
     def _data_to_dict(self, data: DomainData) -> dict:
         """Convert dataclass to dictionary.
 
-        :param ContactData data: Contact details
+        :param DomainData data: Domain name details
 
-        :return: Contact details
+        :return: Domain name details
         :rtype: dict
         """
         data_dict = asdict(data)
