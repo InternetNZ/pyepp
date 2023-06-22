@@ -399,3 +399,19 @@ HOST_INFO_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
    <clTRID>{{ client_transaction_id }}</clTRID>
  </command>
 </epp>"""
+
+HOST_CREAT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+  <command>
+    <create>
+      <host:create
+       xmlns:host="urn:ietf:params:xml:ns:host-1.0">
+        <host:name>{{ host_name }}</host:name>
+        {% for addr in address %}
+        <host:addr ip="{{ addr.ip }}">{{ addr.address }}</host:addr>
+        {% endfor %}
+      </host:create>
+    </create>
+    <clTRID>{{ client_transaction_id }}</clTRID>
+  </command>
+</epp>"""
