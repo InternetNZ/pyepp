@@ -7,7 +7,7 @@ from typing import Optional
 from bs4 import BeautifulSoup
 
 from pyepp.base_command import BaseCommand
-from pyepp.command_templates import HOST_CHECK_XML, HOST_INFO_XML
+from pyepp.command_templates import HOST_CHECK_XML, HOST_INFO_XML, HOST_CREAT_XML
 from pyepp.epp import EppResultCode
 
 
@@ -23,8 +23,8 @@ class IPAddressData:
 class HostData:
     """Host data"""
     host_name: str
-    status: Optional[list[str]] = None
     address: Optional[list[IPAddressData]] = None
+    status: Optional[list[str]] = None
     create_date: Optional[str] = ''
     creat_client_id: Optional[str] = ''
     update_client_id: Optional[str] = ''
@@ -105,5 +105,19 @@ class Host(BaseCommand):
         }
 
         result['result_data'] = HostData(**result_data)
+
+        return result
+
+    def create(self, host: HostData) -> dict:
+        """Create a host object.
+
+        :param HostData host: Contact
+
+        :return: Response object
+        :rtype: dict
+        """
+        params = self._data_to_dict(host)
+
+        result = self.execute(HOST_CREAT_XML, **params)
 
         return result

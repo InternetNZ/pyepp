@@ -159,3 +159,36 @@ class HostTest(unittest.TestCase):
         result = host.info('0qx.test-3gudmj2badfgwhaubrm8douuldtkz4.co.nz')
 
         self.assertDictEqual(result, expected_result)
+
+    def test_create(self) -> None:
+        expected_result = {'client_transaction_id': 'b4450b14-4115-4185-8615-b77f7ad85dab',
+                           'code': 1000,
+                           'message': 'Command completed successfully',
+                           'raw_response': '<response>\n'
+                                           '<result code="1000">\n'
+                                           '<msg>Command completed successfully</msg>\n'
+                                           '</result>\n'
+                                           '<resData>\n'
+                                           '<host:creData>\n'
+                                           '<host:name>host.inz.nz</host:name>\n'
+                                           '<host:crDate>2023-06-22T00:08:32.739Z</host:crDate>\n'
+                                           '</host:creData>\n'
+                                           '</resData>\n'
+                                           '<trID>\n'
+                                           '<clTRID>b4450b14-4115-4185-8615-b77f7ad85dab</clTRID>\n'
+                                           '<svTRID>CIRA-000074059948-0000000003</svTRID>\n'
+                                           '</trID>\n'
+                                           '</response>',
+                           'reason': None,
+                           'repository_object_id': None,
+                           'server_transaction_id': 'CIRA-000074059948-0000000003'}
+
+        create_params = HostData(host_name='host.inz.nz', address=[IPAddressData(address='192.168.1.100', ip='v4'),
+                                                                   IPAddressData(address='192.168.1.200', ip='v4')])
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        host.execute = MagicMock(return_value=expected_result)
+
+        result = host.create(create_params)
+
+        self.assertDictEqual(result, expected_result)
