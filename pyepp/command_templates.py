@@ -415,3 +415,15 @@ HOST_CREAT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
+HOST_DELETE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+ <command>
+   <delete>
+     <host:delete xmlns:host="urn:ietf:params:xml:ns:host-1.0">
+       <host:name>{{ host_name }}</host:name>
+     </host:delete>
+   </delete>
+   <clTRID>{{ client_transaction_id }}</clTRID>
+ </command>
+</epp>"""
