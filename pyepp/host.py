@@ -7,7 +7,7 @@ from typing import Optional
 from bs4 import BeautifulSoup
 
 from pyepp.base_command import BaseCommand
-from pyepp.command_templates import HOST_CHECK_XML, HOST_INFO_XML, HOST_CREAT_XML
+from pyepp.command_templates import HOST_CHECK_XML, HOST_INFO_XML, HOST_CREAT_XML, HOST_DELETE_XML
 from pyepp.epp import EppResultCode
 
 
@@ -119,5 +119,17 @@ class Host(BaseCommand):
         params = self._data_to_dict(host)
 
         result = self.execute(HOST_CREAT_XML, **params)
+
+        return result
+
+    def delete(self, host_name: str) -> dict:
+        """Delete a host object.
+
+        :param str host_name: Host Name
+
+        :return: Response object
+        :rtype: dict
+        """
+        result = self.execute(HOST_DELETE_XML, host_name=host_name)
 
         return result
