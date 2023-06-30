@@ -217,3 +217,31 @@ class HostTest(unittest.TestCase):
         result = host.delete('host.internet.nz')
 
         self.assertDictEqual(result, expected_result)
+
+    def test_update(self) -> None:
+        expected_result = {'client_transaction_id': '826aa351-2207-4582-846d-7839630f9c4f',
+                           'code': 1000,
+                           'message': 'Command completed successfully',
+                           'raw_response': '<response>\n'
+                                           '<result code="1000">\n'
+                                           '<msg>Command completed successfully</msg>\n'
+                                           '</result>\n'
+                                           '<trID>\n'
+                                           '<clTRID>826aa351-2207-4582-846d-7839630f9c4f</clTRID>\n'
+                                           '<svTRID>CIRA-000077350909-0000000003</svTRID>\n'
+                                           '</trID>\n'
+                                           '</response>',
+                           'reason': None,
+                           'repository_object_id': None,
+                           'server_transaction_id': 'CIRA-000077350909-0000000003'}
+
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        host.execute = MagicMock(return_value=expected_result)
+
+        result = host.update(host_name='host.internet.nz',
+                             remove_ip_address=[IPAddressData(address='192.168.1.10', ip='v4')],
+                             add_ip_address=[IPAddressData(address='192.168.1.20', ip='v4')],
+                             new_host_name='new-host.internet.nz')
+
+        self.assertDictEqual(result, expected_result)

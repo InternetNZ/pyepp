@@ -427,3 +427,40 @@ HOST_DELETE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
    <clTRID>{{ client_transaction_id }}</clTRID>
  </command>
 </epp>"""
+
+HOST_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+ <command>
+   <update>
+     <host:update xmlns:host="urn:ietf:params:xml:ns:host-1.0">
+       <host:name>{{ host_name }}</host:name>
+       {% if add %}
+       <host:add>
+        {% for addr in add_ip_address %}
+        <host:addr ip="{{ addr.ip }}">{{ addr.address }}</host:addr>
+        {% endfor %}
+        {% for s in add_status %}
+         <host:status s="{{ s }}"/>
+        {% endfor %}
+       </host:add>
+       {% endif %}
+       {% if remove %}
+       <host:rem>
+        {% for addr in remove_ip_address %}
+        <host:addr ip="{{ addr.ip }}">{{ addr.address }}</host:addr>
+        {% endfor %}
+        {% for s in remove_status %}
+         <host:status s="{{ s }}"/>
+        {% endfor %}
+       </host:rem>
+       {% endif %}
+       {% if change %}
+       <host:chg>
+         <host:name>{{ new_host_name }}</host:name>
+       </host:chg>
+       {% endif %}
+     </host:update>
+   </update>
+   <clTRID>{{ client_transaction_id }}</clTRID>
+ </command>
+</epp>"""

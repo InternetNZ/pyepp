@@ -7,7 +7,7 @@ from typing import Optional
 from bs4 import BeautifulSoup
 
 from pyepp.base_command import BaseCommand
-from pyepp.command_templates import HOST_CHECK_XML, HOST_INFO_XML, HOST_CREAT_XML, HOST_DELETE_XML
+from pyepp.command_templates import HOST_CHECK_XML, HOST_INFO_XML, HOST_CREAT_XML, HOST_DELETE_XML, HOST_UPDATE_XML
 from pyepp.epp import EppResultCode
 
 
@@ -131,5 +131,43 @@ class Host(BaseCommand):
         :rtype: dict
         """
         result = self.execute(HOST_DELETE_XML, host_name=host_name)
+
+        return result
+
+    # pylint: disable=too-many-arguments
+    def update(self, host_name: str,
+               add_ip_address: Optional[list[IPAddressData]] = None,
+               remove_ip_address: Optional[list[IPAddressData]] = None,
+               add_statue: Optional[list[str]] = None,
+               remove_statue: Optional[list[str]] = None,
+               new_host_name: Optional[str] = None
+               ) -> dict:
+        """Update a host object.
+
+        :param host_name: Host Name
+        :param add_ip_address: A list of IP addressed to be added to the host
+        :param remove_ip_address: A list of IP addressed to be removed from the host
+        :param add_statue: A list of statues to be added to the host
+        :param remove_statue: A list of statues to be removed from the host
+        :param new_host_name: The host name will be changed to this new host name
+
+        :return: Response object
+        :rtype: dict
+        """
+
+        add = bool(add_ip_address or add_statue)
+        remove = bool(remove_ip_address or remove_statue)
+        change = bool(new_host_name)
+
+        result = self.execute(HOST_UPDATE_XML,
+                              host_name=host_name,
+                              add=add,
+                              remove=remove,
+                              change=change,
+                              add_ip_address=add_ip_address,
+                              remove_ip_address=remove_ip_address,
+                              add_statue=add_statue,
+                              remove_statue=remove_statue,
+                              new_host_name=new_host_name)
 
         return result
