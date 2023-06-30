@@ -134,6 +134,7 @@ class Host(BaseCommand):
 
         return result
 
+    # pylint: disable=too-many-arguments
     def update(self, host_name: str,
                add_ip_address: Optional[list[IPAddressData]] = None,
                remove_ip_address: Optional[list[IPAddressData]] = None,
