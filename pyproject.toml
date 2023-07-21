@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools >= 61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyepp"
+description = "A Python API on top of the EPP protocol."
+readme = "README.md"
+authors = [
+    { name = "InternetNZ", email = "ehsan@internetnz.net.nz" }
+]
+license = {text = "GNU GPLv3"}
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["epp", "registry"]
+dependencies = [
+    "jinja2>=3.1.2",
+    "lxml>=4.9.3",
+    "bs4>=0.0.1",
+]
+requires-python = ">=3.10"
+
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyepp.__version__"}
+
+[project.optional-dependencies]
+dev = ["bandit", "coverage", "pylint", "pytest", "safety"]
+
+[project.urls]
+"Homepage" = "https://github.com/InternetNZ/pyepp"
+"Repository" = "https://github.com/InternetNZ/pyepp"
