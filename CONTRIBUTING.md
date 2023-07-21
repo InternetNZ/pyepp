@@ -1,6 +1,7 @@
 # Contributing
 We love your input! We want to make contributing to this project as easy and transparent as possible, whether it's:
 
+- Any questions about the project
 - Reporting a bug
 - Discussing the current state of the code
 - Submitting a fix

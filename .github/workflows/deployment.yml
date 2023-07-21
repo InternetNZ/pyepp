@@ -22,6 +22,7 @@ jobs:
         pip install -r requirements.txt
         pip install -r requirements.dev.txt
         pip install setuptools==65.5.1
+        pip install build twine
     - name: Lint
       run: |
         ./scripts/linter.sh
@@ -34,3 +35,20 @@ jobs:
     - name: Code Security Check
       run: |
         ./scripts/code-security-check.sh
+    - name: Publish to TestPyPi
+      if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+      run: |
+        rm -rf dist
+        python -m build
+        twine check dist/*
+        twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} dist/*
+    - name: Publish to PyPi
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        rm -rf dist
+        python -m build
+        twine check dist/*
+        twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
+    - name: Cleanup workspace
+      uses: colpal/actions-clean@v1
+      if: ${{ always() }} # To ensure this step runs even when earlier steps fail
