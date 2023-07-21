@@ -98,9 +98,17 @@ renew_domain = domain.renew(domain_name='example-1.nz', expiry_date=date(2024, 2
 Clone this project. It's recommended to create virtual environment. Then install the dependencies and 
 development dependencies:
 
-```sh
+```shell
 pip install -r requirements.txt
 pip install -r requirements.dev.txt
+```
+
+Before creating any pull requests please make sure your code lints and there is no security issues in your code 
+by running below scripts:
+
+```shell
+./scripts/linter.sh
+./scripts/code-security-check.sh
 ```
 
 Happy developing!
