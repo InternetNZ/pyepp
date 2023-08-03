@@ -1,6 +1,12 @@
 """
 EPP XML command templates
 """
+from jinja2 import Environment, BaseLoader
+
+template_engine = Environment(loader=BaseLoader(),
+                              trim_blocks=True,
+                              lstrip_blocks=True,
+                              autoescape=True)
 
 HELLO_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
@@ -11,8 +17,8 @@ LOGIN_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
   <command>
     <login>
-      <clID>{user}</clID>
-      <pw>{password}</pw>
+      <clID>{{ user }}</clID>
+      <pw>{{ password }}</pw>
       <options>
         <version>1.0</version>
         <lang>en</lang>
@@ -20,8 +26,12 @@ LOGIN_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
       <svcs>
         <objURI>urn:ietf:params:xml:ns:domain-1.0</objURI>
         <objURI>urn:ietf:params:xml:ns:contact-1.0</objURI>
+        <objURI>urn:ietf:params:xml:ns:host-1.0</objURI>
         <svcExtension>
           <extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI>
+          {% for extension in extensions %}
+          <extURI>{{ extension }}</extURI>
+          {% endfor %}
         </svcExtension>
       </svcs>
     </login>
@@ -471,3 +481,4 @@ POLL_REQUEST_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         <poll op="req"/>
       </command>
     </epp>"""
+

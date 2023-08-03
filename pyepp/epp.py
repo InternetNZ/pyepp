@@ -6,10 +6,11 @@ import socket
 import struct
 import logging
 from enum import Enum
+from typing import Optional
 
 from bs4 import BeautifulSoup
 
-from pyepp.command_templates import LOGOUT_XML, LOGIN_XML, HELLO_XML
+from pyepp.command_templates import LOGOUT_XML, LOGIN_XML, HELLO_XML, template_engine
 
 LENGTH_FIELD_SIZE = 4
 CRLF_SIZE = 2
@@ -250,22 +251,27 @@ class EppCommunicator:
         greeting = self._execute_command(HELLO_XML)
         return greeting
 
-    def login(self, user: str, password: str) -> dict:
+    def login(self, user: str, password: str, extensions: Optional[list[str]] = None) -> dict:
         """
         Login the user to EPP server.
 
-        :param str user: username
-        :param str password: password
+        :param user: username
+        :param password: password
+        :param extensions: A list of supported extension URIs
 
         :return: login
-        :rtype: dict
 
         :raises EppCommunicatorException: When there are any errors.
         """
+        if extensions is None:
+            extensions = []
+
         self._user = user
 
-        cmd = LOGIN_XML.format(user=user, password=password)
-        result = self.execute(cmd)
+        command_template = template_engine.from_string(LOGIN_XML)
+        command = command_template.render(user=user, password=password, extensions=extensions)
+
+        result = self.execute(command)
 
         if result.get('code') == EppResultCode.SUCCESS.value:
             logging.info("User %s logged in to %s:%s", self._user, self._host, self._port)
