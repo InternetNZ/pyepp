@@ -5,10 +5,10 @@ import uuid
 
 from dataclasses import dataclass
 from html import escape
-from jinja2 import Environment, BaseLoader
 
 import pyepp.helper as helper  # pylint: disable=consider-using-from-import
 from pyepp.epp import EppCommunicator
+from pyepp.command_templates import template_engine
 
 
 class ErrorCodeInResultException(Exception):
@@ -30,10 +30,6 @@ class BaseCommand:
         :param EppCommunicator epp_communicator: EPP Communicator object
         """
         self._epp_communicator = epp_communicator
-        self._template_engine = Environment(loader=BaseLoader(),
-                                            trim_blocks=True,
-                                            lstrip_blocks=True,
-                                            autoescape=True)
 
     def execute(self, xml_command: str, **kwargs) -> dict:
         """
@@ -78,7 +74,7 @@ class BaseCommand:
 
         new_kwargs = self.__escape_dict(kwargs)
 
-        template = self._template_engine.from_string(cmd)
+        template = template_engine.from_string(cmd)
         xml = template.render(**new_kwargs)
 
         return xml
