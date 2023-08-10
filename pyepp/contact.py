@@ -65,7 +65,8 @@ class Contact(BaseCommand):
 
     * Registrant - The entity that has the authority to use and manage the domain name.
     * Administrative Contact - Either the Registrant or someone authorized to act on behalf of the Registrant.
-    * Technical Contact - A technical contact is an individual identified as a contact for technical information-related administration of a registered domain name.
+    * Technical Contact - A technical contact is an individual identified as a contact for technical information-related
+      administration of a registered domain name.
     * Billing Contact - Also known as the Finance Contact, this is the individual or organization responsible for
     payment of fees related to the domain name and will monitor period activity, account balances, and account
     status.
