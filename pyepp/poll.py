@@ -13,7 +13,7 @@ from pyepp.command_templates import POLL_REQUEST_XML, POLL_ACK_XML
 
 @dataclass
 class ServiceMessageData:
-    """Service message data class
+    """Service message data class.
     """
     language: str
     message: str
@@ -21,7 +21,7 @@ class ServiceMessageData:
 
 @dataclass
 class ServiceMessageQueueData:
-    """Service message queue data class
+    """Service message queue data class.
     """
     message_count: int
     message_id: int
@@ -31,7 +31,7 @@ class ServiceMessageQueueData:
 
 class Poll(BaseCommand):
     """
-    Epp Poll
+    Epp Poll class is used to manage registry service messages. It contains poll request and poll acknowledge commands.
     """
 
     def _data_to_dict(self, data: ServiceMessageQueueData) -> dict:

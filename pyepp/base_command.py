@@ -20,26 +20,23 @@ class ErrorCodeInResultException(Exception):
 # pylint: disable=too-few-public-methods
 class BaseCommand:
     """
-    Base command class
+    Base command class. Other EPP commands will inherit this class.
     """
     PARAMS = ()
 
     def __init__(self, epp_communicator: EppCommunicator) -> None:
         """
-
-        :param EppCommunicator epp_communicator: EPP Communicator object
+        :param epp_communicator: EPP Communicator object
         """
         self._epp_communicator = epp_communicator
 
     def execute(self, xml_command: str, **kwargs) -> dict:
-        """
-        Execute epp command.
+        """This receives an EPP XML command and the arguments and send to the EPP server to be executed.
 
-        :param str xml_command: XML command
+        :param xml_command: XML command
         :param kwargs: Keyword arguments
 
         :return: Response Object
-        :rtype: dict
         """
         cmd = self._prepare_command(xml_command, **kwargs)
 
@@ -55,14 +52,12 @@ class BaseCommand:
         return result
 
     def _prepare_command(self, cmd: str, **kwargs: str) -> str:
-        """
-        Prepare the command to be executed.
+        """Prepare an EPP XML command for execution by setting up the arguments.
 
-        :param str cmd: Command in XML format
-        :param dict kwargs: Keyword arguments
+        :param cmd: Command in XML format
+        :param kwargs: Keyword arguments
 
         :return: XML command
-        :rtype: str
         """
         if cmd.find('client_transaction_id') != -1 and not kwargs.get('client_transaction_id'):
             kwargs['client_transaction_id'] = str(uuid.uuid4())
@@ -110,10 +105,9 @@ class BaseCommand:
         return result
 
     def _data_to_dict(self, data: dataclass) -> dict:
-        """Convert dataclass to dict.
+        """Convert a dataclass to a dict.
 
-        :param dataclass data: data
+        :param data: data
 
         :return: data
-        :rtype: dict
         """

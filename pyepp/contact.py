@@ -1,5 +1,6 @@
 """
-Contact Mapping Module
+Contact Mapping Module. This module is used to manage contact objects in Registry.
+
 """
 from typing import Optional
 from dataclasses import dataclass, asdict
@@ -13,7 +14,8 @@ from pyepp.epp import EppResultCode
 
 @dataclass
 class AddressData:
-    """Address data class"""
+    """Contact address data class.
+    """
     street_1: str
     city: str
     country_code: str
@@ -25,7 +27,8 @@ class AddressData:
 
 @dataclass
 class PostalInfoData:
-    """Postal Info data class"""
+    """Contact postal info data class.
+    """
     name: str
     organization: Optional[str] = ''
     address: Optional[AddressData] = None
@@ -33,7 +36,8 @@ class PostalInfoData:
 
 @dataclass
 class ContactData:
-    """Contact data class"""
+    """Contact data class. Contains the properties of the contacts associated with the domain name.
+    """
     # pylint: disable=invalid-name,too-many-instance-attributes
     id: str
     email: str
@@ -54,13 +58,23 @@ class ContactData:
 
 class Contact(BaseCommand):
     """
-    Epp Contact
+    Epp Contact object class. This class is used to create and manage the contacts within the Registry.
+
+    Contacts are individuals or organizations that are associated with domain names. There are different types of
+    contacts including:
+
+    * Registrant - The entity that has the authority to use and manage the domain name.
+    * Administrative Contact - Either the Registrant or someone authorized to act on behalf of the Registrant.
+    * Technical Contact - A technical contact is an individual identified as a contact for technical information-related administration of a registered domain name.
+    * Billing Contact - Also known as the Finance Contact, this is the individual or organization responsible for
+    payment of fees related to the domain name and will monitor period activity, account balances, and account
+    status.
     """
 
     def _data_to_dict(self, data: ContactData) -> dict:
-        """Convert dataclass to dictionary.
+        """Convert a contact dataclass to a dictionary.
 
-        :param ContactData data: Contact details
+        :param data: Contact details
 
         :return: Contact details
         :rtype: dict
@@ -77,7 +91,9 @@ class Contact(BaseCommand):
         return data_dict
 
     def check(self, contact_ids: list[str]) -> dict:
-        """This command is used to determine if an object can be provisioned.
+        """A successful Contact Check request determines whether a Contact ID is available for use and whether a contact
+        can be created in the Registry. When creating a new contact, the Registrar must generate a Registry-unique
+        contact ID. A Registry Contact Check request can determine whether an ID is already in use.
 
         :param list contact_ids: List of contact ids
 
@@ -108,9 +124,13 @@ class Contact(BaseCommand):
 
     def info(self, contact_id: str) -> dict:
         """
-        Retrieve contact details.
+        A successful Contact Info request retrieves information associated with an existing contact.
+        All available information is returned if the querying Registrar is the contact’s sponsor. For a non-sponsoring
+        Registrar, all contact information is returned if the correct authorization code is entered. As well, if the
+        Authorization Code Expiry has been configured, the authorization code must not be expired. Otherwise,
+        the <contact:info> will fail.
 
-        :param str contact_id: Contact ID
+        :param contact_id: Contact ID
 
         :return: Contact details
         :rtype: dict
@@ -160,9 +180,11 @@ class Contact(BaseCommand):
         return result
 
     def create(self, contact: ContactData) -> dict:
-        """Create a contact object.
+        """A successful Contact Create request creates a contact object in the Registry. To create a domain name
+        successfully, a Registrar does not need to be the sponsor of the related hosts but must be the sponsor of all
+        assigned contacts.
 
-        :param ContactData contact: Contact
+        :param contact: Contact
 
         :return: Response object
         :rtype: dict
@@ -174,12 +196,11 @@ class Contact(BaseCommand):
         return result
 
     def delete(self, contact_id: str) -> dict:
-        """Delete a contact object.
+        """A successful Contact Delete request deletes a contact object from the Registry
 
-        :param str contact_id: Contact ID
+        :param contact_id: Contact ID
 
         :return: Response object
-        :rtype: dict
         """
         result = self.execute(CONTACT_DELETE_XML, id=contact_id)
 
@@ -190,11 +211,12 @@ class Contact(BaseCommand):
                add_status: Optional[str] = '',
                remove_status: Optional[str] = '',
                ) -> dict:
-        """Update contact details.
+        """A successful Contact Update request modifies a contact object in the Registry. Updates to Registrant contacts
+        must be valid and must be complete.
 
-        :param ContactData contact: Contact details to be updated
-        :param str add_status: Status to be added
-        :param str remove_status: Status to be removed
+        :param contact: Contact details to be updated
+        :param add_status: Status to be added
+        :param remove_status: Status to be removed
 
         :return: Response object
         :rtype: dict

@@ -1,5 +1,6 @@
 """
-Host Mapping Module
+Host Mapping Module. This module is used to manage host objects in Registry.
+A host object represents a Domain Name System (DNS) server that resolves domain names into IP addresses.
 """
 from dataclasses import dataclass, asdict
 from typing import Optional
@@ -13,7 +14,8 @@ from pyepp.epp import EppResultCode
 
 @dataclass
 class IPAddressData:
-    """IP Address"""
+    """IP Address data class.
+    """
     address: str
     # pylint: disable=invalid-name
     ip: str
@@ -21,7 +23,8 @@ class IPAddressData:
 
 @dataclass
 class HostData:
-    """Host data"""
+    """Host object data class.
+    """
     host_name: str
     address: Optional[list[IPAddressData]] = None
     status: Optional[list[str]] = None
@@ -33,13 +36,20 @@ class HostData:
 
 class Host(BaseCommand):
     """
-    Epp Host Mapping
+    Epp Host object class. This class is used to create and manage host objects in Registry.
+
+    An EPP host object has attributes and associated values that can be viewed and modified by the sponsoring
+    Registrar. When you create or update a host, you must follow the rules that ensure that the domain name can still
+    be resolved even if there is an outage of any individual host or network. This means that two or more unique name
+    servers must be defined for each protocol in use. Although you can use the IPv4 and IPv6 protocols concurrently,
+    they are not interchangeable or compatible. As a result, to use both protocols requires that you must provide data
+    for two unique name servers that are accessible by IPv4 and two unique name servers that are accessible by IPv6.
     """
 
     def _data_to_dict(self, data: HostData) -> dict:
-        """Convert dataclass to dictionary.
+        """Convert a host dataclass to a dictionary.
 
-        :param HostData data: Host name details
+        :param data: Host name details
 
         :return: Host name details
         :rtype: dict
@@ -49,9 +59,10 @@ class Host(BaseCommand):
         return data_dict
 
     def check(self, host_names: list[str]) -> dict:
-        """This command is used to determine if a host object can be provisioned.
+        """A successful Host Check request determines whether a host is available for use and whether a host can be
+        created in the Registry. A single request can check from 1 to 15 host names.
 
-        :param list host_names: List of domain names
+        :param host_names: List of domain names
 
         :return: host name check result
         :rtype: dict
@@ -79,9 +90,9 @@ class Host(BaseCommand):
         return result
 
     def info(self, host_name: str) -> dict:
-        """This is used to retrieve information associated with a host object.
+        """A successful Host Info request retrieves detailed host information.
 
-        :param str host_name: Host name
+        :param host_name: Host name
 
         :return: Host name details
         :rtype: dict
@@ -109,9 +120,9 @@ class Host(BaseCommand):
         return result
 
     def create(self, host: HostData) -> dict:
-        """Create a host object.
+        """A successful Host Create request creates a host object identified by its name in the Registry.
 
-        :param HostData host: Contact
+        :param host: Contact
 
         :return: Response object
         :rtype: dict
@@ -123,9 +134,10 @@ class Host(BaseCommand):
         return result
 
     def delete(self, host_name: str) -> dict:
-        """Delete a host object.
+        """A successful Host Delete request deletes a host object.
+        Warning: A host object cannot be deleted while it is associated with a domain object.
 
-        :param str host_name: Host Name
+        :param host_name: Host Name
 
         :return: Response object
         :rtype: dict
@@ -142,13 +154,14 @@ class Host(BaseCommand):
                remove_statue: Optional[list[str]] = None,
                new_host_name: Optional[str] = None
                ) -> dict:
-        """Update a host object.
+        """The EPP <update> command provides a transform operation that allows a client to modify the attributes of a
+        host object.
 
         :param host_name: Host Name
         :param add_ip_address: A list of IP addressed to be added to the host
         :param remove_ip_address: A list of IP addressed to be removed from the host
         :param add_statue: A list of statues to be added to the host
-        :param remove_statue: A list of statues to be removed from the host
+        :param remove_statue: A list of statues to be removed from host
         :param new_host_name: The host name will be changed to this new host name
 
         :return: Response object

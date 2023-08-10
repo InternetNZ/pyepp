@@ -6,7 +6,7 @@ protocol to connect to any registry systems that support EPP and manage the obje
 It supports bellow RFCs:
 
 * `RFC 5730 - Extensible Provisioning Protocol <https://datatracker.ietf.org/doc/html/rfc5730>`_
-* `RFC 5731 Domain Name Mapping <https://datatracker.ietf.org/doc/html/rfc5731>`_
+* `RFC 5731 - Domain Name Mapping <https://datatracker.ietf.org/doc/html/rfc5731>`_
 * `RFC 5732 - Host Mapping <https://datatracker.ietf.org/doc/html/rfc5732>`_
 * `RFC 5733 - Contact Mapping <https://datatracker.ietf.org/doc/html/rfc5733>`_
 * `RFC 5734 - Transport over TCP <https://datatracker.ietf.org/doc/html/rfc5734>`_
@@ -98,9 +98,6 @@ Usage example
 
    # Renew a domain name
    renew_domain = domain.renew(domain_name='example-1.nz', expiry_date=date(2024, 2, 23), period=2)
-
-Welcome to PyEPP's documentation!
-=================================
 
 .. toctree::
    :maxdepth: 2
