@@ -14,12 +14,17 @@ sys.path.insert(0, os.path.abspath(".."))
 project = 'PyEPP'
 copyright = '2023, InternetNZ'
 author = 'InternetNZ'
-release = '0.0.1-alpha.2'
+release = '0.0.1-alpha.3'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ["sphinx.ext.todo", "sphinx.ext.viewcode", "sphinx.ext.autodoc"]
+extensions = [
+    "sphinx.ext.todo",
+    "sphinx.ext.viewcode",
+    "sphinx.ext.autodoc",
+    "myst_parser"
+]
 
 templates_path = ['_templates']
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']

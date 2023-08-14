@@ -18,15 +18,18 @@ CRLF_SIZE = 2
 
 class EppCommunicatorException(Exception):
     """
-    EPP communicator exception
+    EPP communicator exception.
     """
 
 
 class EppResultCode(Enum):
     """
-    EPP result codes enum
+    EPP result codes enumeration.
     """
     SUCCESS = 1000
+    SUCCESS_ACTION_PENDING = 1001
+    SUCCESS_NO_MESSAGE = 1300
+    SUCCESS_ACK_TO_DEQUEUE = 1301
     SUCCESS_END_SESSION = 1500
     PARAMETER_RANGE_ERROR = 2004
 

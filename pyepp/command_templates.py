@@ -474,3 +474,19 @@ HOST_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
    <clTRID>{{ client_transaction_id }}</clTRID>
  </command>
 </epp>"""
+
+POLL_REQUEST_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+    <epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+      <command>
+        <poll op="req"/>
+        <clTRID>{{ client_transaction_id }}</clTRID>
+      </command>
+    </epp>"""
+
+POLL_ACK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+  <command>
+    <poll msgID="{{ message_id }}" op="ack"/>
+    <clTRID>{{ client_transaction_id }}</clTRID>
+  </command>
+</epp>"""
