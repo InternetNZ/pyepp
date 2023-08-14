@@ -1,5 +1,5 @@
 """
-Domain Mapping Module
+Domain Mapping Module.
 """
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -15,7 +15,7 @@ from pyepp.epp import EppResultCode
 
 
 class DNSSECAlgorithm(Enum):
-    """DNSSEC algorithms"""
+    """DNSSEC algorithms enumeration."""
     DSA_SHA_1 = 3
     RSA_SHA_1 = 5
     DSA_NSEC3_SHA1 = 6
@@ -32,7 +32,7 @@ class DNSSECAlgorithm(Enum):
 
 
 class DigestTypeEnum(Enum):
-    """Digest types"""
+    """Digest types enumeration."""
     SHA_1 = 1
     SHA_256 = 2
     GOST_R_34_11_94 = 3
@@ -40,14 +40,14 @@ class DigestTypeEnum(Enum):
 
 
 class DNSKeyFlagEnum(Enum):
-    """DNS Key flags"""
+    """DNS Key flags enumeration."""
     FLAG_256 = 256
     FLAG_257 = 257
 
 
 @dataclass
 class DSRecordKeyData:
-    """DNSSEC Key data"""
+    """DNSSEC Key data enumeration."""
     flag: str
     algorithm: DNSSECAlgorithm
     public_key: str
@@ -56,7 +56,7 @@ class DSRecordKeyData:
 
 @dataclass
 class DSRecordData:
-    """DNSSEC data"""
+    """DNSSEC dataclass."""
     key_tag: int
     algorithm: DNSSECAlgorithm
     digest_type: DigestTypeEnum
@@ -66,7 +66,7 @@ class DSRecordData:
 
 @dataclass
 class DomainData:
-    """Domain name data"""
+    """Domain name dataclass."""
     # pylint: disable=too-many-instance-attributes
     domain_name: str
     registrant: str
@@ -90,11 +90,11 @@ class DomainData:
 
 class Domain(BaseCommand):
     """
-    Epp Domain
+    Epp domain object class is used to create and manage domain names in Registry.
     """
 
     def _data_to_dict(self, data: DomainData) -> dict:
-        """Convert dataclass to dictionary.
+        """Convert a domain dataclass to a dictionary.
 
         :param DomainData data: Domain name details
 
@@ -107,7 +107,8 @@ class Domain(BaseCommand):
 
     # pylint: disable=R0801
     def check(self, domain_names: list[str]) -> dict:
-        """This command is used to determine if a domain object can be provisioned.
+        """A successful Domain Check request determines whether a domain name is available for use and whether a domain
+        name registration can be successfully created in the Registry.
 
         :param list domain_names: List of domain names
 
@@ -137,9 +138,9 @@ class Domain(BaseCommand):
         return result
 
     def info(self, domain_name: str) -> dict:
-        """This is used to retrieve information associated with a domain object.
+        """A successful Domain Info request retrieves information associated with an existing domain name.
 
-        :param str domain_name: Domain name
+        :param domain_name: Domain name
 
         :return: Domain name details
         :rtype: dict
@@ -194,9 +195,10 @@ class Domain(BaseCommand):
         return result
 
     def create(self, domain: DomainData) -> dict:
-        """Create a domain object.
+        """A successful Domain Create request creates a domain object in the Registry, and also creates relationships
+        between the domain name and previously created contacts and hosts.
 
-        :param DomainData domain: Contact
+        :param domain: Contact
 
         :return: Response object
         :rtype: dict
@@ -208,9 +210,9 @@ class Domain(BaseCommand):
         return result
 
     def delete(self, domain_name: str) -> dict:
-        """Delete a domain object.
+        """This command provides a transform operation that allows a client to delete a domain object
 
-        :param str domain_name: Domain Name
+        :param domain_name: Domain Name
 
         :return: Response object
         :rtype: dict
@@ -220,11 +222,11 @@ class Domain(BaseCommand):
         return result
 
     def renew(self, domain_name: str, expiry_date: date, period: Optional[int] = 1) -> dict:
-        """Extends the registration period of a domain name. It also maintains existing status values.
+        """A successful Domain Renew request extends the registration period of a domain name.
 
-        :param str domain_name: Domain Name
-        :param date expiry_date: expiry date
-        :param int period: period
+        :param domain_name: Domain Name
+        :param expiry_date: expiry date
+        :param period: period
 
         :return: Response object
         :rtype: dict
@@ -240,9 +242,9 @@ class Domain(BaseCommand):
         """transfers the sponsorship of a domain name from another Registrar to the Registrar
         submitting the request.
 
-        :param str domain_name: Domain Name
-        :param str password: The authorization password for the domain object
-        :param int period: period
+        :param domain_name: Domain Name
+        :param password: The authorization password for the domain object
+        :param period: period
 
         :return: Response object
         :rtype: dict
@@ -267,20 +269,21 @@ class Domain(BaseCommand):
                remove_hosts: Optional[list[str]] = None,
                password: Optional[str] = None
                ) -> dict:
-        """
+        """A successful Domain Update request modifies a domain object in the Registry, and may also add or delete
+        relationships between the domain name and previously created hosts and contacts.
 
-        :param str domain_name: Domain name to be updated
-        :param str registrant: A contact id to replace the current registrant
-        :param str admin: A contact id to replace the current admin
-        :param str tech: A contact id to replace the current tech
-        :param list[str] add_billings: A list of contact ids to add to the billing contacts
-        :param list[str] remove_billings: A list of contact ids to remove from the billing contacts
-        :param list[tuple] add_statues: List of statuses to be added tio the domain name. The tuple must contain two
+        :param domain_name: Domain name to be updated
+        :param registrant: A contact id to replace the current registrant
+        :param admin: A contact id to replace the current admin
+        :param tech: A contact id to replace the current tech
+        :param add_billings: A list of contact ids to add to the billing contacts
+        :param remove_billings: A list of contact ids to remove from the billing contacts
+        :param add_statues: List of statuses to be added tio the domain name. The tuple must contain two
             elements. The first one will be the Status Code and the second element will be Descriptions.
-        :param list[str] remove_statues: A list of statues to be removed from the domain name.
-        :param list[str] add_hosts: A list of host names to be added to the domain name.
-        :param list[str] remove_hosts: A list of host names to be removed from the domain name.
-        :param str password: A new password to replace the old password.
+        :param remove_statues: A list of statues to be removed from the domain name.
+        :param add_hosts: A list of host names to be added to the domain name.
+        :param remove_hosts: A list of host names to be removed from the domain name.
+        :param password: A new password to replace the old password.
 
         :return: Response object
         :rtype: dict
