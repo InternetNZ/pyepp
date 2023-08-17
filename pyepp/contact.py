@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import CONTACT_CHECK_XML, CONTACT_INFO_XML, CONTACT_CREAT_XML, CONTACT_DELETE_XML, \
     CONTACT_UPDATE_XML
-from pyepp.epp import EppResultCode
+from pyepp.epp import EppResultCode, EppResultData
 
 
 @dataclass
@@ -91,7 +91,7 @@ class Contact(BaseCommand):
 
         return data_dict
 
-    def check(self, contact_ids: list[str]) -> dict:
+    def check(self, contact_ids: list[str]) -> EppResultData:
         """A successful Contact Check request determines whether a Contact ID is available for use and whether a contact
         can be created in the Registry. When creating a new contact, the Registrar must generate a Registry-unique
         contact ID. A Registry Contact Check request can determine whether an ID is already in use.
@@ -99,14 +99,14 @@ class Contact(BaseCommand):
         :param list contact_ids: List of contact ids
 
         :return: contact check result
-        :rtype: dict
+        :rtype: EppResultData
         """
         result = self.execute(CONTACT_CHECK_XML, ids=contact_ids)
 
-        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
+        if result.code != int(EppResultCode.SUCCESS.value):
             return result
 
-        raw_response = BeautifulSoup(result.get('raw_response'), 'xml')
+        raw_response = BeautifulSoup(result.raw_response, 'xml')
         contacts_check_data = raw_response.find_all('cd')
 
         result_data = {}
@@ -119,11 +119,11 @@ class Contact(BaseCommand):
                 'reason': reason,
             }
 
-        result['result_data'] = result_data
+        result.result_data = result_data
 
         return result
 
-    def info(self, contact_id: str) -> dict:
+    def info(self, contact_id: str) -> EppResultData:
         """
         A successful Contact Info request retrieves information associated with an existing contact.
         All available information is returned if the querying Registrar is the contact’s sponsor. For a non-sponsoring
@@ -134,14 +134,14 @@ class Contact(BaseCommand):
         :param contact_id: Contact ID
 
         :return: Contact details
-        :rtype: dict
+        :rtype: EppResultData
         """
         result = self.execute(CONTACT_INFO_XML, id=contact_id)
 
-        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
+        if result.code != int(EppResultCode.SUCCESS.value):
             return result
 
-        raw_response = BeautifulSoup(result.get('raw_response'), 'xml')
+        raw_response = BeautifulSoup(result.raw_response, 'xml')
 
         result_data = {
             'id': raw_response.find('id').text,
@@ -176,19 +176,19 @@ class Contact(BaseCommand):
         if raw_response.find('pw'):
             result_data['password'] = raw_response.find('pw').text
 
-        result['result_data'] = ContactData(**result_data)
+        result.result_data = ContactData(**result_data)
 
         return result
 
-    def create(self, contact: ContactData) -> dict:
+    def create(self, contact: ContactData) -> EppResultData:
         """A successful Contact Create request creates a contact object in the Registry. To create a domain name
         successfully, a Registrar does not need to be the sponsor of the related hosts but must be the sponsor of all
         assigned contacts.
 
         :param contact: Contact
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         params = self._data_to_dict(contact)
 
@@ -196,12 +196,12 @@ class Contact(BaseCommand):
 
         return result
 
-    def delete(self, contact_id: str) -> dict:
+    def delete(self, contact_id: str) -> EppResultData:
         """A successful Contact Delete request deletes a contact object from the Registry
 
         :param contact_id: Contact ID
 
-        :return: Response object
+        :return: Result object
         """
         result = self.execute(CONTACT_DELETE_XML, id=contact_id)
 
@@ -211,7 +211,7 @@ class Contact(BaseCommand):
                contact: ContactData,
                add_status: Optional[str] = '',
                remove_status: Optional[str] = '',
-               ) -> dict:
+               ) -> EppResultData:
         """A successful Contact Update request modifies a contact object in the Registry. Updates to Registrant contacts
         must be valid and must be complete.
 
@@ -219,8 +219,8 @@ class Contact(BaseCommand):
         :param add_status: Status to be added
         :param remove_status: Status to be removed
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
 
         params = self._data_to_dict(contact)

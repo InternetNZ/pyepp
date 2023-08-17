@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from bs4 import BeautifulSoup
 
+from epp import EppResultData
 from pyepp import EppResultCode
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import POLL_REQUEST_XML, POLL_ACK_XML
@@ -46,19 +47,19 @@ class Poll(BaseCommand):
 
         return data_dict
 
-    def request(self) -> dict:
+    def request(self) -> EppResultData:
         """This command is to check and retrieve queued service messages as wel as keep the
         connection alive.
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(POLL_REQUEST_XML)
 
-        if int(result.get('code')) != int(EppResultCode.SUCCESS_ACK_TO_DEQUEUE.value):
+        if int(result.code) != int(EppResultCode.SUCCESS_ACK_TO_DEQUEUE.value):
             return result
 
-        message_queue = BeautifulSoup(result.get('raw_response'), 'xml')
+        message_queue = BeautifulSoup(result.raw_response, 'xml')
 
         result_date = {
             'message_count': int(message_queue.find('msgQ').get('count')),
@@ -68,29 +69,29 @@ class Poll(BaseCommand):
                          message_queue.find_all('msg')[1:]] if message_queue.find('msg') else None
         }
 
-        result['result_data'] = ServiceMessageQueueData(**result_date)
+        result.result_data = ServiceMessageQueueData(**result_date)
 
         return result
 
-    def acknowledge(self, message_id: int) -> dict:
+    def acknowledge(self, message_id: int) -> EppResultData:
         """This command will acknowledge and remove a message from the poll queue so that registrars can run another
         poll request to get the next message in line if one exists.
 
         :return: Response object
-        :rtype: dict
+        :rtype: EppResultData
         """
         result = self.execute(POLL_ACK_XML, message_id=message_id)
 
-        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
+        if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
 
-        message_queue = BeautifulSoup(result.get('raw_response'), 'xml')
+        message_queue = BeautifulSoup(result.raw_response, 'xml')
 
         result_date = {
             'message_count': int(message_queue.find('msgQ').get('count')),
             'message_id': int(message_queue.find('msgQ').get('id')),
         }
 
-        result['result_data'] = ServiceMessageQueueData(**result_date)
+        result.result_data = ServiceMessageQueueData(**result_date)
 
         return result

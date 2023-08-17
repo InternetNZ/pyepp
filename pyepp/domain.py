@@ -8,6 +8,7 @@ from datetime import date
 
 from bs4 import BeautifulSoup
 
+from epp import EppResultData
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import DOMAIN_CHECK_XML, DOMAIN_INFO_XML, DOMAIN_CREATE_XML, DOMAIN_DELETE_XML, \
     DOMAIN_RENEW_XML, TRANSFER_REQUEST_XML, DOMAIN_UPDATE_XML
@@ -106,21 +107,21 @@ class Domain(BaseCommand):
         return data_dict
 
     # pylint: disable=R0801
-    def check(self, domain_names: list[str]) -> dict:
+    def check(self, domain_names: list[str]) -> EppResultData:
         """A successful Domain Check request determines whether a domain name is available for use and whether a domain
         name registration can be successfully created in the Registry.
 
         :param list domain_names: List of domain names
 
-        :return: domain name check result
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(DOMAIN_CHECK_XML, domain_names=domain_names)
 
-        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
+        if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
 
-        raw_response = BeautifulSoup(result.get('raw_response'), 'xml')
+        raw_response = BeautifulSoup(result.raw_response, 'xml')
         domains_check_data = raw_response.find_all('cd')
 
         result_data = {}
@@ -133,24 +134,24 @@ class Domain(BaseCommand):
                 'reason': reason,
             }
 
-        result['result_data'] = result_data
+        result.result_data = result_data
 
         return result
 
-    def info(self, domain_name: str) -> dict:
+    def info(self, domain_name: str) -> EppResultData:
         """A successful Domain Info request retrieves information associated with an existing domain name.
 
         :param domain_name: Domain name
 
-        :return: Domain name details
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(DOMAIN_INFO_XML, domain_name=domain_name)
 
-        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
+        if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
 
-        raw_response = BeautifulSoup(result.get('raw_response'), 'xml')
+        raw_response = BeautifulSoup(result.raw_response, 'xml')
 
         result_data = {
             'domain_name': raw_response.find('name').text,
@@ -190,18 +191,18 @@ class Domain(BaseCommand):
             } if raw_response.find('keyData') else None
         }
 
-        result['result_data'] = DomainData(**result_data)
+        result.result_data = DomainData(**result_data)
 
         return result
 
-    def create(self, domain: DomainData) -> dict:
+    def create(self, domain: DomainData) -> EppResultData:
         """A successful Domain Create request creates a domain object in the Registry, and also creates relationships
         between the domain name and previously created contacts and hosts.
 
         :param domain: Contact
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         params = self._data_to_dict(domain)
 
@@ -209,27 +210,27 @@ class Domain(BaseCommand):
 
         return result
 
-    def delete(self, domain_name: str) -> dict:
+    def delete(self, domain_name: str) -> EppResultData:
         """This command provides a transform operation that allows a client to delete a domain object
 
         :param domain_name: Domain Name
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(DOMAIN_DELETE_XML, domain_name=domain_name)
 
         return result
 
-    def renew(self, domain_name: str, expiry_date: date, period: Optional[int] = 1) -> dict:
+    def renew(self, domain_name: str, expiry_date: date, period: Optional[int] = 1) -> EppResultData:
         """A successful Domain Renew request extends the registration period of a domain name.
 
         :param domain_name: Domain Name
         :param expiry_date: expiry date
         :param period: period
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(DOMAIN_RENEW_XML,
                               domain_name=domain_name,
@@ -238,7 +239,7 @@ class Domain(BaseCommand):
 
         return result
 
-    def transfer(self, domain_name: str, password: str, period: Optional[int] = None, ) -> dict:
+    def transfer(self, domain_name: str, password: str, period: Optional[int] = None, ) -> EppResultData:
         """transfers the sponsorship of a domain name from another Registrar to the Registrar
         submitting the request.
 
@@ -246,8 +247,8 @@ class Domain(BaseCommand):
         :param password: The authorization password for the domain object
         :param period: period
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(TRANSFER_REQUEST_XML,
                               domain_name=domain_name,
@@ -268,7 +269,7 @@ class Domain(BaseCommand):
                add_hosts: Optional[list[str]] = None,
                remove_hosts: Optional[list[str]] = None,
                password: Optional[str] = None
-               ) -> dict:
+               ) -> EppResultData:
         """A successful Domain Update request modifies a domain object in the Registry, and may also add or delete
         relationships between the domain name and previously created hosts and contacts.
 
@@ -285,8 +286,8 @@ class Domain(BaseCommand):
         :param remove_hosts: A list of host names to be removed from the domain name.
         :param password: A new password to replace the old password.
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         remove_admin = None
         remove_tech = None

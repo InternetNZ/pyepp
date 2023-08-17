@@ -7,6 +7,7 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
+from epp import EppResultData
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import HOST_CHECK_XML, HOST_INFO_XML, HOST_CREAT_XML, HOST_DELETE_XML, HOST_UPDATE_XML
 from pyepp.epp import EppResultCode
@@ -58,21 +59,21 @@ class Host(BaseCommand):
 
         return data_dict
 
-    def check(self, host_names: list[str]) -> dict:
+    def check(self, host_names: list[str]) -> EppResultData:
         """A successful Host Check request determines whether a host is available for use and whether a host can be
         created in the Registry. A single request can check from 1 to 15 host names.
 
         :param host_names: List of domain names
 
-        :return: host name check result
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(HOST_CHECK_XML, host_names=host_names)
 
-        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
+        if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
 
-        raw_response = BeautifulSoup(result.get('raw_response'), 'xml')
+        raw_response = BeautifulSoup(result.raw_response, 'xml')
         domains_check_data = raw_response.find_all('cd')
 
         result_data = {}
@@ -89,20 +90,20 @@ class Host(BaseCommand):
 
         return result
 
-    def info(self, host_name: str) -> dict:
+    def info(self, host_name: str) -> EppResultData:
         """A successful Host Info request retrieves detailed host information.
 
         :param host_name: Host name
 
-        :return: Host name details
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(HOST_INFO_XML, host_name=host_name)
 
-        if int(result.get('code')) != int(EppResultCode.SUCCESS.value):
+        if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
 
-        raw_response = BeautifulSoup(result.get('raw_response'), 'xml')
+        raw_response = BeautifulSoup(result.raw_response, 'xml')
 
         result_data = {
             'host_name': raw_response.find('name').text,
@@ -119,13 +120,13 @@ class Host(BaseCommand):
 
         return result
 
-    def create(self, host: HostData) -> dict:
+    def create(self, host: HostData) -> EppResultData:
         """A successful Host Create request creates a host object identified by its name in the Registry.
 
         :param host: Contact
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         params = self._data_to_dict(host)
 
@@ -133,14 +134,14 @@ class Host(BaseCommand):
 
         return result
 
-    def delete(self, host_name: str) -> dict:
+    def delete(self, host_name: str) -> EppResultData:
         """A successful Host Delete request deletes a host object.
         Warning: A host object cannot be deleted while it is associated with a domain object.
 
         :param host_name: Host Name
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
         result = self.execute(HOST_DELETE_XML, host_name=host_name)
 
@@ -153,7 +154,7 @@ class Host(BaseCommand):
                add_statue: Optional[list[str]] = None,
                remove_statue: Optional[list[str]] = None,
                new_host_name: Optional[str] = None
-               ) -> dict:
+               ) -> EppResultData:
         """The EPP <update> command provides a transform operation that allows a client to modify the attributes of a
         host object.
 
@@ -164,8 +165,8 @@ class Host(BaseCommand):
         :param remove_statue: A list of statues to be removed from host
         :param new_host_name: The host name will be changed to this new host name
 
-        :return: Response object
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
         """
 
         add = bool(add_ip_address or add_statue)
