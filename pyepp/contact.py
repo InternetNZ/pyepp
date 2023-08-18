@@ -152,10 +152,10 @@ class Contact(BaseCommand):
             'sponsoring_client_id': raw_response.find('clID').text,
             'update_client_id': raw_response.find('upID').text,
             'update_date': raw_response.find('upDate').text,
-            'postal_info': {
+            'postal_info': PostalInfoData(**{
                 'name': raw_response.find('name').text,
                 'organization': raw_response.find('org').text if raw_response.find('org') else None,
-                'address': {
+                'address': AddressData(**{
                     'street_1': raw_response.find_all('street')[0].text,
                     'street_2': raw_response.find_all('street')[1].text
                     if len(raw_response.find_all('street')) > 1 else None,
@@ -166,8 +166,8 @@ class Contact(BaseCommand):
                     'postal_code': raw_response.find('pc').text if raw_response.find(
                         'pc') else None,
                     'country_code': raw_response.find('cc').text,
-                },
-            },
+                }),
+            }),
             'phone': raw_response.find('voice').text if raw_response.find('voice') else None,
             'fax': raw_response.find('fax').text if raw_response.find('fax') else None,
             'email': raw_response.find('email').text,

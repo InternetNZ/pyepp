@@ -150,7 +150,7 @@ class EppCommunicator:
         if not length:
             return None
 
-        total_bytes = self._unpack_data(int(length)) - LENGTH_FIELD_SIZE
+        total_bytes = self._unpack_data(length) - LENGTH_FIELD_SIZE
         while len(buffer) < total_bytes:
             total_bytes = total_bytes - len(buffer)
             buffer += self._ssl_socket.recv(total_bytes)
@@ -244,7 +244,7 @@ class EppCommunicator:
             message = result.find('msg').string
 
             try:
-                code = int(result.code)
+                code = int(result.get('code'))
             except AttributeError as exc:
                 raise EppCommunicatorException("Could not get result code.") from exc
 

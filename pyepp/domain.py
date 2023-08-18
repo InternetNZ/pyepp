@@ -171,7 +171,7 @@ class Domain(BaseCommand):
             'transfer_date': raw_response.find('trDate').text if raw_response.find('trDate') else None,
             'password': raw_response.find('pw').text if raw_response.find('pw') else None,
             'period': None,
-            'dns_sec': {
+            'dns_sec': DSRecordData(**{
                 'key_tag': raw_response.find('keyTag').text,
                 'algorithm': raw_response.find('alg').text,
                 'digest_type': raw_response.find('digestType').text,
@@ -182,13 +182,13 @@ class Domain(BaseCommand):
                     'alg': raw_response.find('algorithm').text,
                     'pubKey': raw_response.find('public_key').text,
                 } if raw_response.find('keyData') else None
-            } if raw_response.find('dsData') else None,
-            'dns_key': {
+            }) if raw_response.find('dsData') else None,
+            'dns_key': DSRecordKeyData(**{
                 'flags': raw_response.find('flag').text,
                 'protocol': raw_response.find('protocol').text,
                 'alg': raw_response.find('algorithm').text,
                 'pubKey': raw_response.find('public_key').text,
-            } if raw_response.find('keyData') else None
+            }) if raw_response.find('keyData') else None
         }
 
         result.result_data = DomainData(**result_data)
