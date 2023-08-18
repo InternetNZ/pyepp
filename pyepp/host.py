@@ -7,7 +7,7 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
-from epp import EppResultData
+from pyepp.epp import EppResultData
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import HOST_CHECK_XML, HOST_INFO_XML, HOST_CREAT_XML, HOST_DELETE_XML, HOST_UPDATE_XML
 from pyepp.epp import EppResultCode

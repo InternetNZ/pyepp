@@ -8,7 +8,7 @@ from datetime import date
 
 from bs4 import BeautifulSoup
 
-from epp import EppResultData
+from pyepp.epp import EppResultData
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import DOMAIN_CHECK_XML, DOMAIN_INFO_XML, DOMAIN_CREATE_XML, DOMAIN_DELETE_XML, \
     DOMAIN_RENEW_XML, TRANSFER_REQUEST_XML, DOMAIN_UPDATE_XML

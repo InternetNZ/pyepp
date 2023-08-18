@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from bs4 import BeautifulSoup
 
-from epp import EppResultData
+from pyepp.epp import EppResultData
 from pyepp import EppResultCode
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import POLL_REQUEST_XML, POLL_ACK_XML
