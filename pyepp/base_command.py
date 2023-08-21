@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from html import escape
 
 import pyepp.helper as helper  # pylint: disable=consider-using-from-import
-from pyepp.epp import EppCommunicator
+from pyepp.epp import EppCommunicator, EppResultData
 from pyepp.command_templates import template_engine
 
 
@@ -30,7 +30,7 @@ class BaseCommand:
         """
         self._epp_communicator = epp_communicator
 
-    def execute(self, xml_command: str, **kwargs) -> dict:
+    def execute(self, xml_command: str, **kwargs) -> EppResultData:
         """This receives an EPP XML command and the arguments and send to the EPP server to be executed.
 
         :param xml_command: XML command
