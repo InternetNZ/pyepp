@@ -56,8 +56,11 @@ def get_format_32() -> str:
     return format_32
 
 
+# pylint: disable=too-many-instance-attributes
 @dataclass
 class EppResultData:
+    """Epp result data structure.
+    """
     code: int
     message: str
     raw_response: str
@@ -77,9 +80,7 @@ class EppResultData:
         return len(self.__dict__)
 
     def to_dict(self) -> dict:
-        """
-
-        :return:
+        """Convert an EppResultData object to a dictionary.
         """
         return asdict(self)
 

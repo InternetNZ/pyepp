@@ -177,17 +177,17 @@ class Domain(BaseCommand):
                 'digest_type': raw_response.find('digestType').text,
                 'digest': raw_response.find('digest').text,
                 'dns_key': {
-                    'flags': raw_response.find('flag').text,
+                    'flag': raw_response.find('flag').text,
                     'protocol': raw_response.find('protocol').text,
-                    'alg': raw_response.find('algorithm').text,
-                    'pubKey': raw_response.find('public_key').text,
+                    'algorithm': raw_response.find('algorithm').text,
+                    'public_key': raw_response.find('public_key').text,
                 } if raw_response.find('keyData') else None
             }) if raw_response.find('dsData') else None,
             'dns_key': DSRecordKeyData(**{
-                'flags': raw_response.find('flag').text,
+                'flag': raw_response.find('flag').text,
                 'protocol': raw_response.find('protocol').text,
-                'alg': raw_response.find('algorithm').text,
-                'pubKey': raw_response.find('public_key').text,
+                'algorithm': raw_response.find('algorithm').text,
+                'public_key': raw_response.find('public_key').text,
             }) if raw_response.find('keyData') else None
         }
 
