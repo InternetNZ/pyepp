@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from pyepp.command_templates import HELLO_XML
-from pyepp.epp import EppCommunicator, EppCommunicatorException
+from pyepp.epp import EppCommunicator, EppCommunicatorException, EppResultCode, EppResultData
 
 
 class PyEPPTests(unittest.TestCase):
@@ -48,17 +48,19 @@ class PyEPPTests(unittest.TestCase):
     def test_login_1000(self) -> None:
         epp = EppCommunicator(**self.epp_config)
         expected_result = \
-            {'code': 1000, 'message': "Command completed successfully", 'reason': None, 'response': "response"}
+            EppResultData(**{'code': 1000, 'message': "Command completed successfully",
+                             'reason': None, 'raw_response': "response", 'result_data': None})
         epp.execute = MagicMock(return_value=expected_result)
         epp.connect = MagicMock(return_value=None)
 
         result = epp.login("user", "pass")
-        self.assertDictEqual(expected_result, result)
+        self.assertEqual(expected_result, result)
 
     def test_login_2004(self) -> None:
         epp = EppCommunicator(**self.epp_config)
         expected_result = \
-            {'code': 2004, 'message': "Command completed successfully", 'reason': None, 'response': "response"}
+            EppResultData(**{'code': 2004, 'message': "Command completed successfully",
+                             'reason': None, 'raw_response': "response", 'result_data': None})
         epp.execute = MagicMock(return_value=expected_result)
         epp.connect = MagicMock(return_value=None)
 
@@ -67,7 +69,8 @@ class PyEPPTests(unittest.TestCase):
     def test_login_other(self) -> None:
         epp = EppCommunicator(**self.epp_config)
         expected_result = \
-            {'code': 3000, 'message': "Command completed successfully", 'reason': None, 'response': "response"}
+            EppResultData(**{'code': 3000, 'message': "Command completed successfully",
+                             'reason': None, 'raw_response': "response", 'result_data': None})
         epp.execute = MagicMock(return_value=expected_result)
         epp.connect = MagicMock(return_value=None)
 
@@ -76,13 +79,14 @@ class PyEPPTests(unittest.TestCase):
     def test_logout(self) -> None:
         epp = EppCommunicator(**self.epp_config)
         expected_result = \
-            {'code': 1500, 'message': 'Command completed successfully; ending session', 'reason': None, 'response': None}
+            EppResultData(**{'code': 1500, 'message': "Command completed successfully",
+                             'reason': None, 'raw_response': "response", 'result_data': None})
         epp.execute = MagicMock(return_value=expected_result)
         epp.connect = MagicMock(return_value=None)
         epp._socket = MagicMock(close=MagicMock())
 
         result = epp.logout()
-        self.assertDictEqual(expected_result, result)
+        self.assertEqual(expected_result, result)
 
     def test_execute_not_connected(self) -> None:
         epp = EppCommunicator(**self.epp_config)
@@ -103,18 +107,19 @@ class PyEPPTests(unittest.TestCase):
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1"><response><result code="2000"><msg>There is an error</msg><reason>Because!</reason></result><trID><svTRID>CIRA-000057351729-0000000001</svTRID></trID></response></epp>'''
         epp._execute_command = MagicMock(return_value=raw_response)
         expected_result = \
-            {'code': 2000,
-             'message': 'There is an error',
-             'reason': 'Because!',
-             'raw_response': '<response><result code="2000"><msg>There is an error</msg><reason>Because!</reason></result><trID><svTRID>CIRA-000057351729-0000000001</svTRID></trID></response>',
-             'client_transaction_id': None,
-             'server_transaction_id': 'CIRA-000057351729-0000000001',
-             'repository_object_id': None,
-             }
+            EppResultData(**{'code': 2000,
+                             'message': 'There is an error',
+                             'reason': 'Because!',
+                             'raw_response': '<response><result code="2000"><msg>There is an error</msg><reason>Because!</reason></result><trID><svTRID>CIRA-000057351729-0000000001</svTRID></trID></response>',
+                             'client_transaction_id': None,
+                             'server_transaction_id': 'CIRA-000057351729-0000000001',
+                             'repository_object_id': None,
+                             'result_data': None
+                             })
 
         epp.connect()
         result = epp.execute(HELLO_XML)
-        self.assertDictEqual(result, expected_result)
+        self.assertEqual(result, expected_result)
 
     def test_execute(self) -> None:
         epp = EppCommunicator(**self.epp_config)
@@ -123,7 +128,8 @@ class PyEPPTests(unittest.TestCase):
         raw_response = b'<?xml version="1.0" encoding="UTF-8"?>\n<epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">\n    <response>\n<result code="1000">\n<msg>Command completed successfully</msg>\n</result>\n<trID>\n<svTRID>CIRA-000057351729-0000000001</svTRID>\n</trID>\n</response>\n</epp>'
         epp._execute_command = MagicMock(return_value=raw_response)
         expected_result = \
-            {'code': 1000, 'message': 'Command completed successfully', 'reason': None, 'raw_response': '''<response>
+            EppResultData(**{'code': 1000, 'message': 'Command completed successfully', 'reason': None,
+                             'raw_response': '''<response>
 <result code="1000">
 <msg>Command completed successfully</msg>
 </result>
@@ -131,14 +137,15 @@ class PyEPPTests(unittest.TestCase):
 <svTRID>CIRA-000057351729-0000000001</svTRID>
 </trID>
 </response>''',
-             'client_transaction_id': None,
-             'server_transaction_id': 'CIRA-000057351729-0000000001',
-             'repository_object_id': None,
-             }
+                             'client_transaction_id': None,
+                             'server_transaction_id': 'CIRA-000057351729-0000000001',
+                             'repository_object_id': None,
+                             'result_data': None
+                             })
 
         epp.connect()
         result = epp.execute(HELLO_XML)
-        self.assertDictEqual(result, expected_result)
+        self.assertEqual(result, expected_result)
 
     def test_execute_epp_exception(self) -> None:
         epp = EppCommunicator(**self.epp_config)

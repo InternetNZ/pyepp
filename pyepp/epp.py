@@ -5,8 +5,9 @@ import ssl
 import socket
 import struct
 import logging
+from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Optional
+from typing import Optional, Any
 
 from bs4 import BeautifulSoup
 
@@ -53,6 +54,35 @@ def get_format_32() -> str:
             raise EppCommunicatorException("Integer size does not match the length size!")
 
     return format_32
+
+
+# pylint: disable=too-many-instance-attributes
+@dataclass
+class EppResultData:
+    """Epp result data structure.
+    """
+    code: int
+    message: str
+    raw_response: str
+    result_data: Any
+    reason: Optional[str] = None
+    client_transaction_id:  Optional[str] = None
+    server_transaction_id:  Optional[str] = None
+    repository_object_id:  Optional[str] = None
+
+    def __setitem__(self, key, value):
+        self.__dict__[key] = value
+
+    def __getitem__(self, key):
+        return self.__dict__[key]
+
+    def __len__(self):
+        return len(self.__dict__)
+
+    def to_dict(self) -> dict:
+        """Convert an EppResultData object to a dictionary.
+        """
+        return asdict(self)
 
 
 class EppCommunicator:
@@ -192,14 +222,14 @@ class EppCommunicator:
             logging.error("Could not setup a sec sure connection. %s", str(ex))
             raise EppCommunicatorException("Could not setup a sec sure connection") from ex
 
-    def execute(self, cmd: str) -> dict:
+    def execute(self, cmd: str) -> EppResultData:
         """
         Execute the command. Sending the request to the server and receive the response.
 
         :param str cmd: XML Command
 
-        :return: XML Response
-        :rtype: dict
+        :return: Result object
+        :rtype: EppResultData
 
         :raises EppCommunicatorException: When there is any errors.
         """
@@ -229,15 +259,16 @@ class EppCommunicator:
 
             logging.debug("Command executed:\n%s", xml_response)
 
-            return {
-                'code': code,
-                'message': message,
-                'reason': reason,
-                'raw_response': str(response),
-                'client_transaction_id': client_transaction_id,
-                'server_transaction_id': server_transaction_id,
-                'repository_object_id': repository_object_id,
-            }
+            return EppResultData(
+                code=code,
+                message=message,
+                reason=reason,
+                raw_response=str(response),
+                client_transaction_id=client_transaction_id,
+                server_transaction_id=server_transaction_id,
+                repository_object_id=repository_object_id,
+                result_data=None
+            )
         except EppCommunicatorException as epp_ex:
             raise epp_ex
         except Exception as ex:
@@ -254,7 +285,7 @@ class EppCommunicator:
         greeting = self._execute_command(HELLO_XML)
         return greeting
 
-    def login(self, user: str, password: str, extensions: Optional[list[str]] = None) -> dict:
+    def login(self, user: str, password: str, extensions: Optional[list[str]] = None) -> EppResultData:
         """
         Login the user to EPP server.
 
@@ -262,7 +293,8 @@ class EppCommunicator:
         :param password: password
         :param extensions: A list of supported extension URIs
 
-        :return: login
+        :return: Result object
+        :rtype: EppResultData
 
         :raises EppCommunicatorException: When there are any errors.
         """
@@ -276,19 +308,22 @@ class EppCommunicator:
 
         result = self.execute(command)
 
-        if result.get('code') == EppResultCode.SUCCESS.value:
+        if result.code == EppResultCode.SUCCESS.value:
             logging.info("User %s logged in to %s:%s", self._user, self._host, self._port)
-        elif result.get('code') == EppResultCode.PARAMETER_RANGE_ERROR.value:
+        elif result.code == EppResultCode.PARAMETER_RANGE_ERROR.value:
             raise EppCommunicatorException("Incorrect user name or password. Please try again!")
         else:
-            raise EppCommunicatorException(f"Something went wrong! Code: {result.get('code')} - Message: "
-                                           f"{result.get('message')} - Reason {result.get('reason')}")
+            raise EppCommunicatorException(f"Something went wrong! Code: {result.code} - Message: "
+                                           f"{result.message} - Reason {result.reason}")
 
         return result
 
-    def logout(self) -> dict:
+    def logout(self) -> EppResultData:
         """
         Logout the user from EPP server.
+
+        :return: Result object
+        :rtype: EppResultData
         """
 
         logout = self.execute(LOGOUT_XML)
