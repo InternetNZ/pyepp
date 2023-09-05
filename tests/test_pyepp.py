@@ -110,7 +110,7 @@ class PyEPPTests(unittest.TestCase):
             EppResultData(**{'code': 2000,
                              'message': 'There is an error',
                              'reason': 'Because!',
-                             'raw_response': '<response><result code="2000"><msg>There is an error</msg><reason>Because!</reason></result><trID><svTRID>CIRA-000057351729-0000000001</svTRID></trID></response>',
+                             'raw_response': raw_response,
                              'client_transaction_id': None,
                              'server_transaction_id': 'CIRA-000057351729-0000000001',
                              'repository_object_id': None,
@@ -129,14 +129,7 @@ class PyEPPTests(unittest.TestCase):
         epp._execute_command = MagicMock(return_value=raw_response)
         expected_result = \
             EppResultData(**{'code': 1000, 'message': 'Command completed successfully', 'reason': None,
-                             'raw_response': '''<response>
-<result code="1000">
-<msg>Command completed successfully</msg>
-</result>
-<trID>
-<svTRID>CIRA-000057351729-0000000001</svTRID>
-</trID>
-</response>''',
+                             'raw_response': raw_response,
                              'client_transaction_id': None,
                              'server_transaction_id': 'CIRA-000057351729-0000000001',
                              'repository_object_id': None,
