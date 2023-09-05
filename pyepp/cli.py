@@ -1,6 +1,7 @@
 """
 PyEpp command line interface module.
 """
+# pylint: skip-file
 import functools
 import pprint
 
