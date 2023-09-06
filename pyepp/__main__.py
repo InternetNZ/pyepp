@@ -11,12 +11,12 @@ logging.basicConfig(level=logging.CRITICAL)
 
 
 @click.group(name='pyepp')
-@click.option('--host', envvar="PYEPP_HOST")
-@click.option('--port', envvar="PYEPP_PORT")
-@click.option('--client-cert', envvar="PYEPP_CLIENT_CERT")
-@click.option('--client-key', envvar="PYEPP_CLIENT_KET")
-@click.option('--user', envvar="PYEPP_USER")
-@click.option('--password', envvar="PYEPP_PASSWORD")
+@click.option('--host', envvar="PYEPP_HOST", required=True)
+@click.option('--port', envvar="PYEPP_PORT", required=True)
+@click.option('--client-cert', envvar="PYEPP_CLIENT_CERT", required=True)
+@click.option('--client-key', envvar="PYEPP_CLIENT_KET", required=True)
+@click.option('--user', envvar="PYEPP_USER", required=True)
+@click.option('--password', envvar="PYEPP_PASSWORD", required=True)
 @click.option('-o', '--output-format', show_default=True, default='XML',
               type=click.Choice(['XML', 'OBJECT'], case_sensitive=False))
 @click.option('--no-pretty', is_flag=True, show_default=True, default=False)
