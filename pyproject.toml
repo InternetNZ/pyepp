@@ -36,4 +36,4 @@ dev = ["bandit", "coverage", "pylint", "pytest", "safety"]
 "Repository" = "https://github.com/InternetNZ/pyepp"
 
 [project.scripts]
-pyepp = "pyepp.__main__:pyepp_cli"
+pyepp = "pyepp.cli.__main__:pyepp_cli"

@@ -55,6 +55,8 @@ class PyEppCli:
             output = result.raw_response
             if not self.no_pretty:
                 output = xml_pretty(result.raw_response)
+        elif self.output_format == 'MIN':
+            return result.result_data
         else:
             if not self.no_pretty:
                 output = pprint.pformat(output)
@@ -100,11 +102,7 @@ class PyEppCli:
 pass_pyepp_cli = click.make_pass_decorator(PyEppCli)
 
 
-@click.group()
-@click.pass_context
-def contact(ctx):
-    """To work with Contact objects in the registry."""
-    ctx.obj.registry_object = Contact(ctx.obj.epp)
+
 
 
 @click.group()
@@ -128,66 +126,68 @@ def poll(ctx):
     pass
 
 
-@click.command()
-@click.pass_context
-def check(ctx) -> None:
-    pass
+# @click.command(name='info')
+# @click.argument('contact-id')
+# @click.pass_context
+# def contact_info(ctx, contact_id) -> None:
+#     """Returns contact details."""
+#     result = ctx.obj.info(contact_id)
+#     click.echo(result)
+#
+#
+# @click.command(name='check')
+# @click.argument('contact-ids', nargs=-1)
+# @click.pass_context
+# def contact_check(ctx, contact_ids: tuple) -> None:
+#     """"""
+#     result = ctx.obj.check(list(contact_ids))
+#     click.echo(result)
+#
+#
+# @click.command(name='delete')
+# @click.argument('contact-id')
+# @click.pass_context
+# def contact_delete(ctx, contact_id) -> None:
+#     result = ctx.obj.delete(list(contact_id))
+#     click.echo(result)
+#
+#
+# @click.command()
+# @click.pass_context
+# def update(ctx) -> None:
+#     pass
+#
+#
+# @click.command()
+# @click.pass_context
+# def create(ctx) -> None:
+#     pass
+#
+#
+# @click.command()
+# @click.pass_context
+# def renew(ctx) -> None:
+#     pass
+#
+#
+# @click.command()
+# @click.pass_context
+# def transfer(ctx) -> None:
+#     pass
 
 
-@click.command()
-@click.argument('id')
-@click.pass_context
-def info(ctx, id) -> None:
-    result = ctx.obj.info(id)
-    click.echo(result)
 
 
-@click.command()
-@click.pass_context
-def delete(ctx) -> None:
-    pass
-
-
-@click.command()
-@click.pass_context
-def update(ctx) -> None:
-    pass
-
-
-@click.command()
-@click.pass_context
-def create(ctx) -> None:
-    pass
-
-
-@click.command()
-@click.pass_context
-def renew(ctx) -> None:
-    pass
-
-
-@click.command()
-@click.pass_context
-def transfer(ctx) -> None:
-    pass
-
-
-contact.add_command(check)
-contact.add_command(info)
-contact.add_command(delete)
-contact.add_command(update)
-contact.add_command(create)
-
-domain.add_command(check)
-domain.add_command(info)
-domain.add_command(delete)
-domain.add_command(update)
-domain.add_command(create)
-domain.add_command(renew)
-domain.add_command(transfer)
-
-host.add_command(check)
-host.add_command(info)
-host.add_command(delete)
-host.add_command(update)
-host.add_command(create)
+# domain.add_command(check)
+# domain.add_command(info)
+# domain.add_command(delete)
+# domain.add_command(update)
+# domain.add_command(create)
+# domain.add_command(renew)
+# domain.add_command(transfer)
+#
+# host.add_command(check)
+# host.add_command(info)
+# host.add_command(delete)
+# host.add_command(update)
+# host.add_command(create)
