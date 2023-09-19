@@ -1,7 +1,7 @@
 [run]
 branch = True
 source = pyepp
-omit = pyepp/cli.py, pyepp/__main__.py
+omit = pyepp/cli/*
 
 [paths]
 source =

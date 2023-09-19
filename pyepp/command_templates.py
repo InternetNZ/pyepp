@@ -142,8 +142,8 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         <contact:chg>
          {% if postalinfo_change %}
           <contact:postalInfo type="loc">
-            <contact:name>{{ name }}</contact:name>
-            <contact:org>{{ organization }}</contact:org>
+            {% if name %} <contact:name>{{ name }}</contact:name> {% endif %}
+            {% if organization %} <contact:org>{{ organization }}</contact:org> {% endif %}
             {% if address_change %}
             <contact:addr>
                 {% if street_1 %} <contact:street>{{ street_1 }}</contact:street> {% endif %}
@@ -157,9 +157,9 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
            {% endif %}
          </contact:postalInfo>
          {% endif %}
-         <contact:voice>{{ phone }}</contact:voice>
-         {% if fax %} <contact:fax>{{ fax }}</contact:fax> {% else %} <contact:fax/> {% endif %}
-         <contact:email>{{ email }}</contact:email>
+         {% if phone %} <contact:voice>{{ phone }}</contact:voice> {% endif %}
+         {% if fax %} <contact:fax>{{ fax }}</contact:fax> {% endif %}
+         {% if email %} <contact:email>{{ email }}</contact:email> {% endif %}
          <contact:authInfo>
            <contact:pw>{{ password }}</contact:pw>
          </contact:authInfo>

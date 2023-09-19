@@ -16,9 +16,9 @@ from pyepp.epp import EppResultCode, EppResultData
 class AddressData:
     """Contact address data class.
     """
-    street_1: str
-    city: str
-    country_code: str
+    street_1: Optional[str] = ''
+    city: Optional[str] = ''
+    country_code:  Optional[str] = ''
     street_2: Optional[str] = ''
     street_3: Optional[str] = ''
     province: Optional[str] = ''
@@ -29,7 +29,7 @@ class AddressData:
 class PostalInfoData:
     """Contact postal info data class.
     """
-    name: str
+    name: Optional[str]
     organization: Optional[str] = ''
     address: Optional[AddressData] = None
 
@@ -40,15 +40,12 @@ class ContactData:
     """
     # pylint: disable=invalid-name,too-many-instance-attributes
     id: str
-    email: str
+    email: Optional[str] = ''
     postal_info: Optional[PostalInfoData] = None
     status: Optional[list[str]] = None
     phone: Optional[str] = ''
     fax: Optional[str] = ''
     password: Optional[str] = ''
-    client_transaction_id: Optional[str] = ''
-    server_transaction_id: Optional[str] = ''
-    repository_object_id: Optional[str] = ''
     create_date: Optional[str] = ''
     creat_client_id: Optional[str] = ''
     sponsoring_client_id: Optional[str] = ''
@@ -145,7 +142,6 @@ class Contact(BaseCommand):
 
         result_data = {
             'id': raw_response.find('id').text,
-            'repository_object_id': raw_response.find('roid').text,
             'status': [status.text for status in raw_response.find_all('status')],
             'create_date': raw_response.find('crDate').text,
             'creat_client_id': raw_response.find('crID').text,
