@@ -11,7 +11,7 @@ from pyepp.cli.contact import contact_group
 
 logging.basicConfig(level=logging.ERROR)
 
-CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
+CONTEXT_SETTINGS = {'help_option_names': ['-h', '--help']}
 
 
 @click.group(name='pyepp', context_settings=CONTEXT_SETTINGS)
