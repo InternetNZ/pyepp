@@ -151,8 +151,8 @@ class Host(BaseCommand):
     def update(self, host_name: str,
                add_ip_address: Optional[list[IPAddressData]] = None,
                remove_ip_address: Optional[list[IPAddressData]] = None,
-               add_statue: Optional[list[str]] = None,
-               remove_statue: Optional[list[str]] = None,
+               add_status: Optional[list[str]] = None,
+               remove_status: Optional[list[str]] = None,
                new_host_name: Optional[str] = None
                ) -> EppResultData:
         """The EPP <update> command provides a transform operation that allows a client to modify the attributes of a
@@ -161,16 +161,16 @@ class Host(BaseCommand):
         :param host_name: Host Name
         :param add_ip_address: A list of IP addressed to be added to the host
         :param remove_ip_address: A list of IP addressed to be removed from the host
-        :param add_statue: A list of statues to be added to the host
-        :param remove_statue: A list of statues to be removed from host
+        :param add_status: A list of status to be added to the host
+        :param remove_status: A list of status to be removed from host
         :param new_host_name: The host name will be changed to this new host name
 
         :return: Result object
         :rtype: EppResultData
         """
 
-        add = bool(add_ip_address or add_statue)
-        remove = bool(remove_ip_address or remove_statue)
+        add = bool(add_ip_address or add_status)
+        remove = bool(remove_ip_address or remove_status)
         change = bool(new_host_name)
 
         result = self.execute(HOST_UPDATE_XML,
@@ -180,8 +180,8 @@ class Host(BaseCommand):
                               change=change,
                               add_ip_address=add_ip_address,
                               remove_ip_address=remove_ip_address,
-                              add_statue=add_statue,
-                              remove_statue=remove_statue,
+                              add_status=add_status,
+                              remove_status=remove_status,
                               new_host_name=new_host_name)
 
         return result
