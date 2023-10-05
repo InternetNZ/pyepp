@@ -39,6 +39,20 @@ def pyepp_cli(ctx, host, port, client_cert, client_key, user, password, output_f
         logging.basicConfig(level=logging.DEBUG)
 
 
+@click.command('run')
+@click.argument('xml', type=click.File('rb'))
+@click.pass_context
+def run_xml(ctx, xml):
+    """Receive an XML file containing an EPP XML command and execute it.
+
+    XML: path to an XML file
+    """
+    xml_command = xml.read()
+    result = ctx.obj.execute(xml_command.decode('utf-8'))
+    click.echo(result)
+
+
+pyepp_cli.add_command(run_xml)
 pyepp_cli.add_command(contact_group)
 pyepp_cli.add_command(cli.domain)
 pyepp_cli.add_command(host_group)
