@@ -158,7 +158,7 @@ class Domain(BaseCommand):
         result_data = {
             'domain_name': raw_response.find('name').text,
             'sponsoring_client_id': raw_response.find('clID').text,
-            'status': [status.text for status in raw_response.find_all('status')],
+            'status': [status.get('s') for status in raw_response.find_all('status')],
             'host': [host.text for host in raw_response.find_all('hostObj')] if raw_response.find('ns') else None,
             'registrant': raw_response.find('registrant').text,
             'admin': raw_response.find('contact', {'type': 'admin'}).text,
