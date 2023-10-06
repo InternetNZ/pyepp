@@ -16,9 +16,9 @@ from pyepp.epp import EppResultCode, EppResultData
 class AddressData:
     """Contact address data class.
     """
-    street_1: str
-    city: str
-    country_code: str
+    street_1: Optional[str] = ''
+    city: Optional[str] = ''
+    country_code: Optional[str] = ''
     street_2: Optional[str] = ''
     street_3: Optional[str] = ''
     province: Optional[str] = ''
@@ -29,7 +29,7 @@ class AddressData:
 class PostalInfoData:
     """Contact postal info data class.
     """
-    name: str
+    name: Optional[str]
     organization: Optional[str] = ''
     address: Optional[AddressData] = None
 
@@ -40,15 +40,12 @@ class ContactData:
     """
     # pylint: disable=invalid-name,too-many-instance-attributes
     id: str
-    email: str
+    email: Optional[str] = ''
     postal_info: Optional[PostalInfoData] = None
     status: Optional[list[str]] = None
     phone: Optional[str] = ''
     fax: Optional[str] = ''
     password: Optional[str] = ''
-    client_transaction_id: Optional[str] = ''
-    server_transaction_id: Optional[str] = ''
-    repository_object_id: Optional[str] = ''
     create_date: Optional[str] = ''
     creat_client_id: Optional[str] = ''
     sponsoring_client_id: Optional[str] = ''
@@ -91,17 +88,18 @@ class Contact(BaseCommand):
 
         return data_dict
 
-    def check(self, contact_ids: list[str]) -> EppResultData:
+    def check(self, contact_ids: list[str], client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Contact Check request determines whether a Contact ID is available for use and whether a contact
         can be created in the Registry. When creating a new contact, the Registrar must generate a Registry-unique
         contact ID. A Registry Contact Check request can determine whether an ID is already in use.
 
-        :param list contact_ids: List of contact ids
+        :param contact_ids: List of contact ids
+        :param client_transaction_id: Client transaction id
 
         :return: contact check result
         :rtype: EppResultData
         """
-        result = self.execute(CONTACT_CHECK_XML, ids=contact_ids)
+        result = self.execute(CONTACT_CHECK_XML, ids=contact_ids, client_transaction_id=client_transaction_id)
 
         if result.code != int(EppResultCode.SUCCESS.value):
             return result
@@ -123,7 +121,7 @@ class Contact(BaseCommand):
 
         return result
 
-    def info(self, contact_id: str) -> EppResultData:
+    def info(self, contact_id: str, client_transaction_id: Optional[str] = None) -> EppResultData:
         """
         A successful Contact Info request retrieves information associated with an existing contact.
         All available information is returned if the querying Registrar is the contact’s sponsor. For a non-sponsoring
@@ -132,11 +130,12 @@ class Contact(BaseCommand):
         the <contact:info> will fail.
 
         :param contact_id: Contact ID
+        :param client_transaction_id: Client transaction id
 
         :return: Contact details
         :rtype: EppResultData
         """
-        result = self.execute(CONTACT_INFO_XML, id=contact_id)
+        result = self.execute(CONTACT_INFO_XML, id=contact_id, client_transaction_id=client_transaction_id)
 
         if result.code != int(EppResultCode.SUCCESS.value):
             return result
@@ -145,7 +144,6 @@ class Contact(BaseCommand):
 
         result_data = {
             'id': raw_response.find('id').text,
-            'repository_object_id': raw_response.find('roid').text,
             'status': [status.text for status in raw_response.find_all('status')],
             'create_date': raw_response.find('crDate').text,
             'creat_client_id': raw_response.find('crID').text,
@@ -180,30 +178,33 @@ class Contact(BaseCommand):
 
         return result
 
-    def create(self, contact: ContactData) -> EppResultData:
+    def create(self, contact: ContactData, client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Contact Create request creates a contact object in the Registry. To create a domain name
         successfully, a Registrar does not need to be the sponsor of the related hosts but must be the sponsor of all
         assigned contacts.
 
         :param contact: Contact
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
         params = self._data_to_dict(contact)
+        params['client_transaction_id'] = client_transaction_id
 
         result = self.execute(CONTACT_CREAT_XML, **params)
 
         return result
 
-    def delete(self, contact_id: str) -> EppResultData:
+    def delete(self, contact_id: str, client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Contact Delete request deletes a contact object from the Registry
 
         :param contact_id: Contact ID
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         """
-        result = self.execute(CONTACT_DELETE_XML, id=contact_id)
+        result = self.execute(CONTACT_DELETE_XML, id=contact_id, client_transaction_id=client_transaction_id)
 
         return result
 
@@ -211,6 +212,7 @@ class Contact(BaseCommand):
                contact: ContactData,
                add_status: Optional[str] = '',
                remove_status: Optional[str] = '',
+               client_transaction_id: Optional[str] = None
                ) -> EppResultData:
         """A successful Contact Update request modifies a contact object in the Registry. Updates to Registrant contacts
         must be valid and must be complete.
@@ -218,6 +220,7 @@ class Contact(BaseCommand):
         :param contact: Contact details to be updated
         :param add_status: Status to be added
         :param remove_status: Status to be removed
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
@@ -230,6 +233,7 @@ class Contact(BaseCommand):
 
         params['postalinfo_change'] = bool(contact.postal_info)
         params['address_change'] = bool(contact.postal_info.address)
+        params['client_transaction_id'] = client_transaction_id
 
         result = self.execute(CONTACT_UPDATE_XML, **params)
 

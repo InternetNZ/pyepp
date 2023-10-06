@@ -263,7 +263,7 @@ class EppCommunicator:
                 code=code,
                 message=message,
                 reason=reason,
-                raw_response=str(response),
+                raw_response=raw_response,
                 client_transaction_id=client_transaction_id,
                 server_transaction_id=server_transaction_id,
                 repository_object_id=repository_object_id,

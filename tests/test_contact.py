@@ -19,7 +19,6 @@ class ContactTest(unittest.TestCase):
     def test_data_to_dict(self) -> None:
         data = ContactData(
             id='id',
-            repository_object_id='repository_object_id',
             status=['status1', 'status2'],
             create_date='create_date',
             creat_client_id='creat_client_id',
@@ -47,7 +46,6 @@ class ContactTest(unittest.TestCase):
 
         expected_result = {
             'id': 'id',
-            'repository_object_id': 'repository_object_id',
             'status': ['status1', 'status2'],
             'create_date': 'create_date',
             'creat_client_id': 'creat_client_id',
@@ -66,8 +64,6 @@ class ContactTest(unittest.TestCase):
             'phone': 'phone',
             'fax': 'fax',
             'email': 'email',
-            'client_transaction_id': '',
-            'server_transaction_id': '',
             'password': '',
         }
 
@@ -240,9 +236,6 @@ class ContactTest(unittest.TestCase):
                                        phone=None,
                                        fax=None,
                                        password='PassWord',
-                                       client_transaction_id='',
-                                       server_transaction_id='',
-                                       repository_object_id='9175701-INZ',
                                        create_date='2023-02-23T02:59:16.784Z',
                                        creat_client_id='933',
                                        sponsoring_client_id='933',

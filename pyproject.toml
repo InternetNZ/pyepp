@@ -19,6 +19,7 @@ dependencies = [
     "jinja2>=3.1.2",
     "lxml>=4.9.3",
     "bs4>=0.0.1",
+    "click >= 8.1.7"
 ]
 requires-python = ">=3.10"
 
@@ -33,3 +34,6 @@ dev = ["bandit", "coverage", "pylint", "pytest", "safety"]
 [project.urls]
 "Homepage" = "https://github.com/InternetNZ/pyepp"
 "Repository" = "https://github.com/InternetNZ/pyepp"
+
+[project.scripts]
+pyepp = "pyepp.cli.__main__:pyepp_cli"
