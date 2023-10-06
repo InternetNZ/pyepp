@@ -156,7 +156,7 @@ class DomainTest(unittest.TestCase):
                              'repository_object_id': '9204701-INZ',
                              'result_data': DomainData(domain_name='internet.nz',
                                                        sponsoring_client_id='933',
-                                                       status=[''],
+                                                       status=['inactive'],
                                                        host=None,
                                                        registrant='inz-contact-1',
                                                        admin='inz-contact-1',
