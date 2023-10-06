@@ -61,7 +61,8 @@ def host_delete(ctx, host_name, client_transaction_id) -> None:
 @click.option('--transaction-client-id')
 @click.pass_context
 # pylint: disable=too-many-arguments, too-many-locals, too-many-boolean-expressions
-def host_update(ctx, host_name, add_ip, remove_ip, add_status, remove_status, new_host_name, client_transaction_id) -> None:
+def host_update(ctx, host_name, add_ip, remove_ip, add_status, remove_status, new_host_name,
+                client_transaction_id) -> None:
     """Updates host's details.
 
     HOST_NAME: Host name
