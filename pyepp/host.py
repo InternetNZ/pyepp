@@ -59,16 +59,17 @@ class Host(BaseCommand):
 
         return data_dict
 
-    def check(self, host_names: list[str]) -> EppResultData:
+    def check(self, host_names: list[str], client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Host Check request determines whether a host is available for use and whether a host can be
         created in the Registry. A single request can check from 1 to 15 host names.
 
         :param host_names: List of domain names
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(HOST_CHECK_XML, host_names=host_names)
+        result = self.execute(HOST_CHECK_XML, host_names=host_names, client_transaction_id=client_transaction_id)
 
         if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
@@ -90,15 +91,16 @@ class Host(BaseCommand):
 
         return result
 
-    def info(self, host_name: str) -> EppResultData:
+    def info(self, host_name: str, client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Host Info request retrieves detailed host information.
 
         :param host_name: Host name
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(HOST_INFO_XML, host_name=host_name)
+        result = self.execute(HOST_INFO_XML, host_name=host_name, client_transaction_id=client_transaction_id)
 
         if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
@@ -120,30 +122,33 @@ class Host(BaseCommand):
 
         return result
 
-    def create(self, host: HostData) -> EppResultData:
+    def create(self, host: HostData, client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Host Create request creates a host object identified by its name in the Registry.
 
         :param host: Contact
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
         params = self._data_to_dict(host)
+        params['client_transaction_id'] = client_transaction_id
 
         result = self.execute(HOST_CREAT_XML, **params)
 
         return result
 
-    def delete(self, host_name: str) -> EppResultData:
+    def delete(self, host_name: str, client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Host Delete request deletes a host object.
         Warning: A host object cannot be deleted while it is associated with a domain object.
 
         :param host_name: Host Name
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(HOST_DELETE_XML, host_name=host_name)
+        result = self.execute(HOST_DELETE_XML, host_name=host_name, client_transaction_id=client_transaction_id)
 
         return result
 
@@ -153,7 +158,8 @@ class Host(BaseCommand):
                remove_ip_address: Optional[list[IPAddressData]] = None,
                add_status: Optional[list[str]] = None,
                remove_status: Optional[list[str]] = None,
-               new_host_name: Optional[str] = None
+               new_host_name: Optional[str] = None,
+               client_transaction_id: Optional[str] = None
                ) -> EppResultData:
         """The EPP <update> command provides a transform operation that allows a client to modify the attributes of a
         host object.
@@ -164,6 +170,7 @@ class Host(BaseCommand):
         :param add_status: A list of status to be added to the host
         :param remove_status: A list of status to be removed from host
         :param new_host_name: The host name will be changed to this new host name
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
@@ -182,6 +189,7 @@ class Host(BaseCommand):
                               remove_ip_address=remove_ip_address,
                               add_status=add_status,
                               remove_status=remove_status,
-                              new_host_name=new_host_name)
+                              new_host_name=new_host_name,
+                              client_transaction_id=client_transaction_id)
 
         return result

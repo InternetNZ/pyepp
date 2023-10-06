@@ -15,28 +15,31 @@ def contact_group(ctx):
 
 @click.command(name='info')
 @click.argument('contact-id')
+@click.option('--client-transaction-id')
 @click.pass_context
-def contact_info(ctx, contact_id) -> None:
+def contact_info(ctx, contact_id, client_transaction_id) -> None:
     """Returns contact details."""
-    result = ctx.obj.info(contact_id)
+    result = ctx.obj.info(contact_id, client_transaction_id)
     click.echo(result)
 
 
 @click.command(name='check')
 @click.argument('contact-ids', nargs=-1)
+@click.option('--transaction-client-id')
 @click.pass_context
-def contact_check(ctx, contact_ids: tuple) -> None:
+def contact_check(ctx, contact_ids: tuple, client_transaction_id) -> None:
     """Checks if contact(s) exist in the registry."""
-    result = ctx.obj.check(list(contact_ids))
+    result = ctx.obj.check(list(contact_ids), client_transaction_id)
     click.echo(result)
 
 
 @click.command(name='delete')
 @click.argument('contact-id')
+@click.option('--transaction-client-id')
 @click.pass_context
-def contact_delete(ctx, contact_id) -> None:
+def contact_delete(ctx, contact_id, client_transaction_id) -> None:
     """Deletes a given contact from registry."""
-    result = ctx.obj.delete(contact_id)
+    result = ctx.obj.delete(contact_id, client_transaction_id)
     click.echo(result)
 
 
@@ -57,10 +60,11 @@ def contact_delete(ctx, contact_id) -> None:
 @click.option('--password')
 @click.option('--add-status')
 @click.option('--remove-status')
+@click.option('--transaction-client-id')
 @click.pass_context
 # pylint: disable=too-many-arguments, too-many-locals, too-many-boolean-expressions
 def contact_update(ctx, contact_id, name, organization, street_1, street_2, street_3, city, province, postal_code,
-                   country_code, phone, fax, email, password, add_status, remove_status) -> None:
+                   country_code, phone, fax, email, password, add_status, remove_status, client_transaction_id) -> None:
     """Updates contact's details.
 
     CONTACT_ID: Contact id
@@ -88,7 +92,7 @@ def contact_update(ctx, contact_id, name, organization, street_1, street_2, stre
             country_code=country_code
         )
 
-    result = ctx.obj.update(contact_to_update, add_status, remove_status)
+    result = ctx.obj.update(contact_to_update, add_status, remove_status, client_transaction_id)
     click.echo(result)
 
 
@@ -107,10 +111,11 @@ def contact_update(ctx, contact_id, name, organization, street_1, street_2, stre
 @click.option('--phone')
 @click.option('--fax')
 @click.option('--password')
+@click.option('--transaction-client-id')
 @click.pass_context
 # pylint: disable=too-many-arguments, too-many-locals
 def contact_create(ctx, contact_id, name, organization, street_1, street_2, street_3, city, province, postal_code,
-                   country_code, phone, fax, email, password) -> None:
+                   country_code, phone, fax, email, password, client_transaction_id) -> None:
     """Creates a new contact in the registry.
 
     CONTACT_ID: A unique contact id
@@ -136,7 +141,7 @@ def contact_create(ctx, contact_id, name, organization, street_1, street_2, stre
         )
     )
 
-    result = ctx.obj.create(contact_to_create)
+    result = ctx.obj.create(contact_to_create, client_transaction_id)
     click.echo(result)
 
 

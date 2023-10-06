@@ -15,34 +15,37 @@ def host_group(ctx):
 
 @click.command(name='info')
 @click.argument('host-name')
+@click.option('--transaction-client-id')
 @click.pass_context
-def host_info(ctx, host_name) -> None:
+def host_info(ctx, host_name, client_transaction_id) -> None:
     """Returns host details.
 
     HOST_NAME: Host name
     """
-    result = ctx.obj.info(host_name)
+    result = ctx.obj.info(host_name, client_transaction_id)
     click.echo(result)
 
 
 @click.command(name='check')
 @click.argument('host-names', nargs=-1)
+@click.option('--transaction-client-id')
 @click.pass_context
-def host_check(ctx, host_names: tuple) -> None:
+def host_check(ctx, host_names: tuple, client_transaction_id) -> None:
     """Checks if host(s) exist in the registry."""
-    result = ctx.obj.check(list(host_names))
+    result = ctx.obj.check(list(host_names), client_transaction_id)
     click.echo(result)
 
 
 @click.command(name='delete')
 @click.argument('host-name')
+@click.option('--transaction-client-id')
 @click.pass_context
-def host_delete(ctx, host_name) -> None:
+def host_delete(ctx, host_name, client_transaction_id) -> None:
     """Deletes a given host from registry.
 
     HOST_NAME: Host name
     """
-    result = ctx.obj.delete(host_name)
+    result = ctx.obj.delete(host_name, client_transaction_id)
     click.echo(result)
 
 
@@ -55,9 +58,10 @@ def host_delete(ctx, host_name) -> None:
 @click.option('--add-status', multiple=True, help="Add a status to host.")
 @click.option('--remove-status', multiple=True, help="Remove a status to host.")
 @click.option('--new-host-name', help="The host name will be changed to this new host name.")
+@click.option('--transaction-client-id')
 @click.pass_context
 # pylint: disable=too-many-arguments, too-many-locals, too-many-boolean-expressions
-def host_update(ctx, host_name, add_ip, remove_ip, add_status, remove_status, new_host_name) -> None:
+def host_update(ctx, host_name, add_ip, remove_ip, add_status, remove_status, new_host_name, client_transaction_id) -> None:
     """Updates host's details.
 
     HOST_NAME: Host name
@@ -71,7 +75,8 @@ def host_update(ctx, host_name, add_ip, remove_ip, add_status, remove_status, ne
                             remove_ip_address=remove_ip_address,
                             add_status=add_statue,
                             remove_status=remove_status,
-                            new_host_name=new_host_name)
+                            new_host_name=new_host_name,
+                            client_transaction_id=client_transaction_id)
     click.echo(result)
 
 
@@ -79,15 +84,17 @@ def host_update(ctx, host_name, add_ip, remove_ip, add_status, remove_status, ne
 @click.argument('host_name')
 @click.option('--ip-address', multiple=True, nargs=2, type=click.Tuple([str, str]),
               help="Add IP address to host. At least one required. <ADDRESS IP[v4, v6]>", required=True)
+@click.option('--transaction-client-id')
 @click.pass_context
-def host_create(ctx, host_name, ip_address) -> None:
+def host_create(ctx, host_name, ip_address, client_transaction_id) -> None:
     """Creates a new contact in the registry.
 
     HOST_NAME: A unique host name
     """
     ip_address = [IPAddressData(item[0], item[1]) for item in ip_address] if ip_address else None
     result = ctx.obj.create(HostData(host_name=host_name,
-                                     address=ip_address))
+                                     address=ip_address),
+                            client_transaction_id)
     click.echo(result)
 
 

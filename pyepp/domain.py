@@ -107,16 +107,17 @@ class Domain(BaseCommand):
         return data_dict
 
     # pylint: disable=R0801
-    def check(self, domain_names: list[str]) -> EppResultData:
+    def check(self, domain_names: list[str], client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Domain Check request determines whether a domain name is available for use and whether a domain
         name registration can be successfully created in the Registry.
 
         :param list domain_names: List of domain names
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(DOMAIN_CHECK_XML, domain_names=domain_names)
+        result = self.execute(DOMAIN_CHECK_XML, domain_names=domain_names, client_transaction_i=client_transaction_id)
 
         if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
@@ -138,15 +139,16 @@ class Domain(BaseCommand):
 
         return result
 
-    def info(self, domain_name: str) -> EppResultData:
+    def info(self, domain_name: str, client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Domain Info request retrieves information associated with an existing domain name.
 
         :param domain_name: Domain name
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(DOMAIN_INFO_XML, domain_name=domain_name)
+        result = self.execute(DOMAIN_INFO_XML, domain_name=domain_name, client_transaction_i=client_transaction_id)
 
         if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
@@ -195,39 +197,44 @@ class Domain(BaseCommand):
 
         return result
 
-    def create(self, domain: DomainData) -> EppResultData:
+    def create(self, domain: DomainData, client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Domain Create request creates a domain object in the Registry, and also creates relationships
         between the domain name and previously created contacts and hosts.
 
         :param domain: Contact
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
         params = self._data_to_dict(domain)
+        params['client_transaction_id'] = client_transaction_id
 
         result = self.execute(DOMAIN_CREATE_XML, **params)
 
         return result
 
-    def delete(self, domain_name: str) -> EppResultData:
+    def delete(self, domain_name: str, client_transaction_id: Optional[str] = None) -> EppResultData:
         """This command provides a transform operation that allows a client to delete a domain object
 
         :param domain_name: Domain Name
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(DOMAIN_DELETE_XML, domain_name=domain_name)
+        result = self.execute(DOMAIN_DELETE_XML, domain_name=domain_name, client_transaction_i=client_transaction_id)
 
         return result
 
-    def renew(self, domain_name: str, expiry_date: date, period: Optional[int] = 1) -> EppResultData:
+    def renew(self, domain_name: str, expiry_date: date, period: Optional[int] = 1,
+              client_transaction_id: Optional[str] = None) -> EppResultData:
         """A successful Domain Renew request extends the registration period of a domain name.
 
         :param domain_name: Domain Name
         :param expiry_date: expiry date
         :param period: period
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
@@ -235,17 +242,20 @@ class Domain(BaseCommand):
         result = self.execute(DOMAIN_RENEW_XML,
                               domain_name=domain_name,
                               expiry_date=expiry_date.strftime("%Y-%m-%d"),
-                              period=str(period))
+                              period=str(period),
+                              client_transaction_i=client_transaction_id)
 
         return result
 
-    def transfer(self, domain_name: str, password: str, period: Optional[int] = None, ) -> EppResultData:
+    def transfer(self, domain_name: str, password: str, period: Optional[int] = None,
+                 client_transaction_id: Optional[str] = None) -> EppResultData:
         """transfers the sponsorship of a domain name from another Registrar to the Registrar
         submitting the request.
 
         :param domain_name: Domain Name
         :param password: The authorization password for the domain object
         :param period: period
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
@@ -253,7 +263,8 @@ class Domain(BaseCommand):
         result = self.execute(TRANSFER_REQUEST_XML,
                               domain_name=domain_name,
                               password=password,
-                              period=str(period) if period else None)
+                              period=str(period) if period else None,
+                              client_transaction_i=client_transaction_id)
 
         return result
 
@@ -268,7 +279,8 @@ class Domain(BaseCommand):
                remove_statues: Optional[list[str]] = None,
                add_hosts: Optional[list[str]] = None,
                remove_hosts: Optional[list[str]] = None,
-               password: Optional[str] = None
+               password: Optional[str] = None,
+               client_transaction_id: Optional[str] = None
                ) -> EppResultData:
         """A successful Domain Update request modifies a domain object in the Registry, and may also add or delete
         relationships between the domain name and previously created hosts and contacts.
@@ -285,6 +297,7 @@ class Domain(BaseCommand):
         :param add_hosts: A list of host names to be added to the domain name.
         :param remove_hosts: A list of host names to be removed from the domain name.
         :param password: A new password to replace the old password.
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
@@ -317,6 +330,7 @@ class Domain(BaseCommand):
                               add_hosts=add_hosts,
                               remove_hosts=remove_hosts,
                               password=password,
-                              registrant=registrant)
+                              registrant=registrant,
+                              client_transaction_i=client_transaction_id)
 
         return result

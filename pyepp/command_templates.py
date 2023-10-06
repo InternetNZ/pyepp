@@ -204,6 +204,7 @@ DOMAIN_INFO_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         {% endif %}
       </domain:info>
     </info>
+    <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
 
