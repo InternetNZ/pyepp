@@ -47,14 +47,16 @@ class Poll(BaseCommand):
 
         return data_dict
 
-    def request(self) -> EppResultData:
+    def request(self, client_transaction_id: Optional[str] = None) -> EppResultData:
         """This command is to check and retrieve queued service messages as wel as keep the
         connection alive.
+
+        :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(POLL_REQUEST_XML)
+        result = self.execute(POLL_REQUEST_XML, client_transaction_id=client_transaction_id)
 
         if int(result.code) != int(EppResultCode.SUCCESS_ACK_TO_DEQUEUE.value):
             return result
@@ -73,14 +75,17 @@ class Poll(BaseCommand):
 
         return result
 
-    def acknowledge(self, message_id: int) -> EppResultData:
+    def acknowledge(self, message_id: int, client_transaction_id: Optional[str] = None) -> EppResultData:
         """This command will acknowledge and remove a message from the poll queue so that registrars can run another
         poll request to get the next message in line if one exists.
+
+        :param message_id: Message id
+        :param client_transaction_id: Client transaction id
 
         :return: Response object
         :rtype: EppResultData
         """
-        result = self.execute(POLL_ACK_XML, message_id=message_id)
+        result = self.execute(POLL_ACK_XML, message_id=message_id, client_transaction_id=client_transaction_id)
 
         if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
