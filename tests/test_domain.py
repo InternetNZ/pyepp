@@ -113,6 +113,54 @@ class DomainTest(unittest.TestCase):
                                              '<domain:exDate>2024-02-23T21:56:22.713Z</domain:exDate>\n'
                                              '</domain:infData>\n'
                                              '</resData>\n'
+                                             '<extension>\n'
+                                             '<secDNS:infData '
+                                             'xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">\n'
+                                             '<secDNS:dsData>\n'
+                                             '<secDNS:keyTag>17600</secDNS:keyTag>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:digestType>1</secDNS:digestType>\n'
+                                             '<secDNS:digest>4ffb0f3f0fb5edbaa0067d1cd94bb545249cfea2</secDNS:digest>\n'
+                                             '<secDNS:keyData>\n'
+                                             '<secDNS:flags>257</secDNS:flags>\n'
+                                             '<secDNS:protocol>3</secDNS:protocol>\n'
+                                             '<secDNS:alg>14</secDNS:alg>\n'
+                                             '<secDNS:pubKey>1fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==</secDNS:pubKey>\n'
+                                             '</secDNS:keyData>\n'
+                                             '</secDNS:dsData>\n'
+                                             '<secDNS:dsData>\n'
+                                             '<secDNS:keyTag>17600</secDNS:keyTag>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:digestType>2</secDNS:digestType>\n'
+                                             '<secDNS:digest>024c96b094aaad3892babb303e02587f7d6f8f749fef9ff642e3bb8bfc2e0dcf</secDNS:digest>\n'
+                                             '<secDNS:keyData>\n'
+                                             '<secDNS:flags>257</secDNS:flags>\n'
+                                             '<secDNS:protocol>3</secDNS:protocol>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:pubKey>2fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==</secDNS:pubKey>\n'
+                                             '</secDNS:keyData>\n'
+                                             '</secDNS:dsData>\n'
+                                             '<secDNS:dsData>\n'
+                                             '<secDNS:keyTag>17600</secDNS:keyTag>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:digestType>4</secDNS:digestType>\n'
+                                             '<secDNS:digest>14d92f9f1e82c0906e2003b9e3401de4024f705724ef14d848fc2708d5714d5572db040faa3e317753e6577c7e70cbb8</secDNS:digest>\n'
+                                             '<secDNS:keyData>\n'
+                                             '<secDNS:flags>257</secDNS:flags>\n'
+                                             '<secDNS:protocol>3</secDNS:protocol>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:pubKey>3fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==</secDNS:pubKey>\n'
+                                             '</secDNS:keyData>\n'
+                                             '</secDNS:dsData>\n'
+                                             '</secDNS:infData>\n'
+                                             '<rgp:infData xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0">\n'
+                                             '<rgp:rgpStatus s="addPeriod"/>\n'
+                                             '</rgp:infData>\n'
+                                             '<regtype:infData '
+                                             'xmlns:regtype="urn:ietf:params:xml:ns:regtype-0.1">\n'
+                                             '<regtype:type>standard</regtype:type>\n'
+                                             '</regtype:infData>\n'
+                                             '</extension>\n'
                                              '<trID>\n'
                                              '<svTRID>CIRA-000063163743-0000000003</svTRID>\n'
                                              '</trID>\n'
@@ -148,11 +196,58 @@ class DomainTest(unittest.TestCase):
                                              '<domain:exDate>2024-02-23T21:56:22.713Z</domain:exDate>\n'
                                              '</domain:infData>\n'
                                              '</resData>\n'
+                                             '<extension>\n'
+                                             '<secDNS:infData '
+                                             'xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">\n'
+                                             '<secDNS:dsData>\n'
+                                             '<secDNS:keyTag>17600</secDNS:keyTag>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:digestType>1</secDNS:digestType>\n'
+                                             '<secDNS:digest>4ffb0f3f0fb5edbaa0067d1cd94bb545249cfea2</secDNS:digest>\n'
+                                             '<secDNS:keyData>\n'
+                                             '<secDNS:flags>257</secDNS:flags>\n'
+                                             '<secDNS:protocol>3</secDNS:protocol>\n'
+                                             '<secDNS:alg>14</secDNS:alg>\n'
+                                             '<secDNS:pubKey>1fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==</secDNS:pubKey>\n'
+                                             '</secDNS:keyData>\n'
+                                             '</secDNS:dsData>\n'
+                                             '<secDNS:dsData>\n'
+                                             '<secDNS:keyTag>17600</secDNS:keyTag>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:digestType>2</secDNS:digestType>\n'
+                                             '<secDNS:digest>024c96b094aaad3892babb303e02587f7d6f8f749fef9ff642e3bb8bfc2e0dcf</secDNS:digest>\n'
+                                             '<secDNS:keyData>\n'
+                                             '<secDNS:flags>257</secDNS:flags>\n'
+                                             '<secDNS:protocol>3</secDNS:protocol>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:pubKey>2fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==</secDNS:pubKey>\n'
+                                             '</secDNS:keyData>\n'
+                                             '</secDNS:dsData>\n'
+                                             '<secDNS:dsData>\n'
+                                             '<secDNS:keyTag>17600</secDNS:keyTag>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:digestType>4</secDNS:digestType>\n'
+                                             '<secDNS:digest>14d92f9f1e82c0906e2003b9e3401de4024f705724ef14d848fc2708d5714d5572db040faa3e317753e6577c7e70cbb8</secDNS:digest>\n'
+                                             '<secDNS:keyData>\n'
+                                             '<secDNS:flags>257</secDNS:flags>\n'
+                                             '<secDNS:protocol>3</secDNS:protocol>\n'
+                                             '<secDNS:alg>13</secDNS:alg>\n'
+                                             '<secDNS:pubKey>3fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==</secDNS:pubKey>\n'
+                                             '</secDNS:keyData>\n'
+                                             '</secDNS:dsData>\n'
+                                             '</secDNS:infData>\n'
+                                             '<rgp:infData xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0">\n'
+                                             '<rgp:rgpStatus s="addPeriod"/>\n'
+                                             '</rgp:infData>\n'
+                                             '<regtype:infData '
+                                             'xmlns:regtype="urn:ietf:params:xml:ns:regtype-0.1">\n'
+                                             '<regtype:type>standard</regtype:type>\n'
+                                             '</regtype:infData>\n'
+                                             '</extension>\n'
                                              '<trID>\n'
                                              '<svTRID>CIRA-000063163743-0000000003</svTRID>\n'
                                              '</trID>\n'
                                              '</response>',
-                             'reason': None,
                              'repository_object_id': '9204701-INZ',
                              'result_data': DomainData(domain_name='internet.nz',
                                                        sponsoring_client_id='933',
@@ -169,13 +264,37 @@ class DomainTest(unittest.TestCase):
                                                        expiry_date='2024-02-23T21:56:22.713Z',
                                                        transfer_date=None,
                                                        password=None,
-                                                       period=None),
+                                                       period=None,
+                                                       dns_sec=[DSRecordData(key_tag='17600',
+                                                                             algorithm='13',
+                                                                             digest_type='1',
+                                                                             digest='4ffb0f3f0fb5edbaa0067d1cd94bb545249cfea2',
+                                                                             dns_key={'algorithm': '13',
+                                                                                      'flag': '257',
+                                                                                      'protocol': '3',
+                                                                                      'public_key': '1fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg=='}),
+                                                                DSRecordData(key_tag='17600',
+                                                                             algorithm='13',
+                                                                             digest_type='2',
+                                                                             digest='024c96b094aaad3892babb303e02587f7d6f8f749fef9ff642e3bb8bfc2e0dcf',
+                                                                             dns_key={'algorithm': '13',
+                                                                                      'flag': '257',
+                                                                                      'protocol': '3',
+                                                                                      'public_key': '2fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg=='}),
+                                                                DSRecordData(key_tag='17600',
+                                                                             algorithm='13',
+                                                                             digest_type='4',
+                                                                             digest='14d92f9f1e82c0906e2003b9e3401de4024f705724ef14d848fc2708d5714d5572db040faa3e317753e6577c7e70cbb8',
+                                                                             dns_key={'algorithm': '13',
+                                                                                      'flag': '257',
+                                                                                      'protocol': '3',
+                                                                                      'public_key': '3fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg=='})]
+                                                       ),
                              'server_transaction_id': 'CIRA-000063163743-0000000003'})
 
         domain.execute = MagicMock(return_value=execute_result)
 
         result = domain.info('internet.nz')
-
         self.assertEqual(result, expected_result)
 
     def test_create(self) -> None:
