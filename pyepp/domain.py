@@ -85,8 +85,7 @@ class DomainData:
     expiry_date: Optional[str] = ''
     transfer_date: Optional[str] = ''
     password: Optional[str] = ''
-    dns_sec: Optional[DSRecordData] = None
-    dns_key: Optional[DSRecordKeyData] = None
+    dns_sec: Optional[list[DSRecordData]] = None
 
 
 class Domain(BaseCommand):
@@ -173,25 +172,27 @@ class Domain(BaseCommand):
             'transfer_date': raw_response.find('trDate').text if raw_response.find('trDate') else None,
             'password': raw_response.find('pw').text if raw_response.find('pw') else None,
             'period': None,
-            'dns_sec': DSRecordData(**{
-                'key_tag': raw_response.find('keyTag').text,
-                'algorithm': raw_response.find('alg').text,
-                'digest_type': raw_response.find('digestType').text,
-                'digest': raw_response.find('digest').text,
-                'dns_key': {
-                    'flag': raw_response.find('flag').text,
-                    'protocol': raw_response.find('protocol').text,
-                    'algorithm': raw_response.find('algorithm').text,
-                    'public_key': raw_response.find('public_key').text,
-                } if raw_response.find('keyData') else None
-            }) if raw_response.find('dsData') else None,
-            'dns_key': DSRecordKeyData(**{
-                'flag': raw_response.find('flag').text,
-                'protocol': raw_response.find('protocol').text,
-                'algorithm': raw_response.find('algorithm').text,
-                'public_key': raw_response.find('public_key').text,
-            }) if raw_response.find('keyData') else None
+            'dns_sec': None,
         }
+
+        dns_sec = []
+        all_ds_data = raw_response.find_all('dsData')
+        for ds_data in all_ds_data:
+            dns_sec.append(DSRecordData(**{
+                'key_tag': ds_data.find('keyTag').text,
+                'algorithm': ds_data.find('alg').text,
+                'digest_type': ds_data.find('digestType').text,
+                'digest': ds_data.find('digest').text,
+                'dns_key': {
+                    'flag': ds_data.find('flags').text,
+                    'protocol': ds_data.find('protocol').text,
+                    'algorithm': ds_data.find('alg').text,
+                    'public_key': ds_data.find('pubKey').text,
+                } if ds_data.find('keyData') else None
+            }))
+
+        if dns_sec:
+            result_data['dns_sec'] = dns_sec
 
         result.result_data = DomainData(**result_data)
 
@@ -272,7 +273,7 @@ class Domain(BaseCommand):
     def update(self, domain_name: str,
                registrant: Optional[str] = None,
                admin: Optional[str] = None,
-               tech:  Optional[str] = None,
+               tech: Optional[str] = None,
                add_billings: Optional[list[str]] = None,
                remove_billings: Optional[list[str]] = None,
                add_statues: Optional[list[tuple]] = None,
