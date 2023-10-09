@@ -70,10 +70,10 @@ class DomainData:
     """Domain name dataclass."""
     # pylint: disable=too-many-instance-attributes
     domain_name: str
-    registrant: str
-    admin: str
-    tech: str
-    period: int
+    period: Optional[int] = None
+    registrant: Optional[str] = ''
+    admin: Optional[str] = ''
+    tech: Optional[str] = ''
     sponsoring_client_id: Optional[str] = ''
     billing: Optional[str] = ''
     status: Optional[list[str]] = None
@@ -202,7 +202,7 @@ class Domain(BaseCommand):
         """A successful Domain Create request creates a domain object in the Registry, and also creates relationships
         between the domain name and previously created contacts and hosts.
 
-        :param domain: Contact
+        :param domain: Domain name details
         :param client_transaction_id: Client transaction id
 
         :return: Result object
