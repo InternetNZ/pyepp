@@ -8,6 +8,7 @@ import click
 from pyepp.cli.host import host_group
 from pyepp.cli import cli
 from pyepp.cli.contact import contact_group
+from pyepp.cli.domain import domain_group
 
 logging.basicConfig(level=logging.ERROR)
 
@@ -54,6 +55,6 @@ def run_xml(ctx, xml):
 
 pyepp_cli.add_command(run_xml)
 pyepp_cli.add_command(contact_group)
-pyepp_cli.add_command(cli.domain)
+pyepp_cli.add_command(domain_group)
 pyepp_cli.add_command(host_group)
 pyepp_cli.add_command(cli.poll)

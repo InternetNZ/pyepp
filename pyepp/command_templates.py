@@ -323,17 +323,17 @@ DOMAIN_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8"?>
         <domain:name>{{ domain_name }}</domain:name>
         {% if add %}
         <domain:add>
-          {% if admin %}
+          {% for admin in add_admins %}
           <domain:contact type="admin">{{ admin }}</domain:contact>
-          {% endif %}
-          {% if tech %}
-          <domain:contact type="tech">{{ tech }}</domain:contact>
-          {% endif %}
-          {% for add_billing in add_billings %}
-          <domain:contact type="billing">{{ add_billing }}</domain:contact>
           {% endfor %}
-          {% for add_statue in add_statues %}
-          <domain:status s="{{ add_statue[0] }}" lang="en">{{ add_statue[1] }}</domain:status>
+          {% for tech in add_techs %}
+          <domain:contact type="tech">{{ tech }}</domain:contact>
+          {% endfor %}
+          {% for billing in add_billings %}
+          <domain:contact type="billing">{{ billing }}</domain:contact>
+          {% endfor %}
+          {% for status in add_statues %}
+          <domain:status s="{{ status[0] }}" lang="en">{{ status[1] }}</domain:status>
           {% endfor %}
           {% if add_hosts %}
           <domain:ns>
@@ -346,17 +346,17 @@ DOMAIN_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8"?>
         {% endif %}
         {% if remove %}
         <domain:rem>
-          {% if remove_admin %}
-          <domain:contact type="admin">{{ remove_admin }}</domain:contact>
-          {% endif %}
-          {% if remove_tech %}
-          <domain:contact type="tech">{{ remove_tech }}</domain:contact>
-          {% endif %}
-          {% for remove_billing in remove_billings %}
-          <domain:contact type="billing">{{ remove_billing }}</domain:contact>
+          {% for admin in remove_admins %}
+          <domain:contact type="admin">{{ admin }}</domain:contact>
           {% endfor %}
-          {% for remove_statue in remove_statues %}
-          <domain:status s="{{ remove_statue }}" />
+          {% for tech in remove_techs %}
+          <domain:contact type="tech">{{ tech }}</domain:contact>
+          {% endfor %}
+          {% for billing in remove_billings %}
+          <domain:contact type="billing">{{ billing }}</domain:contact>
+          {% endfor %}
+          {% for status in remove_statues %}
+          <domain:status s="{{ status }}" />
           {% endfor %}
           {% if remove_hosts %}
           <domain:ns>
