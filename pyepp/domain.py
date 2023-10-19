@@ -116,7 +116,7 @@ class Domain(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(DOMAIN_CHECK_XML, domain_names=domain_names, client_transaction_i=client_transaction_id)
+        result = self.execute(DOMAIN_CHECK_XML, domain_names=domain_names, client_transaction_id=client_transaction_id)
 
         if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
@@ -147,7 +147,7 @@ class Domain(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(DOMAIN_INFO_XML, domain_name=domain_name, client_transaction_i=client_transaction_id)
+        result = self.execute(DOMAIN_INFO_XML, domain_name=domain_name, client_transaction_id=client_transaction_id)
 
         if int(result.code) != int(EppResultCode.SUCCESS.value):
             return result
@@ -224,7 +224,7 @@ class Domain(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
-        result = self.execute(DOMAIN_DELETE_XML, domain_name=domain_name, client_transaction_i=client_transaction_id)
+        result = self.execute(DOMAIN_DELETE_XML, domain_name=domain_name, client_transaction_id=client_transaction_id)
 
         return result
 
@@ -244,7 +244,7 @@ class Domain(BaseCommand):
                               domain_name=domain_name,
                               expiry_date=expiry_date.strftime("%Y-%m-%d"),
                               period=str(period),
-                              client_transaction_i=client_transaction_id)
+                              client_transaction_id=client_transaction_id)
 
         return result
 
@@ -265,22 +265,24 @@ class Domain(BaseCommand):
                               domain_name=domain_name,
                               password=password,
                               period=str(period) if period else None,
-                              client_transaction_i=client_transaction_id)
+                              client_transaction_id=client_transaction_id)
 
         return result
 
     # pylint: disable=too-many-arguments,too-many-locals
     def update(self, domain_name: str,
                registrant: Optional[str] = None,
-               admin: Optional[str] = None,
-               tech: Optional[str] = None,
+               password: Optional[str] = None,
+               add_admins: Optional[list[str]] = None,
+               remove_admins: Optional[list[str]] = None,
+               add_techs: Optional[list[str]] = None,
+               remove_techs: Optional[list[str]] = None,
                add_billings: Optional[list[str]] = None,
                remove_billings: Optional[list[str]] = None,
                add_statues: Optional[list[tuple]] = None,
                remove_statues: Optional[list[str]] = None,
                add_hosts: Optional[list[str]] = None,
                remove_hosts: Optional[list[str]] = None,
-               password: Optional[str] = None,
                client_transaction_id: Optional[str] = None
                ) -> EppResultData:
         """A successful Domain Update request modifies a domain object in the Registry, and may also add or delete
@@ -288,11 +290,13 @@ class Domain(BaseCommand):
 
         :param domain_name: Domain name to be updated
         :param registrant: A contact id to replace the current registrant
-        :param admin: A contact id to replace the current admin
-        :param tech: A contact id to replace the current tech
+        :param add_admins: A list of contact ids to be added to the admin contacts
+        :param remove_admins: A list of contact ids to be removed from the admin contacts
+        :param add_techs:  A list of contact ids to be added to the techs contacts
+        :param remove_techs: A list of contact ids to be removed from the tech contacts
         :param add_billings: A list of contact ids to add to the billing contacts
         :param remove_billings: A list of contact ids to remove from the billing contacts
-        :param add_statues: List of statuses to be added tio the domain name. The tuple must contain two
+        :param add_statues: List of statuses to be added to the domain name. The tuple must contain two
             elements. The first one will be the Status Code and the second element will be Descriptions.
         :param remove_statues: A list of statues to be removed from the domain name.
         :param add_hosts: A list of host names to be added to the domain name.
@@ -303,16 +307,8 @@ class Domain(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
-        remove_admin = None
-        remove_tech = None
-
-        if admin or tech:
-            domain_info = self.info(domain_name=domain_name).get('result_data')
-            remove_admin = domain_info.admin if admin else None
-            remove_tech = domain_info.tech if tech else None
-
-        add = bool(admin or tech or add_billings or add_statues or add_hosts)
-        remove = bool(remove_admin or remove_tech or remove_billings or remove_statues or remove_hosts)
+        add = bool(add_admins or add_techs or add_billings or add_statues or add_hosts)
+        remove = bool(remove_admins or remove_techs or remove_billings or remove_statues or remove_hosts)
         change = bool(registrant or password)
 
         result = self.execute(DOMAIN_UPDATE_XML,
@@ -320,10 +316,10 @@ class Domain(BaseCommand):
                               remove=remove,
                               change=change,
                               domain_name=domain_name,
-                              admin=admin,
-                              remove_admin=remove_admin,
-                              tech=tech,
-                              remove_tech=remove_tech,
+                              add_admins=add_admins,
+                              remove_admins=remove_admins,
+                              add_techs=add_techs,
+                              remove_techs=remove_techs,
                               add_billings=add_billings,
                               remove_billings=remove_billings,
                               add_statues=add_statues,
@@ -332,6 +328,6 @@ class Domain(BaseCommand):
                               remove_hosts=remove_hosts,
                               password=password,
                               registrant=registrant,
-                              client_transaction_i=client_transaction_id)
+                              client_transaction_id=client_transaction_id)
 
         return result
