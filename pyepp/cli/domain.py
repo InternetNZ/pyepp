@@ -1,8 +1,7 @@
 """
 Domain cli module
 """
-from datetime import date, datetime
-from typing import Optional
+from datetime import datetime
 
 import click
 
@@ -98,6 +97,7 @@ def domain_transfer(ctx, domain_name, password, period, client_transaction_id) -
 @click.option('--ns-host', multiple=True, help='Name server. Can be repeated for multiple name servers.')
 @click.option('--client-transaction-id')
 @click.pass_context
+# pylint: disable=too-many-arguments, too-many-locals
 def domain_create(ctx, domain_name, registrant, admin, tech, billing, period, ns_host, client_transaction_id):
     """Create a domain name object in registry.
 
@@ -133,6 +133,7 @@ def domain_create(ctx, domain_name, registrant, admin, tech, billing, period, ns
 @click.option('--remove-status', multiple=True, help="A status to be removed to domain abject.")
 @click.option('--client-transaction-id')
 @click.pass_context
+# pylint: disable=too-many-arguments, too-many-locals
 def domain_update(ctx, domain_name, password, registrant, add_admin, add_tech, add_billing, add_ns_host, add_status,
                   remove_admin, remove_tech, remove_billing, remove_ns_host, remove_status, client_transaction_id):
     """Modify the attributes of a domain object in registry.
