@@ -33,7 +33,7 @@ def login_logout(func):
 
 
 class PyEppCli:
-    def __init__(self, host, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run):
+    def __init__(self, host, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run=False):
         self.epp = EppCommunicator(host, port, client_cert, client_key, dry_run)
 
         self.user = user

@@ -92,7 +92,7 @@ class EppCommunicator:
     """
 
     # pylint: disable=too-many-instance-attributes,too-many-arguments
-    def __init__(self, host: str, port: str, client_cert: str, client_key: str, dry_run: bool) -> None:
+    def __init__(self, host: str, port: str, client_cert: str, client_key: str, dry_run: Optional[bool] = False) -> None:
         """
         :param host: Host name
         :param port: Port number
