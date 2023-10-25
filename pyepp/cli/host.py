@@ -82,7 +82,7 @@ def host_update(ctx, host_name, add_ip, remove_ip, add_status, remove_status, ne
 
 
 @click.command(name='create')
-@click.argument('host_name')
+@click.argument('host-name')
 @click.option('--ip-address', multiple=True, nargs=2, type=click.Tuple([str, str]),
               help="Add IP address to host. At least one required. <ADDRESS IP[v4, v6]>", required=True)
 @click.option('--client-transaction-id')
