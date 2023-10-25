@@ -5,6 +5,7 @@ import ssl
 import socket
 import struct
 import logging
+import sys
 from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Optional, Any
@@ -90,7 +91,7 @@ class EppCommunicator:
     An EPP client for connecting to EPP server.
     """
 
-    # pylint: disable=too-many-instance-attributes
+    # pylint: disable=too-many-instance-attributes,too-many-arguments
     def __init__(self, host: str, port: str, client_cert: str, client_key: str, dry_run: bool) -> None:
         """
         :param host: Host name
@@ -191,7 +192,7 @@ class EppCommunicator:
         # Print the xml command and exit the app
         if self._dry_run:
             print(cmd)
-            exit(0)
+            sys.exit()
 
         logging.debug("Sending xml to server :\n%s", cmd)
 
