@@ -26,14 +26,16 @@ CONTEXT_SETTINGS = {'help_option_names': ['-h', '--help']}
 @click.option('-o', '--output-format', show_default=True, default='XML',
               type=click.Choice(['XML', 'OBJECT', 'MIN'], case_sensitive=False))
 @click.option('--no-pretty', is_flag=True, show_default=True, default=False)
+@click.option('--dry-run', is_flag=True, show_default=True, default=False)
 @click.option('-v', '--verbose', is_flag=True, show_default=True, default=False)
 @click.option('-d', '--debug', is_flag=True, show_default=True, default=False)
 @click.version_option()
 @click.pass_context
 # pylint: disable=too-many-arguments
-def pyepp_cli(ctx, host, port, client_cert, client_key, user, password, output_format, no_pretty, verbose, debug):
+def pyepp_cli(ctx, host, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run,
+              verbose, debug):
     """A command line interface to work with PyEpp library."""
-    ctx.obj = cli.PyEppCli(host, port, client_cert, client_key, user, password, output_format, no_pretty)
+    ctx.obj = cli.PyEppCli(host, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run)
 
     if verbose:
         logging.basicConfig(level=logging.INFO)

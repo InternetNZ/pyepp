@@ -18,10 +18,14 @@ from pyepp import EppCommunicator
 def login_logout(func):
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
-        self.connect()
-        self.login()
+        if not self.dry_run:
+            self.connect()
+            self.login()
+
         result = func(self, *args, **kwargs)
-        self.logout()
+
+        if not self.dry_run:
+            self.logout()
 
         return result
 
@@ -29,14 +33,15 @@ def login_logout(func):
 
 
 class PyEppCli:
-    def __init__(self, host, port, client_cert, client_key, user, password, output_format, no_pretty):
-        self.epp = EppCommunicator(host, port, client_cert, client_key)
+    def __init__(self, host, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run):
+        self.epp = EppCommunicator(host, port, client_cert, client_key, dry_run)
 
         self.user = user
         self.password = password
 
         self.output_format = output_format
         self.no_pretty = no_pretty
+        self.dry_run = dry_run
 
         self.registry_object = None
 
