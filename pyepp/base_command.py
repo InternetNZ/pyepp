@@ -40,14 +40,6 @@ class BaseCommand:
         """
         cmd = self._prepare_command(xml_command, **kwargs)
 
-        # if kwargs.get('dry_run') == 1:
-        #     print(colorize('\n' + cmd + '\n', ANSICOLORS.GREY))
-        #     return
-        #
-        # verbose = False
-        # if kwargs.get('verbose') == 1:
-        #     verbose = True
-
         result = self._epp_communicator.execute(cmd)
         return result
 
