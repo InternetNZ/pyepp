@@ -103,26 +103,15 @@ class PyEppCli:
         result = self.registry_object.transfer(*args, **kwargs)
         return self.format_output(result)
 
+    @login_logout
+    def request(self, *args, **kwargs):
+        result = self.registry_object.request(*args, **kwargs)
+        return self.format_output(result)
+
+    @login_logout
+    def acknowledge(self, *args, **kwargs):
+        result = self.registry_object.acknowledge(*args, **kwargs)
+        return self.format_output(result)
+
 
 pass_pyepp_cli = click.make_pass_decorator(PyEppCli)
-
-
-@click.group()
-@click.pass_context
-def domain(ctx):
-    """To work with Domain objects in the registry."""
-    ctx.obj.registry_object = Domain(ctx.obj.epp)
-
-
-@click.group()
-@click.pass_context
-def host(ctx):
-    """To work with Host objects in the registry."""
-    ctx.obj.registry_object = Host(ctx.obj.epp)
-
-
-@click.group()
-@click.pass_context
-def poll(ctx):
-    """To request or acknowledge registry service messages."""
-    pass
