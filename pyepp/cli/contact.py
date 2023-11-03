@@ -3,6 +3,7 @@ Contact cli module
 """
 import click
 
+from pyepp.cli import utils
 from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
 
 
@@ -20,7 +21,7 @@ def contact_group(ctx):
 def contact_info(ctx, contact_id, client_transaction_id) -> None:
     """Returns contact details."""
     result = ctx.obj.info(contact_id, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='check')
@@ -30,7 +31,7 @@ def contact_info(ctx, contact_id, client_transaction_id) -> None:
 def contact_check(ctx, contact_ids: tuple, client_transaction_id) -> None:
     """Checks if contact(s) exist in the registry."""
     result = ctx.obj.check(list(contact_ids), client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='delete')
@@ -40,7 +41,7 @@ def contact_check(ctx, contact_ids: tuple, client_transaction_id) -> None:
 def contact_delete(ctx, contact_id, client_transaction_id) -> None:
     """Deletes a given contact from registry."""
     result = ctx.obj.delete(contact_id, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='update')
@@ -93,7 +94,7 @@ def contact_update(ctx, contact_id, name, organization, street_1, street_2, stre
         )
 
     result = ctx.obj.update(contact_to_update, add_status, remove_status, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='create')
@@ -142,7 +143,7 @@ def contact_create(ctx, contact_id, name, organization, street_1, street_2, stre
     )
 
     result = ctx.obj.create(contact_to_create, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 contact_group.add_command(contact_check)

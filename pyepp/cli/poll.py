@@ -4,6 +4,7 @@ EPP Poll cli module
 import click
 
 from pyepp.poll import Poll
+from pyepp.cli import utils
 
 
 @click.group(name='poll')
@@ -20,7 +21,7 @@ def poll_request(ctx, client_transaction_id):
     """This command is to check and retrieve queued service messages as wel as keep the
         connection alive."""
     result = ctx.obj.request(client_transaction_id=client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='acknowledge')
@@ -35,7 +36,7 @@ def poll_acknowledge(ctx, message_id,client_transaction_id):
     """
     result = ctx.obj.acknowledge(message_id,
                                  client_transaction_id=client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 poll_group.add_command(poll_request)
