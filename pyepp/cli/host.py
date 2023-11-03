@@ -3,6 +3,7 @@ Host cli module
 """
 import click
 
+from pyepp.cli import utils
 from pyepp.host import Host, IPAddressData, HostData
 
 
@@ -23,7 +24,7 @@ def host_info(ctx, host_name, client_transaction_id) -> None:
     HOST_NAME: Host name
     """
     result = ctx.obj.info(host_name, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='check')
@@ -33,7 +34,7 @@ def host_info(ctx, host_name, client_transaction_id) -> None:
 def host_check(ctx, host_names: tuple, client_transaction_id) -> None:
     """Checks if host(s) exist in the registry."""
     result = ctx.obj.check(list(host_names), client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='delete')
@@ -46,7 +47,7 @@ def host_delete(ctx, host_name, client_transaction_id) -> None:
     HOST_NAME: Host name
     """
     result = ctx.obj.delete(host_name, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='update')
@@ -78,7 +79,7 @@ def host_update(ctx, host_name, add_ip, remove_ip, add_status, remove_status, ne
                             remove_status=remove_status,
                             new_host_name=new_host_name,
                             client_transaction_id=client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='create')
@@ -96,7 +97,7 @@ def host_create(ctx, host_name, ip_address, client_transaction_id) -> None:
     result = ctx.obj.create(HostData(host_name=host_name,
                                      address=ip_address),
                             client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 host_group.add_command(host_info)

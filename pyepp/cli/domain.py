@@ -5,6 +5,7 @@ from datetime import datetime
 
 import click
 
+from pyepp.cli import utils
 from pyepp.domain import Domain, DomainData
 
 
@@ -22,7 +23,7 @@ def domain_group(ctx):
 def domain_info(ctx, domain_name, client_transaction_id) -> None:
     """Returns domain name details."""
     result = ctx.obj.info(domain_name, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='check')
@@ -32,7 +33,7 @@ def domain_info(ctx, domain_name, client_transaction_id) -> None:
 def domain_check(ctx, domain_names: tuple, client_transaction_id) -> None:
     """Checks if domain name(s) exist in the registry."""
     result = ctx.obj.check(list(domain_names), client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='delete')
@@ -42,7 +43,7 @@ def domain_check(ctx, domain_names: tuple, client_transaction_id) -> None:
 def domain_delete(ctx, domain_name, client_transaction_id) -> None:
     """Deletes a given domain from registry."""
     result = ctx.obj.delete(domain_name, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='renew')
@@ -62,7 +63,7 @@ def domain_renew(ctx, domain_name, current_expiry_date, period, client_transacti
                            datetime.strptime(current_expiry_date, "%Y-%m-%d"),
                            period,
                            client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='transfer')
@@ -83,7 +84,7 @@ def domain_transfer(ctx, domain_name, password, period, client_transaction_id) -
                               password,
                               period,
                               client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='create')
@@ -113,7 +114,7 @@ def domain_create(ctx, domain_name, registrant, admin, tech, billing, period, ns
         host=ns_host
     )
     result = ctx.obj.create(domain_data, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='update')
@@ -154,7 +155,7 @@ def domain_update(ctx, domain_name, password, registrant, add_admin, add_tech, a
                             add_hosts=add_ns_host,
                             remove_hosts=remove_ns_host,
                             client_transaction_id=client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 domain_group.add_command(domain_check)
