@@ -476,7 +476,7 @@ class DomainTest(unittest.TestCase):
 
         result = domain.update(domain_name='internet.nz',
                                password='PassWord',
-                               admin='contact-admin',
-                               tech='contact-tech')
+                               add_admins=['contact-admin',],
+                               add_techs=['contact-tech',])
 
         self.assertEqual(result, expected_result)

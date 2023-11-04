@@ -3,6 +3,7 @@ Contact cli module
 """
 import click
 
+from pyepp.cli import utils
 from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
 
 
@@ -20,27 +21,27 @@ def contact_group(ctx):
 def contact_info(ctx, contact_id, client_transaction_id) -> None:
     """Returns contact details."""
     result = ctx.obj.info(contact_id, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='check')
 @click.argument('contact-ids', nargs=-1)
-@click.option('--transaction-client-id')
+@click.option('--client-transaction-id')
 @click.pass_context
 def contact_check(ctx, contact_ids: tuple, client_transaction_id) -> None:
     """Checks if contact(s) exist in the registry."""
     result = ctx.obj.check(list(contact_ids), client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='delete')
 @click.argument('contact-id')
-@click.option('--transaction-client-id')
+@click.option('--client-transaction-id')
 @click.pass_context
 def contact_delete(ctx, contact_id, client_transaction_id) -> None:
     """Deletes a given contact from registry."""
     result = ctx.obj.delete(contact_id, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='update')
@@ -60,7 +61,7 @@ def contact_delete(ctx, contact_id, client_transaction_id) -> None:
 @click.option('--password')
 @click.option('--add-status')
 @click.option('--remove-status')
-@click.option('--transaction-client-id')
+@click.option('--client-transaction-id')
 @click.pass_context
 # pylint: disable=too-many-arguments, too-many-locals, too-many-boolean-expressions
 def contact_update(ctx, contact_id, name, organization, street_1, street_2, street_3, city, province, postal_code,
@@ -93,7 +94,7 @@ def contact_update(ctx, contact_id, name, organization, street_1, street_2, stre
         )
 
     result = ctx.obj.update(contact_to_update, add_status, remove_status, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 @click.command(name='create')
@@ -111,7 +112,7 @@ def contact_update(ctx, contact_id, name, organization, street_1, street_2, stre
 @click.option('--phone')
 @click.option('--fax')
 @click.option('--password')
-@click.option('--transaction-client-id')
+@click.option('--client-transaction-id')
 @click.pass_context
 # pylint: disable=too-many-arguments, too-many-locals
 def contact_create(ctx, contact_id, name, organization, street_1, street_2, street_3, city, province, postal_code,
@@ -142,7 +143,7 @@ def contact_create(ctx, contact_id, name, organization, street_1, street_2, stre
     )
 
     result = ctx.obj.create(contact_to_create, client_transaction_id)
-    click.echo(result)
+    utils.echo(result)
 
 
 contact_group.add_command(contact_check)

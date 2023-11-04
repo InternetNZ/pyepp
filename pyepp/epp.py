@@ -5,6 +5,7 @@ import ssl
 import socket
 import struct
 import logging
+import sys
 from dataclasses import dataclass, asdict
 from enum import Enum
 from typing import Optional, Any
@@ -90,19 +91,23 @@ class EppCommunicator:
     An EPP client for connecting to EPP server.
     """
 
-    # pylint: disable=too-many-instance-attributes
-    def __init__(self, host: str, port: str, client_cert: str, client_key: str) -> None:
+    # pylint: disable=too-many-instance-attributes,too-many-arguments
+    def __init__(self, host: str, port: str, client_cert: str,
+                 client_key: str, dry_run: Optional[bool] = False) -> None:
         """
-        :param str host: Host name
-        :param str port: Port number
-        :param str client_cert: Path client certificate
-        :param str client_key: Path to client key
+        :param host: Host name
+        :param port: Port number
+        :param client_cert: Path client certificate
+        :param client_key: Path to client key
+        :param dry_run: dry run the request
         """
         self._host = host
         self._port = port
         self._user = None
         self._client_cert = client_cert
         self._client_key = client_key
+
+        self._dry_run = dry_run
 
         self._format_32 = get_format_32()
 
@@ -184,6 +189,12 @@ class EppCommunicator:
         :return: Response
         :rtype: bytes
         """
+
+        # Print the xml command and exit the app
+        if self._dry_run:
+            print(cmd)
+            sys.exit()
+
         logging.debug("Sending xml to server :\n%s", cmd)
 
         self._write(cmd)
@@ -234,7 +245,7 @@ class EppCommunicator:
         :raises EppCommunicatorException: When there is any errors.
         """
         try:
-            if not self.greeting:
+            if not self.greeting and not self._dry_run:
                 raise EppCommunicatorException("The connection to the server has not been established yet!")
 
             raw_response = self._execute_command(cmd)
