@@ -1,6 +1,5 @@
 """
 Contact Mapping Module. This module is used to manage contact objects in Registry.
-
 """
 from typing import Optional
 from dataclasses import dataclass, asdict

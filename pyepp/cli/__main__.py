@@ -1,6 +1,8 @@
 """
 Executable cli module.
 """
+import os
+from configparser import ConfigParser, RawConfigParser
 import logging
 
 import click
@@ -16,6 +18,39 @@ from pyepp.cli import utils
 logging.basicConfig(level=logging.ERROR)
 
 CONTEXT_SETTINGS = {'help_option_names': ['-h', '--help']}
+
+APP_NAME = 'pyepp'
+
+
+def load_config():
+    """
+    Loads the configuration file into context settings. It reads the config file
+    from the below paths depends on the host OS.
+
+    Mac OS X (POSIX) and Unix (POSIX):
+      ``~/.foo-bar``
+    Windows (not roaming):
+      ``C:\Users\<user>\AppData\Local\Foo Bar``
+    """
+    cfg = os.path.join(click.get_app_dir(APP_NAME, roaming=False, force_posix=True), 'config.ini')
+    parser = RawConfigParser()
+    parser.read([cfg])
+    config = {}
+    for section in parser.sections():
+        for key, value in parser.items(section):
+            config[f"{section}_{key}".upper()] = value
+
+    CONTEXT_SETTINGS['default_map'] = {
+        'host': config.get('PYEPP_HOST'),
+        'port': config.get('PYEPP_PORT'),
+        'client_cert': config.get('PYEPP_CLIENT_CERT'),
+        'client_key': config.get('PYEPP_CLIENT_KEY'),
+        'user': config.get('PYEPP_USER'),
+        'password': config.get('PYEPP_PASSWORD')
+    }
+
+
+load_config()
 
 
 @click.group(name='pyepp', context_settings=CONTEXT_SETTINGS)
