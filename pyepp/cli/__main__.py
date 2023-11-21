@@ -2,7 +2,7 @@
 Executable cli module.
 """
 import os
-from configparser import ConfigParser, RawConfigParser
+from configparser import RawConfigParser
 import logging
 
 import click
@@ -13,7 +13,6 @@ from pyepp.cli.contact import contact_group
 from pyepp.cli.domain import domain_group
 from pyepp.cli.poll import poll_group
 from pyepp.cli import utils
-
 
 logging.basicConfig(level=logging.ERROR)
 
@@ -28,9 +27,9 @@ def load_config():
     from the below paths depends on the host OS.
 
     Mac OS X (POSIX) and Unix (POSIX):
-      ``~/.foo-bar``
+      ~/.foo-bar
     Windows (not roaming):
-      ``C:\Users\<user>\AppData\Local\Foo Bar``
+      C:\\Users\\<user>\\AppData\\Local\\Foo Bar
     """
     cfg = os.path.join(click.get_app_dir(APP_NAME, roaming=False, force_posix=True), 'config.ini')
     parser = RawConfigParser()
