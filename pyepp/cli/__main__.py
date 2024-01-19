@@ -27,9 +27,9 @@ def load_config():
     from the below paths depends on the host OS.
 
     Mac OS X (POSIX) and Unix (POSIX):
-      ~/.foo-bar
+      ~/.pyepp/config.ini
     Windows (not roaming):
-      C:\\Users\\<user>\\AppData\\Local\\Foo Bar
+      C:\\Users\\<user>\\AppData\\Local\\pyepp\\config.ini
     """
     cfg = os.path.join(click.get_app_dir(APP_NAME, roaming=False, force_posix=True), 'config.ini')
     parser = RawConfigParser()

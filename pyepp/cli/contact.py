@@ -10,7 +10,11 @@ from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
 @click.group(name='contact')
 @click.pass_context
 def contact_group(ctx):
-    """To work with Contact objects in the registry."""
+    """
+    To work with Contact objects in the registry.
+    :param ctx:
+    :return:
+    """
     ctx.obj.registry_object = Contact(ctx.obj.epp)
 
 
