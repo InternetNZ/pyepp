@@ -53,8 +53,7 @@ class ContactData:
 
 
 class Contact(BaseCommand):
-    """
-    Epp Contact object class. This class is used to create and manage the contacts within the Registry.
+    """Epp Contact object class. This class is used to create and manage the contacts within the Registry.
 
     Contacts are individuals or organizations that are associated with domain names. There are different types of
     contacts including:
