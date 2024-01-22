@@ -27,7 +27,7 @@ from pyepp.domain import Domain, DomainData, DSRecordData, DNSSECAlgorithm, Dige
 from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
 
 config = {
-    "host": "epp.ote.irs.net.nz",
+    "host": "epp.test.net.nz",
     "port": "700",
     "client_cert": "/PATH/TO/YOUR/CLIENT_CERTIFICATE.crt",
     "client_key": "/PATH/TO/YOUR/CLIENT_KEY.pem"

@@ -2,8 +2,8 @@ PyEPP
 =====
 
 This a Python API on `EPP <https://en.wikipedia.org/wiki/Extensible_Provisioning_Protocol>`_
-protocol to connect to any registry systems that support EPP and manage the objects.
-It supports bellow RFCs:
+protocol to connect to any registry systems that support EPP and manage the registry objects.
+It supports the bellow RFCs:
 
 * `RFC 5730 - Extensible Provisioning Protocol <https://datatracker.ietf.org/doc/html/rfc5730>`_
 * `RFC 5731 - Domain Name Mapping <https://datatracker.ietf.org/doc/html/rfc5731>`_
@@ -33,7 +33,7 @@ Usage example
    from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
 
    config = {
-       "host": "epp.ote.irs.net.nz",
+       "host": "epp.test.net.nz",
        "port": "700",
        "client_cert": "/PATH/TO/YOUR/CLIENT_CERTIFICATE.crt",
        "client_key": "/PATH/TO/YOUR/CLIENT_KEY.pem"
@@ -99,15 +99,47 @@ Usage example
    # Renew a domain name
    renew_domain = domain.renew(domain_name='example-1.nz', expiry_date=date(2024, 2, 23), period=2)
 
+PyEPP CLI
+---------
+PyEPP also has a command line interface that allows the user to interact with the registry system.
+
+.. code:: text
+
+    Usage: pyepp [OPTIONS] COMMAND [ARGS]...
+
+      A command line interface to work with PyEpp library.
+
+    Options:
+      --host TEXT                     [required]
+      --port TEXT                     [required]
+      --client-cert TEXT              [required]
+      --client-key TEXT               [required]
+      --user TEXT                     [required]
+      --password TEXT                 [required]
+      -o, --output-format [XML|OBJECT|MIN]
+                                      [default: XML]
+      --no-pretty
+      --dry-run
+      -f, --file FILENAME             If provided, the output will be written in
+                                      the file.
+      -v, --verbose
+      -d, --debug
+      --version                       Show the version and exit.
+      -h, --help                      Show this message and exit.
+
+    Commands:
+      contact  To work with Contact objects in the registry.
+      domain   To work with Domain name objects in the registry.
+      host     To work with Host objects in the registry.
+      poll     To manage registry service messages.
+      run      Receive an XML file containing an EPP XML command and execute it.
+
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-   modules
+   Home <self>
+   cli
+   api
 
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
