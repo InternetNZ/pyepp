@@ -32,7 +32,7 @@ version = {attr = "pyepp.__version__"}
 dev = ["bandit", "coverage", "pylint", "pytest", "safety"]
 
 [project.urls]
-"Homepage" = "https://github.com/InternetNZ/pyepp"
+"Homepage" = "https://pyepp.readthedocs.io/en/latest/index.html"
 "Repository" = "https://github.com/InternetNZ/pyepp"
 
 [project.scripts]
