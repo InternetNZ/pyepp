@@ -94,6 +94,40 @@ domain_create = domain.create(domain_create_params)
 renew_domain = domain.renew(domain_name='example-1.nz', expiry_date=date(2024, 2, 23), period=2)
 ```
 
+## PyEPP CLI
+PyEPP also has a command line interface that allows the user to interact with the registry system.
+
+```text
+Usage: pyepp [OPTIONS] COMMAND [ARGS]...
+
+  A command line interface to work with PyEpp library.
+
+Options:
+  --host TEXT                     [required]
+  --port TEXT                     [required]
+  --client-cert TEXT              [required]
+  --client-key TEXT               [required]
+  --user TEXT                     [required]
+  --password TEXT                 [required]
+  -o, --output-format [XML|OBJECT|MIN]
+                                  [default: XML]
+  --no-pretty
+  --dry-run
+  -f, --file FILENAME             If provided, the output will be written in
+                                  the file.
+  -v, --verbose
+  -d, --debug
+  --version                       Show the version and exit.
+  -h, --help                      Show this message and exit.
+
+Commands:
+  contact  To work with Contact objects in the registry.
+  domain   To work with Domain name objects in the registry.
+  host     To work with Host objects in the registry.
+  poll     To manage registry service messages.
+  run      Receive an XML file containing an EPP XML command and execute it.
+```
+
 ## Development setup
 Clone this project. It's recommended to create virtual environment. Then install the dependencies and 
 development dependencies:
