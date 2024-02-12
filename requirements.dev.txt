@@ -1,5 +1,5 @@
 bandit==1.7.6
-coverage==7.4.0
+coverage==7.4.1
 pylint==3.0.3
 pytest==8.0.0
 safety==3.0.1
