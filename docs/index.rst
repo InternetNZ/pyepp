@@ -1,7 +1,7 @@
 PyEPP
 =====
 
-This a Python API on `EPP <https://en.wikipedia.org/wiki/Extensible_Provisioning_Protocol>`_
+TEST CHANGES FROM BRANCH 2.1.2
 protocol to connect to any registry systems that support EPP and manage the registry objects.
 It supports the bellow RFCs:
 
