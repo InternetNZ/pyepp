@@ -94,7 +94,7 @@ The server configuration and credentials can be passed to the cli by command lin
 Environment variables
 ^^^^^^^^^^^^^^^^^^^^^
 The below environment variables can be used to pass the epp server configuration and credentials to the cli. By using
-this way. you don't have to pass the parameters for running each command.
+this way you don't have to pass the parameters for running each command.
 
 .. code-block:: text
 
@@ -107,7 +107,7 @@ this way. you don't have to pass the parameters for running each command.
 
 Config file
 ^^^^^^^^^^^
-To configure the cli by a config file first the config file should be create in the below paths based on the operating
+To configure the cli by a config file first the config file should be created in the below paths based on the operating
 system:
 
 .. code-block:: text
