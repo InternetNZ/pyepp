@@ -100,8 +100,8 @@ this way. you don't have to pass the parameters for running each command.
 
     PYEPP_HOST=epp.test.net.nz
     PYEPP_PORT=700
-    PYEPP_CLIENT_CERT=/path/to/epp.key.pem
-    PYEPP_CLIENT_KEY=/path/to/epp.crt
+    PYEPP_CLIENT_CERT=/path/to/epp.crt
+    PYEPP_CLIENT_KEY=/path/to/epp.key.pem
     PYEPP_USER=epp_user
     PYEPP_PASSWORD=SecurePassWord
 
@@ -124,8 +124,8 @@ Then add the below lines to the file:
     [pyepp]
     host = epp.test.net.nz
     port = 700
-    client_cert = /path/to/epp.key.pem
-    client_key = /path/to/epp.crt
+    client_cert = /path/to/epp.crt
+    client_key = /path/to/epp.key.pem
     user = epp_user
     password = SecurePassWord
 
