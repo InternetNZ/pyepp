@@ -33,7 +33,7 @@ Usage example
    from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
 
    config = {
-       "host": "epp.test.net.nz",
+       "server": "epp.test.net.nz",
        "port": "700",
        "client_cert": "/PATH/TO/YOUR/CLIENT_CERTIFICATE.crt",
        "client_key": "/PATH/TO/YOUR/CLIENT_KEY.pem"
@@ -110,7 +110,7 @@ PyEPP also has a command line interface that allows the user to interact with th
       A command line interface to work with PyEpp library.
 
     Options:
-      --host TEXT                     [required]
+      --server TEXT                   [required]
       --port TEXT                     [required]
       --client-cert TEXT              [required]
       --client-key TEXT               [required]

@@ -9,9 +9,6 @@ import click
 
 from pyepp.helper import xml_pretty
 from pyepp.epp import EppResultData
-from pyepp.host import Host
-from pyepp.contact import Contact
-from pyepp.domain import Domain
 from pyepp import EppCommunicator
 
 
@@ -33,8 +30,8 @@ def login_logout(func):
 
 
 class PyEppCli:
-    def __init__(self, host, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run=False):
-        self.epp = EppCommunicator(host, port, client_cert, client_key, dry_run)
+    def __init__(self, server, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run=False):
+        self.epp = EppCommunicator(server, port, client_cert, client_key, dry_run)
 
         self.user = user
         self.password = password
