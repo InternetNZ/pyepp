@@ -92,16 +92,16 @@ class EppCommunicator:
     """
 
     # pylint: disable=too-many-instance-attributes,too-many-arguments
-    def __init__(self, host: str, port: str, client_cert: str,
+    def __init__(self, server: str, port: str, client_cert: str,
                  client_key: str, dry_run: Optional[bool] = False) -> None:
         """
-        :param host: Host name
-        :param port: Port number
+        :param server: EPP server to connect to.
+        :param port: EPP port to connect to.
         :param client_cert: Path client certificate
         :param client_key: Path to client key
         :param dry_run: dry run the request
         """
-        self._host = host
+        self._server = server
         self._port = port
         self._user = None
         self._client_cert = client_cert
@@ -224,8 +224,8 @@ class EppCommunicator:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
             self._socket.settimeout(10)
 
-            self._ssl_socket = self._context.wrap_socket(self._socket, server_hostname=self._host)
-            self._ssl_socket.connect((self._host, int(self._port)))
+            self._ssl_socket = self._context.wrap_socket(self._socket, server_hostname=self._server)
+            self._ssl_socket.connect((self._server, int(self._port)))
             self.greeting = self._read()
             logging.debug(BeautifulSoup(self.greeting, 'xml'))
             return self.greeting
@@ -320,7 +320,7 @@ class EppCommunicator:
         result = self.execute(command)
 
         if result.code == EppResultCode.SUCCESS.value:
-            logging.info("User %s logged in to %s:%s", self._user, self._host, self._port)
+            logging.info("User %s logged in to %s:%s", self._user, self._server, self._port)
         elif result.code == EppResultCode.PARAMETER_RANGE_ERROR.value:
             raise EppCommunicatorException("Incorrect user name or password. Please try again!")
         else:
@@ -339,6 +339,6 @@ class EppCommunicator:
 
         logout = self.execute(LOGOUT_XML)
         self._socket.close()
-        logging.info("User %s logged out from %s:%s", self._user, self._host, self._port)
+        logging.info("User %s logged out from %s:%s", self._user, self._server, self._port)
 
         return logout

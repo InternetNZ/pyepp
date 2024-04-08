@@ -20,7 +20,7 @@ To see the help page:
     A command line interface to work with PyEpp library.
 
     Options:
-      --host TEXT                     [required]
+      --server TEXT                   [required]
       --port TEXT                     [required]
       --client-cert TEXT              [required]
       --client-key TEXT               [required]
@@ -83,7 +83,7 @@ The server configuration and credentials can be passed to the cli by command lin
 
 .. code-block:: text
 
-    sh> pyepp --host epp.test.net.nz \
+    sh> pyepp --server epp.test.net.nz \
         --port 700 \
         --client-key /path/to/epp.key.pem \
         --client-cert /path/to/epp.crt \
@@ -98,7 +98,7 @@ this way. you don't have to pass the parameters for running each command.
 
 .. code-block:: text
 
-    PYEPP_HOST=epp.test.net.nz
+    PYEPP_SERVER=epp.test.net.nz
     PYEPP_PORT=700
     PYEPP_CLIENT_CERT=/path/to/epp.key.pem
     PYEPP_CLIENT_KEY=/path/to/epp.crt
@@ -122,7 +122,7 @@ Then add the below lines to the file:
 .. code-block:: ini
 
     [pyepp]
-    host = epp.test.net.nz
+    server = epp.test.net.nz
     port = 700
     client_cert = /path/to/epp.key.pem
     client_key = /path/to/epp.crt

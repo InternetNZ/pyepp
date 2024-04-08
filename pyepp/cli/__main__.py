@@ -40,7 +40,7 @@ def load_config():
             config[f"{section}_{key}".upper()] = value
 
     CONTEXT_SETTINGS['default_map'] = {
-        'host': config.get('PYEPP_HOST'),
+        'server': config.get('PYEPP_SERVER'),
         'port': config.get('PYEPP_PORT'),
         'client_cert': config.get('PYEPP_CLIENT_CERT'),
         'client_key': config.get('PYEPP_CLIENT_KEY'),
@@ -53,7 +53,7 @@ load_config()
 
 
 @click.group(name='pyepp', context_settings=CONTEXT_SETTINGS)
-@click.option('--host', envvar="PYEPP_HOST", required=True)
+@click.option('--server', envvar="PYEPP_SERVER", required=True)
 @click.option('--port', envvar="PYEPP_PORT", required=True)
 @click.option('--client-cert', envvar="PYEPP_CLIENT_CERT", required=True)
 @click.option('--client-key', envvar="PYEPP_CLIENT_KEY", required=True)
@@ -70,10 +70,10 @@ load_config()
 @click.version_option()
 @click.pass_context
 # pylint: disable=too-many-arguments
-def pyepp_cli(ctx, host, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run,
+def pyepp_cli(ctx, server, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run,
               file, verbose, debug):
     """A command line interface to work with PyEpp library."""
-    ctx.obj = cli.PyEppCli(host, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run)
+    ctx.obj = cli.PyEppCli(server, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run)
 
     if verbose:
         logging.basicConfig(level=logging.INFO)
