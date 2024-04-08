@@ -13,7 +13,7 @@ class PyEPPTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.epp_config = {
-            "host": "0.0.0.0",
+            "server": "0.0.0.0",
             "port": "700",
             "client_cert": "path_to_cert",
             "client_key": "path_to_key",
