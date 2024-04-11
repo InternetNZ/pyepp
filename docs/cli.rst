@@ -202,3 +202,38 @@ domain
           </trID>
          </response>
         </epp>
+
+host
+^^^^^^^^^^^
+
+.. code-block:: text
+
+    sh> pyepp host info test.co.nz
+        <?xml version="1.0" encoding="utf-8"?>
+        <epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+         <response>
+          <result code="2303">
+           <msg>
+            Object does not exist
+           </msg>
+           <extValue>
+            <value>
+             <ciraCode>
+              6010
+             </ciraCode>
+            </value>
+            <reason>
+             Host does not exist
+            </reason>
+           </extValue>
+          </result>
+          <trID>
+           <clTRID>
+            7bc656f8-32f0-42d3-ba55-79192cd3b654
+           </clTRID>
+           <svTRID>
+            CIRA-000232224702-0000000002
+           </svTRID>
+          </trID>
+         </response>
+    </epp>
