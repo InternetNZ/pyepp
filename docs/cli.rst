@@ -94,20 +94,20 @@ The server configuration and credentials can be passed to the cli by command lin
 Environment variables
 ^^^^^^^^^^^^^^^^^^^^^
 The below environment variables can be used to pass the epp server configuration and credentials to the cli. By using
-this way. you don't have to pass the parameters for running each command.
+this way you don't have to pass the parameters for running each command.
 
 .. code-block:: text
 
     PYEPP_SERVER=epp.test.net.nz
     PYEPP_PORT=700
-    PYEPP_CLIENT_CERT=/path/to/epp.key.pem
-    PYEPP_CLIENT_KEY=/path/to/epp.crt
+    PYEPP_CLIENT_CERT=/path/to/epp.crt
+    PYEPP_CLIENT_KEY=/path/to/epp.key.pem
     PYEPP_USER=epp_user
     PYEPP_PASSWORD=SecurePassWord
 
 Config file
 ^^^^^^^^^^^
-To configure the cli by a config file first the config file should be create in the below paths based on the operating
+To configure the cli by a config file first the config file should be created in the below paths based on the operating
 system:
 
 .. code-block:: text
@@ -124,8 +124,8 @@ Then add the below lines to the file:
     [pyepp]
     server = epp.test.net.nz
     port = 700
-    client_cert = /path/to/epp.key.pem
-    client_key = /path/to/epp.crt
+    client_cert = /path/to/epp.crt
+    client_key = /path/to/epp.key.pem 
     user = epp_user
     password = SecurePassWord
 
