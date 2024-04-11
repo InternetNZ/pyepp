@@ -129,3 +129,75 @@ Then add the below lines to the file:
     user = epp_user
     password = SecurePassWord
 
+Examples
+---------------
+contact
+^^^^^^^^^^^
+
+.. code-block:: text
+
+    sh> pyepp contact check test_contact
+        <?xml version="1.0" encoding="utf-8"?>
+        <epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+         <response>
+          <result code="1000">
+           <msg>
+            Command completed successfully
+           </msg>
+          </result>
+          <resData>
+           <contact:chkData>
+            <contact:cd>
+             <contact:id avail="true">
+              test_contact
+             </contact:id>
+            </contact:cd>
+           </contact:chkData>
+          </resData>
+          <trID>
+           <clTRID>
+            92641ed2-0459-4780-8f26-befa07ada2b1
+           </clTRID>
+           <svTRID>
+            CIRA-000232201502-0000000002
+           </svTRID>
+          </trID>
+         </response>
+        </epp>
+
+domain
+^^^^^^^^^^^
+
+.. code-block:: text
+
+    sh> pyepp % pyepp domain check test.co.nz
+        <?xml version="1.0" encoding="utf-8"?>
+        <epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+         <response>
+          <result code="1000">
+           <msg>
+            Command completed successfully
+           </msg>
+          </result>
+          <resData>
+           <domain:chkData>
+            <domain:cd>
+             <domain:name avail="false">
+              test.co.nz
+             </domain:name>
+             <domain:reason>
+              Registered
+             </domain:reason>
+            </domain:cd>
+           </domain:chkData>
+          </resData>
+          <trID>
+           <clTRID>
+            f9e9cbf6-d201-41a6-8fdf-86b9b5fb77d7
+           </clTRID>
+           <svTRID>
+            CIRA-000232202709-0000000002
+           </svTRID>
+          </trID>
+         </response>
+        </epp>
