@@ -152,11 +152,12 @@ class Contact(BaseCommand):
                 'name': raw_response.find('name').text,
                 'organization': raw_response.find('org').text if raw_response.find('org') else None,
                 'address': AddressData(**{
-                    'street_1': raw_response.find_all('street')[0].text,
+                    'street_1': raw_response.find_all('street')[0].text
+                    if len(raw_response.find_all('street')) >= 1 else None,
                     'street_2': raw_response.find_all('street')[1].text
-                    if len(raw_response.find_all('street')) > 1 else None,
+                    if len(raw_response.find_all('street')) >= 2 else None,
                     'street_3': raw_response.find_all('street')[2].text
-                    if len(raw_response.find_all('street')) > 2 else None,
+                    if len(raw_response.find_all('street')) >= 3 else None,
                     'city': raw_response.find('city').text,
                     'province': raw_response.find('sp').text if raw_response.find('sp') else None,
                     'postal_code': raw_response.find('pc').text if raw_response.find(
