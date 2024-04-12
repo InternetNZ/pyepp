@@ -169,7 +169,7 @@ contact
 
 .. code-block:: text
 
-    sh> pyepp -o OBJECT contact check sh8013
+    sh> pyepp -o OBJECT contact check sh8014
         EppResultData(code=1000,
                       message='Command completed successfully',
                       raw_response=b'<?xml version="1.0" encoding="UTF-8"?>\n<epp xmln'
@@ -183,21 +183,21 @@ contact
                                    b'mmand completed successfully</msg>\n        </res'
                                    b'ult>\n        <resData>\n            <contact:chkD'
                                    b'ata>\n                <contact:cd>\n              '
-                                   b'      <contact:id avail="false">sh8013</contact:'
+                                   b'      <contact:id avail="false">sh8014</contact:'
                                    b'id>\n                    <contact:reason>Selected'
                                    b' contact ID is not available</contact:reason>\n  '
                                    b'              </contact:cd>\n            </contac'
                                    b't:chkData>\n        </resData>\n        <trID>'
-                                   b'\n            <clTRID>c534c1a8-124b-426f-ac84-7b6'
-                                   b'ed2ec597e</clTRID>\n            <svTRID>CIRA-0002'
-                                   b'32271303-0000000002</svTRID>\n        </trID>\n   '
+                                   b'\n            <clTRID>32ebe5a8-225b-4829-a8e0-aa1'
+                                   b'a10602138</clTRID>\n            <svTRID>CIRA-0002'
+                                   b'32306101-0000000002</svTRID>\n        </trID>\n   '
                                    b' </response>\n</epp>',
-                      result_data={'sh8013': {'avail': False,
+                      result_data={'sh8014': {'avail': False,
                                               'reason': 'Selected contact ID is not '
                                                         'available'}},
                       reason=None,
-                      client_transaction_id='c534c1a8-124b-426f-ac84-7b6ed2ec597e',
-                      server_transaction_id='CIRA-000232271303-0000000002',
+                      client_transaction_id='32ebe5a8-225b-4829-a8e0-aa1a10602138',
+                      server_transaction_id='CIRA-000232306101-0000000002',
                       repository_object_id=None)
 
 domain
