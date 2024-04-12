@@ -137,38 +137,39 @@ contact
 
 .. code-block:: text
 
-    sh> pyepp contact check test_contact
+    sh> pyepp contact create sh8014 --email jdoe@example.com --name Jonh --city Dulles --country-code US
         <?xml version="1.0" encoding="utf-8"?>
-                <epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
-                 <response>
-                  <result code="1000">
-                   <msg>
-                    Command completed successfully
-                   </msg>
-                  </result>
-                  <resData>
-                   <contact:chkData>
-                    <contact:cd>
-                     <contact:id avail="true">
-                      test_contact
-                     </contact:id>
-                    </contact:cd>
-                   </contact:chkData>
-                  </resData>
-                  <trID>
-                   <clTRID>
-                    92641ed2-0459-4780-8f26-befa07ada2b1
-                   </clTRID>
-                   <svTRID>
-                    CIRA-000232201502-0000000002
-                   </svTRID>
-                  </trID>
-                 </response>
-                </epp>
+        <epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+         <response>
+          <result code="1000">
+           <msg>
+            Command completed successfully
+           </msg>
+          </result>
+          <resData>
+           <contact:creData>
+            <contact:id>
+             sh8014
+            </contact:id>
+            <contact:crDate>
+             2024-04-12T00:41:59.977Z
+            </contact:crDate>
+           </contact:creData>
+          </resData>
+          <trID>
+           <clTRID>
+            09ac2c26-63f4-4aaf-8574-1add9e620044
+           </clTRID>
+           <svTRID>
+            CIRA-000232270901-0000000002
+           </svTRID>
+          </trID>
+         </response>
+        </epp>
 
 .. code-block:: text
 
-    sh> pyepp -o OBJECT contact check test
+    sh> pyepp -o OBJECT contact check sh8013
         EppResultData(code=1000,
                       message='Command completed successfully',
                       raw_response=b'<?xml version="1.0" encoding="UTF-8"?>\n<epp xmln'
@@ -182,21 +183,21 @@ contact
                                    b'mmand completed successfully</msg>\n        </res'
                                    b'ult>\n        <resData>\n            <contact:chkD'
                                    b'ata>\n                <contact:cd>\n              '
-                                   b'      <contact:id avail="false">test</contact:id'
-                                   b'>\n                    <contact:reason>Selected c'
-                                   b'ontact ID is not available</contact:reason>\n    '
-                                   b'            </contact:cd>\n            </contact:'
-                                   b'chkData>\n        </resData>\n        <trID>\n '
-                                   b'           <clTRID>67c67bdd-d7eb-4748-8420-cf402'
-                                   b'eb37258</clTRID>\n            <svTRID>CIRA-000232'
-                                   b'252310-0000000002</svTRID>\n        </trID>\n    <'
-                                   b'/response>\n</epp>',
-                      result_data={'test': {'avail': False,
-                                            'reason': 'Selected contact ID is not '
-                                                      'available'}},
+                                   b'      <contact:id avail="false">sh8013</contact:'
+                                   b'id>\n                    <contact:reason>Selected'
+                                   b' contact ID is not available</contact:reason>\n  '
+                                   b'              </contact:cd>\n            </contac'
+                                   b't:chkData>\n        </resData>\n        <trID>'
+                                   b'\n            <clTRID>c534c1a8-124b-426f-ac84-7b6'
+                                   b'ed2ec597e</clTRID>\n            <svTRID>CIRA-0002'
+                                   b'32271303-0000000002</svTRID>\n        </trID>\n   '
+                                   b' </response>\n</epp>',
+                      result_data={'sh8013': {'avail': False,
+                                              'reason': 'Selected contact ID is not '
+                                                        'available'}},
                       reason=None,
-                      client_transaction_id='67c67bdd-d7eb-4748-8420-cf402eb37258',
-                      server_transaction_id='CIRA-000232252310-0000000002',
+                      client_transaction_id='c534c1a8-124b-426f-ac84-7b6ed2ec597e',
+                      server_transaction_id='CIRA-000232271303-0000000002',
                       repository_object_id=None)
 
 domain
