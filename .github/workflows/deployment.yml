@@ -49,6 +49,11 @@ jobs:
         python -m build
         twine check dist/*
         twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
+    - name: Tag commit
+      uses: tvdias/github-tagger@v0.0.1
+      with:
+        repo-token: "${{ secrets.GITHUB_TOKEN }}"
+        tag: "my_tag"
     - name: Release
         uses: softprops/action-gh-release@v2
     - name: Cleanup workspace
