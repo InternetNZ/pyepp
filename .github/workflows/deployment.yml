@@ -35,16 +35,6 @@ jobs:
     - name: Code Security Check
       run: |
         ./scripts/code-security-check.sh
-    - name: Create GitHub Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: ${{ github.ref }}
-        draft: false
-        prerelease: false
     - name: Publish to TestPyPi
       if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
       run: |
@@ -59,6 +49,16 @@ jobs:
         python -m build
         twine check dist/*
         twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: ${{ github.ref }}
+        draft: false
+        prerelease: false
     - name: Get Asset name
       run: |
         export PKG=$(ls dist/ | grep tar)
