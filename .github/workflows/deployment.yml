@@ -45,6 +45,20 @@ jobs:
         release_name: ${{ github.ref }}
         draft: false
         prerelease: false
+    - name: Publish to TestPyPi
+      if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+      run: |
+        rm -rf dist
+        python -m build
+        twine check dist/*
+        twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} dist/*
+    - name: Publish to PyPi
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        rm -rf dist
+        python -m build
+        twine check dist/*
+        twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
     - name: Get Asset name
       run: |
         export PKG=$(ls dist/ | grep tar)
@@ -60,20 +74,6 @@ jobs:
         asset_path: dist/${{ env.name }}
         asset_name: ${{ env.name }}
         asset_content_type: application/zip
-    - name: Publish to TestPyPi
-      if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
-      run: |
-        rm -rf dist
-        python -m build
-        twine check dist/*
-        twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} dist/*
-    - name: Publish to PyPi
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      run: |
-        rm -rf dist
-        python -m build
-        twine check dist/*
-        twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
       if: ${{ always() }} # To ensure this step runs even when earlier steps fail
