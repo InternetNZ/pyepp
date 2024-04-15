@@ -26,12 +26,13 @@ jobs:
     - name: Run a command and save result to variable
       id: my_variable_step
       run: |
-        MY_VARIABLE=VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/\1/')
+        MY_VARIABLE=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/\1/')
         echo "My variable value: $MY_VARIABLE"
-        echo "::set-output name=my_variable::$MY_VARIABLE"
+        echo "MY_VARIABLE=$MY_VARIABLE" >> $GITHUB_ENV
     - name: Use the variable in subsequent steps
       run: |
-        echo "My variable value from previous step: ${{ steps.my_variable_step.outputs.my_variable }}"
+        # Access the variable using the ${{ env.<variable_name> }} syntax
+        echo "My variable value from previous step: ${{ env.MY_VARIABLE }}"
     - name: Lint
       run: |
         ./scripts/linter.sh
