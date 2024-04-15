@@ -58,16 +58,14 @@ jobs:
       uses: rickstaa/action-create-tag@v1.7.2
       with:
         tag: ${{env.NEW_VERSION}}
-    - name: 📋 Get Commits since last Release
+    - name: 📋 Get Changes between Tags
       id: changes
-      uses: simbo/changes-since-last-release-action@v1
-      with:
-        line-prefix: "* "
-        include-hashes: false
-    - name: 📣 Output collected Data
+      uses: simbo/changes-between-tags-action@v1
+
+    - name: 📣 Output Data
       run: |
-        echo "Changes since ${{ steps.changes.outputs.last-tag }}:"
-        echo "${{ steps.changes.outputs.log }}"
+        echo "tag: ${{ steps.changes.outputs.tag }}"
+        echo "changes: ${{ steps.changes.outputs.changes }}"
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
