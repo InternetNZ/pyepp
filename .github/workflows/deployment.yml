@@ -52,9 +52,9 @@ jobs:
     - name: Create Tag
       uses: rickstaa/action-create-tag@v1.7.2
       with:
-        tag: my_tag_name
-    # - name: Release
-    #   uses: softprops/action-gh-release@v2
+        tag: my_tag_name2
+    - name: Release
+      uses: softprops/action-gh-release@v2
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
       if: ${{ always() }} # To ensure this step runs even when earlier steps fail
