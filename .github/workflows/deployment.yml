@@ -49,6 +49,13 @@ jobs:
         python -m build
         twine check dist/*
         twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
+    - name: 📋 Get Changes between Tags
+      id: changes
+      uses: simbo/changes-between-tags-action@v1
+    - name: 📣 Output Data
+      run: |
+        echo "tag: ${{ steps.changes.outputs.tag }}"
+        echo "changes: ${{ steps.changes.outputs.changes }}"
     - name: Extract version
       run: |
         NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/v\1/')
