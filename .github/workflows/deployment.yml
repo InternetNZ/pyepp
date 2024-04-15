@@ -23,6 +23,22 @@ jobs:
         pip install -r requirements.dev.txt
         pip install setuptools==65.5.1
         pip install build twine
+    - name: Run a command and save result to variable
+      id: my_variable_step
+      run: |
+        # Run your command and capture its output to a variable
+        MY_VARIABLE=VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/\1/')
+        
+        # Echo the variable to see its value (optional)
+        echo "My variable value: $MY_VARIABLE"
+        
+        # Export the variable so it can be used in subsequent steps
+        echo "::set-output name=my_variable::$MY_VARIABLE"
+      
+    - name: Use the variable in subsequent steps
+      run: |
+        # Access the variable using the ${{ steps.<step_id>.outputs.<output_name> }} syntax
+        echo "My variable value from previous step: ${{ steps.my_variable_step.outputs.my_variable }}"
     - name: Lint
       run: |
         ./scripts/linter.sh
