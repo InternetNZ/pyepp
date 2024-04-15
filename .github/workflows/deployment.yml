@@ -54,7 +54,7 @@ jobs:
         twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
     - name: Extract version
       run: |
-        NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/\1/')
+        NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/v\1/')
         echo "NEW_VERSION: $NEW_VERSION"
         echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
     - name: Create Tag
