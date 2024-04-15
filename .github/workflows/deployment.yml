@@ -23,9 +23,6 @@ jobs:
         pip install -r requirements.dev.txt
         pip install setuptools==65.5.1
         pip install build twine
-    # - name: Use the variable in subsequent steps
-    #   run: |
-    #     echo "My variable value from previous step: "
     - name: Lint
       run: |
         ./scripts/linter.sh
@@ -67,6 +64,7 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{env.NEW_VERSION}}
         draft: true
+        generateReleaseNotes: true
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
       if: ${{ always() }} # To ensure this step runs even when earlier steps fail
