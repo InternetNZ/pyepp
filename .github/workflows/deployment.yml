@@ -58,13 +58,13 @@ jobs:
       uses: rickstaa/action-create-tag@v1.7.2
       with:
         tag: ${{env.NEW_VERSION}}
-    - name: 📋 Get Changes between Tags
-      id: changes
-      uses: simbo/changes-between-tags-action@v1
-    - name: 📣 Output Data
-      run: |
-        echo "tag: ${{ steps.changes.outputs.tag }}"
-        echo "changes: ${{ steps.changes.outputs.changes }}"
+    # - name: 📋 Get Changes between Tags
+    #   id: changes
+    #   uses: simbo/changes-between-tags-action@v1
+    # - name: 📣 Output Data
+    #   run: |
+    #     echo "tag: ${{ steps.changes.outputs.tag }}"
+    #     echo "changes: ${{ steps.changes.outputs.changes }}"
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
