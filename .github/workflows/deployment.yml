@@ -31,7 +31,6 @@ jobs:
         echo "MY_VARIABLE=$MY_VARIABLE" >> $GITHUB_ENV
     - name: Use the variable in subsequent steps
       run: |
-        # Access the variable using the ${{ env.<variable_name> }} syntax
         echo "My variable value from previous step: ${{ env.MY_VARIABLE }}"
     - name: Lint
       run: |
