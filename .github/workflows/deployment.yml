@@ -63,7 +63,7 @@ jobs:
         tag: ${{env.NEW_VERSION}}
     -name: logging
       run: |
-        git log ${{ steps.previoustag.outputs.tag }}..${{env.NEW_VERSION}}--reverse --merges --oneline --grep='Merge pull request #'
+        git log ${{ steps.previoustag.outputs.tag }}..${{env.NEW_VERSION}} --reverse --merges --oneline --grep='Merge pull request #'
     - name: Generate changelog
       id: changelog
       uses: metcalfc/changelog-generator@v4.3.1
