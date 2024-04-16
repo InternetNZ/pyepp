@@ -70,12 +70,15 @@ jobs:
         cat << "EOF"
         ${{ steps.changelog.outputs.changelog }}
         EOF
+
+        echo "CHANGELOG=${{ steps.changelog.outputs.changelog }} >> $GITHUB_ENV
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{env.NEW_VERSION}}
         draft: true
+        body: ${{env.CHANGELOG}}
         makeLatest: true
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
