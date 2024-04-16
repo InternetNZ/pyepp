@@ -58,12 +58,18 @@ jobs:
       uses: rickstaa/action-create-tag@v1.7.2
       with:
         tag: ${{env.NEW_VERSION}}
-    - name: Create changelog text
+    - name: Generate changelog
       id: changelog
-      uses: loopwerk/tag-changelog@v1
+      uses: metcalfc/changelog-generator@v4.3.1
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        exclude_types: other,doc,chore
+        myToken: ${{ secrets.GITHUB_TOKEN }}
+        head-ref: 'v0.0.14'
+        base-ref: 'v0.0.12'
+    - name: Get the changelog
+      run: |
+        cat << "EOF"
+        ${{ steps.changelog.outputs.changelog }}
+        EOF
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
