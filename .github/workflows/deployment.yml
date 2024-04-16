@@ -70,6 +70,7 @@ jobs:
         toTag: ${{env.NEW_VERSION}}
         token: ${{ secrets.GITHUB_TOKEN }}
         includeOpen: true
+        fetchViaCommits: true
     # - name: Generate changelog
     #   id: changelog
     #   uses: metcalfc/changelog-generator@v4.3.1
