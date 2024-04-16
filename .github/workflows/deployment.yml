@@ -73,6 +73,19 @@ jobs:
         cat << "EOF"
         ${{ steps.changelog.outputs.changelog }}
         EOF
+    - name: Modify the changelog
+      id: modified
+      run: |
+        set -o noglob
+        log=$(cat << "EOF" | grep 'Merge pull request' | tac
+        ${{ steps.changelog.outputs.changelog }}
+        EOF
+        )
+        log="${log//'%'/'%25'}"
+        log="${log//$'\n'/'%0A'}"
+        log="${log//$'\r'/'%0D'}"
+        echo "log=$log" >> $GITHUB_OUTPUT
+        cat << {{$log}}
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
