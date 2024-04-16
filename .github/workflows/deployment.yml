@@ -71,7 +71,7 @@ jobs:
         ${{ steps.changelog.outputs.changelog }}
         EOF
 
-        echo "CHANGELOG=${{ steps.changelog.outputs.changelog }} >> $GITHUB_ENV
+        echo "CHANGELOG=${{ steps.changelog.outputs.changelog }}" >> $GITHUB_ENV
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
