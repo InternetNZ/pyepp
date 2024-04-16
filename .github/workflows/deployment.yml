@@ -61,9 +61,10 @@ jobs:
       uses: rickstaa/action-create-tag@v1.7.2
       with:
         tag: ${{env.NEW_VERSION}}
-    -name: logging
-      run: |
-        git log ${{ steps.previoustag.outputs.tag }}..${{env.NEW_VERSION}} --reverse --merges --oneline --grep='Merge pull request #'
+  - name: logging
+    run: |
+      git log ${{ steps.previoustag.outputs.tag }}..${{ env.NEW_VERSION }} --reverse --merges --oneline --grep='Merge pull request #'
+
     - name: Generate changelog
       id: changelog
       uses: metcalfc/changelog-generator@v4.3.1
