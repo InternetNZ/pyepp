@@ -76,9 +76,6 @@ jobs:
         ${{ steps.changelog.outputs.changelog }}
         EOF
         )
-        log="${log//'%'/'%25'}"
-        log="${log//$'\n'/'%0A'}"
-        log="${log//$'\r'/'%0D'}"
         echo "CHANGES=$log" >> $GITHUB_ENV
     - name: Create release
       uses: ncipollo/release-action@v1
