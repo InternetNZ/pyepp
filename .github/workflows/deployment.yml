@@ -68,18 +68,19 @@ jobs:
         myToken: ${{ secrets.GITHUB_TOKEN }}
         head-ref: ${{env.NEW_VERSION}}
         base-ref: ${{ steps.previoustag.outputs.tag }}
-    - name: Get the changelog
+    - name: Modify the changelog
+      id: modified_changelog
       run: |
-        cat << "EOF"
-        ${{ steps.changelog.outputs.changelog }}
-        EOF
+        log=$(echo "${{ steps.changelog.outputs.changelog }}" | grep 'Merge pull request')
+        echo "CHANGES=${log//$'\n'/\\n}" >> $GITHUB_ENV
+    
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{env.NEW_VERSION}}
         draft: true
-        body: ${{ steps.changelog.outputs.changelog }}
+        body: ${{ env.CHANGES }}
         makeLatest: true
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
