@@ -71,11 +71,9 @@ jobs:
     - name: Modify the changelog
       id: modified
       run: |
-        set -o noglob
-        log=$(cat << "EOF" | grep -v Bumping | tac
-        ${{ steps.changelog.outputs.changelog }}
-        EOF
-        )
+        log=$(grep 'Merge pull request' <<< "${{ steps.changelog.outputs.changelog }}" | tac)
+        log=$(echo "$log" | sed -E 's/([%\\])/\1\1/g')
+        log=$(echo "$log" | sed -E 's/"/\\"/g')
         echo "CHANGES=$log" >> $GITHUB_ENV
     - name: Create release
       uses: ncipollo/release-action@v1
