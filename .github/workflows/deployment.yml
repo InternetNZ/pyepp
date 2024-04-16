@@ -69,7 +69,8 @@ jobs:
         fromTag: ${{ steps.previoustag.outputs.tag }}
         toTag: ${{env.NEW_VERSION}}
         token: ${{ secrets.GITHUB_TOKEN }}
-    
+         run: |
+           echo ${{steps.build_changelog.outputs.changelog}}
     # - name: Generate changelog
     #   id: changelog
     #   uses: metcalfc/changelog-generator@v4.3.1
