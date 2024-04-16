@@ -4,7 +4,7 @@ on:
   push:
 
 permissions:
-  contents: write
+  contents: write-all
 
 jobs:
   build:
@@ -63,8 +63,8 @@ jobs:
       uses: metcalfc/changelog-generator@v4.3.1
       with:
         myToken: ${{ secrets.GITHUB_TOKEN }}
-        head-ref: 'v0.0.14'
-        base-ref: 'v0.0.12'
+        head-ref: 'v0.0.12'
+        base-ref: 'v0.0.10'
     - name: Get the changelog
       run: |
         cat << "EOF"
