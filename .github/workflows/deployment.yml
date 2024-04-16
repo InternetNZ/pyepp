@@ -49,14 +49,6 @@ jobs:
         python -m build
         twine check dist/*
         twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
-    - name: Create changelog text
-      id: changelog
-      uses: loopwerk/tag-changelog@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        exclude_types: other,doc,chore
-      run: |
-        echo:  ${{ steps.changelog.outputs.changes }}
     - name: Extract version
       run: |
         NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/v\1/')
@@ -66,6 +58,12 @@ jobs:
       uses: rickstaa/action-create-tag@v1.7.2
       with:
         tag: ${{env.NEW_VERSION}}
+    - name: Create changelog text
+      id: changelog
+      uses: loopwerk/tag-changelog@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        exclude_types: other,doc,chore
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
