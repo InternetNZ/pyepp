@@ -84,7 +84,7 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{env.NEW_VERSION}}
         draft: true
-        body: ${{ steps.changelog.outputs.changelog }}
+        body: ${{env.CHANGES}}
         makeLatest: true
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
