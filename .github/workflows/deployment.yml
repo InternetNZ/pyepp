@@ -66,11 +66,9 @@ jobs:
       uses: mikepenz/release-changelog-builder-action@v4
       with:
         ignorePreReleases: "false"
-        fromTag: ${{ steps.previoustag.outputs.tag }}
+        fromTag: "v0.0.10"
         toTag: ${{env.NEW_VERSION}}
         token: ${{ secrets.GITHUB_TOKEN }}
-        includeOpen: true
-        fetchViaCommits: true
     # - name: Generate changelog
     #   id: changelog
     #   uses: metcalfc/changelog-generator@v4.3.1
