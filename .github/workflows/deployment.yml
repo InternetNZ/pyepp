@@ -69,14 +69,14 @@ jobs:
         head-ref: ${{env.NEW_VERSION}}
         base-ref: ${{ steps.previoustag.outputs.tag }}
     - name: Modify the changelog
-      id: modified_changelog
+      id: modified
       run: |
         set -o noglob
         log=$(grep -e 'Merge pull request' <<< "${{ steps.changelog.outputs.changelog }}" | tac)
         log="${log//'%'/'%25'}"
+        log="${log//$'\n'/'%0A'}"
         log="${log//$'\r'/'%0D'}"
-        echo "CHANGES=${log}" >> $GITHUB_ENV
-
+        echo "log=$log" >> $GITHUB_ENV
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
