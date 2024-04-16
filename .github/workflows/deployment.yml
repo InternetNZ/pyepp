@@ -61,10 +61,6 @@ jobs:
       uses: rickstaa/action-create-tag@v1.7.2
       with:
         tag: ${{env.NEW_VERSION}}
-  - name: logging
-    run: |
-      git log ${{ steps.previoustag.outputs.tag }}..${{ env.NEW_VERSION }} --reverse --merges --oneline --grep='Merge pull request #'
-
     - name: Generate changelog
       id: changelog
       uses: metcalfc/changelog-generator@v4.3.1
@@ -72,20 +68,20 @@ jobs:
         myToken: ${{ secrets.GITHUB_TOKEN }}
         head-ref: ${{env.NEW_VERSION}}
         base-ref: ${{ steps.previoustag.outputs.tag }}
-    - name: Modify the changelog
-      id: modified
-      run: |
-        log=$(grep 'Merge pull request' <<< "${{ steps.changelog.outputs.changelog }}" | tac)
-        log=$(echo "$log" | sed -E 's/([%\\])/\1\1/g')
-        log=$(echo "$log" | sed -E 's/"/\\"/g')
-        echo "CHANGES=$log" >> $GITHUB_ENV
+    # - name: Modify the changelog
+    #   id: modified
+    #   run: |
+    #     log=$(grep 'Merge pull request' <<< "${{ steps.changelog.outputs.changelog }}" | tac)
+    #     log=$(echo "$log" | sed -E 's/([%\\])/\1\1/g')
+    #     log=$(echo "$log" | sed -E 's/"/\\"/g')
+    #     echo "CHANGES=$log" >> $GITHUB_ENV
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{env.NEW_VERSION}}
         draft: true
-        body: ${{env.CHANGES}}
+        body: ${{ steps.changelog.outputs.changelog }}
         makeLatest: true
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
