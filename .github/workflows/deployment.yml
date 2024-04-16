@@ -63,22 +63,18 @@ jobs:
       uses: metcalfc/changelog-generator@v4.3.1
       with:
         myToken: ${{ secrets.GITHUB_TOKEN }}
-        head-ref: 'v0.0.14'
-        base-ref: 'v0.0.12'
-    - name: Get the changelog
-      run: |
-        cat << "EOF"
-        ${{ steps.changelog.outputs.changelog }}
-        EOF
-
-        echo "CHANGELOG=${{ steps.changelog.outputs.changelog }}" >> $GITHUB_ENV
+    # - name: Get the changelog
+    #   run: |
+    #     cat << "EOF"
+    #     ${{ steps.changelog.outputs.changelog }}
+    #     EOF
     - name: Create release
       uses: ncipollo/release-action@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{env.NEW_VERSION}}
         draft: true
-        body: ${{env.CHANGELOG}}
+        body: ${{ steps.changelog.outputs.changelog }}
         makeLatest: true
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
