@@ -61,13 +61,22 @@ jobs:
       uses: rickstaa/action-create-tag@v1.7.2
       with:
         tag: ${{env.NEW_VERSION}}
-    - name: Generate changelog
-      id: changelog
-      uses: metcalfc/changelog-generator@v4.3.1
+    - name: "Complex Configuration"
+      id: build_changelog
+      uses: mikepenz/release-changelog-builder-action@{latest-release}
       with:
-        myToken: ${{ secrets.GITHUB_TOKEN }}
-        head-ref: ${{env.NEW_VERSION}}
-        base-ref: ${{ steps.previoustag.outputs.tag }}
+        ignorePreReleases: "false"
+        fromTag: ${{ steps.previoustag.outputs.tag }}
+        toTag: ${{env.NEW_VERSION}}
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    # - name: Generate changelog
+    #   id: changelog
+    #   uses: metcalfc/changelog-generator@v4.3.1
+    #   with:
+    #     myToken: ${{ secrets.GITHUB_TOKEN }}
+    #     head-ref: ${{env.NEW_VERSION}}
+    #     base-ref: ${{ steps.previoustag.outputs.tag }}
     # - name: Modify the changelog
     #   id: modified
     #   run: |
@@ -81,8 +90,8 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{env.NEW_VERSION}}
         draft: true
-        generateReleaseNotes: true
-        # body: ${{ steps.changelog.outputs.changelog }}
+        # generateReleaseNotes: true
+        body: ${{steps.build_changelog.outputs.changelog}}
         makeLatest: true
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
