@@ -75,7 +75,6 @@ jobs:
         log=$(grep -e 'Merge pull request' <<< "${{ steps.changelog.outputs.changelog }}" | tac)
         log=$(echo "$log" | sed 's/$/\\n/g')
         log="${log//'%'/'%25'}"
-        log="${log//$'\n'/'%0A'}"
         log="${log//$'\r'/'%0D'}"
         echo "CHANGES=${log//$'\n'/\\n}" >> $GITHUB_ENV
     - name: Create release
