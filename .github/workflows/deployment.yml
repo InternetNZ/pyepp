@@ -55,6 +55,8 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         exclude_types: other,doc,chore
+      run: |
+        echo:  ${{ steps.changelog.outputs.changes }}
     - name: Extract version
       run: |
         NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/v\1/')
