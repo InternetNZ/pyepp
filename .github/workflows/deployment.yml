@@ -67,15 +67,15 @@ jobs:
       with:
         configurationJson: |
           {
-            "template": "#{{CHANGELOG}}\n\n<details>\n<summary>## 💬 Changes</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
+            "template": "#{{CHANGELOG}}\n\n<details>\n<summary>💬 Changes</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
             "categories": [
               {
                   "title": "## 💬 Other",
-                  "labels": ["other"]
+                  "labels": []
               },
               {
                   "title": "## 🐛 Fixes",
-                  "labels": ["fix"]
+                  "labels": ["fix", "bug"]
               },
               {
                   "title": "## 📦 Dependencies",
