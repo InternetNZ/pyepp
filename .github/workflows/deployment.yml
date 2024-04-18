@@ -36,7 +36,7 @@ jobs:
       run: |
         ./scripts/code-security-check.sh
     - name: Publish to TestPyPi
-      # if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+      if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
       run: |
         rm -rf dist
         python -m build
