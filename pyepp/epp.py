@@ -218,6 +218,7 @@ class EppCommunicator:
         """
         try:
             self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            self._context.minimum_version = ssl.TLSVersion.TLSv1_2
             self._context.load_default_certs()
             self._context.load_cert_chain(certfile=self._client_cert, keyfile=self._client_key)
 
