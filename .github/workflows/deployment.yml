@@ -98,7 +98,7 @@ jobs:
         tag: ${{ env.NEW_VERSION }}
         draft: true
         body: |
-          [PyEPP on PyPI](https://pypi.org/project/pyepp/${{ env.TRIMMED_VERSION | ltrim: 'v' }}/)
+          [PyEPP on PyPI](https://pypi.org/project/pyepp/${{env.TRIMMED_VERSION}}/)
 
           ${{ steps.build_changelog.outputs.changelog }}
         makeLatest: true
