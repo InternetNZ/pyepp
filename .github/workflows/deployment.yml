@@ -40,6 +40,8 @@ jobs:
         NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/v\1/')
         echo "NEW_VERSION: $NEW_VERSION"
         echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+        TRIMMED_VERSION=$(echo "$NEW_VERSION" | sed 's/^v//')
+        echo "TRIMMED_VERSION=$TRIMMED_VERSION" >> $GITHUB_ENV
     - name: Get Previous tag
       id: previous_tag
       uses: "WyriHaximus/github-action-get-previous-tag@v1"
@@ -96,7 +98,7 @@ jobs:
         tag: ${{ env.NEW_VERSION }}
         draft: true
         body: |
-          [PyEPP on PyPI](https://pypi.org/project/pyepp/${{ env.NEW_VERSION | ltrim: 'v' }}/)
+          [PyEPP on PyPI](https://pypi.org/project/pyepp/${{ env.TRIMMED_VERSION | ltrim: 'v' }}/)
 
           ${{ steps.build_changelog.outputs.changelog }}
         makeLatest: true
