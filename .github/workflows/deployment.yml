@@ -45,6 +45,8 @@ jobs:
     - name: Get Previous tag
       id: previous_tag
       uses: "WyriHaximus/github-action-get-previous-tag@v1"
+      run: |
+        echo "Previous tag: ${{ steps.previous_tag.outputs.tag }}"
     - name: Publish to TestPyPi
       if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
       run: |
