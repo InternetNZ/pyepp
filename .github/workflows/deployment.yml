@@ -49,14 +49,14 @@ jobs:
         rm -rf dist
         python -m build
         twine check dist/*
-        twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
+        # twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
     - name: Publish to PyPi
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.previous_tag.outputs.tag < env.NEW_VERSION
       run: |
         rm -rf dist
         python -m build
         twine check dist/*
-        twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/* 
+        # twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/* 
     - name: Create Tag
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.previous_tag.outputs.tag  < env.NEW_VERSION
       uses: rickstaa/action-create-tag@v1.7.2
@@ -94,9 +94,9 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: ${{ env.NEW_VERSION }}
-        draft: false
+        draft: true
         body: |
-          [PyEPP on PyPI](https://pypi.org/project/pyepp/)
+          [PyEPP on PyPI](https://pypi.org/project/pyepp/${{ env.NEW_VERSION | ltrim: 'v' }}/)
 
           ${{ steps.build_changelog.outputs.changelog }}
         makeLatest: true
