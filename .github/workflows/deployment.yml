@@ -35,18 +35,17 @@ jobs:
     - name: Code Security Check
       run: |
         ./scripts/code-security-check.sh
+    - name: Get Previous tag
+      id: previous_tag
+      uses: "WyriHaximus/github-action-get-previous-tag@v1"
     - name: Extract version
       run: |
+        echo "Previous tag: ${{ steps.previous_tag.outputs.tag }}"
         NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/v\1/')
         echo "NEW_VERSION: $NEW_VERSION"
         echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
         TRIMMED_VERSION=$(echo "$NEW_VERSION" | sed 's/^v//')
         echo "TRIMMED_VERSION=$TRIMMED_VERSION" >> $GITHUB_ENV
-    - name: Get Previous tag
-      id: previous_tag
-      uses: "WyriHaximus/github-action-get-previous-tag@v1"
-      run: |
-        echo "Previous tag: ${{ steps.previous_tag.outputs.tag }}"
     - name: Publish to TestPyPi
       if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
       run: |
