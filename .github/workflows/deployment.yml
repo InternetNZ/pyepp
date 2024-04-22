@@ -43,41 +43,27 @@ jobs:
     - name: Get Previous tag
       id: previous_tag
       uses: "WyriHaximus/github-action-get-previous-tag@v1"
-    - name: Compare Versions
-      id: compare_versions
-      run: |
-        const semver = require('semver');
-        const newVersion = process.env.NEW_VERSION;
-        const previousTag = ${{ steps.previous_tag.outputs.tag }};
-
-        if (semver.gt(newVersion, previousTag)) {
-          console.log('New version is greater than previous tag');
-          process.exit(0); // Succeed the step if condition is true
-        } else {
-          console.log('New version is not greater than previous tag');
-          process.exit(1); // Fail the step if condition is false
-        }
     - name: Publish to TestPyPi
-      if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
+      if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && ${{ steps.previous_tag.outputs.tag < env.NEW_VERSION}}
       run: |
         rm -rf dist
         python -m build
         twine check dist/*
         # twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
     - name: Publish to PyPi
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag < env.NEW_VERSION}}
       run: |
         rm -rf dist
         python -m build
         twine check dist/*
         # twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/* 
-    # - name: Create Tag
-    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
-    #   uses: rickstaa/action-create-tag@v1.7.2
-    #   with:
-    #     tag: ${{env.NEW_VERSION}}
+    - name: Create Tag
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag  < env.NEW_VERSION}}
+      uses: rickstaa/action-create-tag@v1.7.2
+      with:
+        tag: ${{env.NEW_VERSION}}
     # - name: Generate changelog
-    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
+    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag < env.NEW_VERSION}}
     #   id: build_changelog
     #   uses: mikepenz/release-changelog-builder-action@v4
     #   with:
@@ -103,7 +89,7 @@ jobs:
     #     toTag: ${{env.NEW_VERSION}}
     #     token: ${{ secrets.GITHUB_TOKEN }}
     # - name: Create release
-    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
+    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag < env.NEW_VERSION}}
     #   uses: ncipollo/release-action@v1
     #   with:
     #     token: ${{ secrets.GITHUB_TOKEN }}
