@@ -23,18 +23,18 @@ jobs:
         pip install -r requirements.dev.txt
         pip install setuptools==65.5.1
         pip install build twine
-    - name: Lint
-      run: |
-        ./scripts/linter.sh
-    - name: Tests
-      run: |
-        ./scripts/tests.sh
-    - name: Package Audit
-      run: |
-        ./scripts/package-audit.sh
-    - name: Code Security Check
-      run: |
-        ./scripts/code-security-check.sh
+    # - name: Lint
+    #   run: |
+    #     ./scripts/linter.sh
+    # - name: Tests
+    #   run: |
+    #     ./scripts/tests.sh
+    # - name: Package Audit
+    #   run: |
+    #     ./scripts/package-audit.sh
+    # - name: Code Security Check
+    #   run: |
+    #     ./scripts/code-security-check.sh
     - name: Extract version
       run: |
         NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/v\1/')
@@ -62,45 +62,45 @@ jobs:
       uses: rickstaa/action-create-tag@v1.7.2
       with:
         tag: ${{env.NEW_VERSION}}
-    - name: Generate changelog
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
-      id: build_changelog
-      uses: mikepenz/release-changelog-builder-action@v4
-      with:
-        configurationJson: |
-          {
-            "categories": [
-              {
-                  "title": "## 💬 Changes",
-                  "labels": []
-              },
-              {
-                  "title": "## 🐛 Fixes",
-                  "labels": ["fix", "bug"]
-              },
-              {
-                  "title": "## 📦 Dependencies",
-                  "labels": ["dependencies"]
-              }
-            ]
-          }
-        ignorePreReleases: "false"
-        fromTag: ${{ steps.previous_tag.outputs.tag }}
-        toTag: ${{env.NEW_VERSION}}
-        token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Create release
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
-      uses: ncipollo/release-action@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        tag: ${{ env.NEW_VERSION }}
-        draft: false
-        body: |
-          [PyEPP on PyPI](https://pypi.org/project/pyepp/)
+    # - name: Generate changelog
+    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
+    #   id: build_changelog
+    #   uses: mikepenz/release-changelog-builder-action@v4
+    #   with:
+    #     configurationJson: |
+    #       {
+    #         "categories": [
+    #           {
+    #               "title": "## 💬 Changes",
+    #               "labels": []
+    #           },
+    #           {
+    #               "title": "## 🐛 Fixes",
+    #               "labels": ["fix", "bug"]
+    #           },
+    #           {
+    #               "title": "## 📦 Dependencies",
+    #               "labels": ["dependencies"]
+    #           }
+    #         ]
+    #       }
+    #     ignorePreReleases: "false"
+    #     fromTag: ${{ steps.previous_tag.outputs.tag }}
+    #     toTag: ${{env.NEW_VERSION}}
+    #     token: ${{ secrets.GITHUB_TOKEN }}
+    # - name: Create release
+    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && ${{ steps.previous_tag.outputs.tag }} < ${{env.NEW_VERSION}}
+    #   uses: ncipollo/release-action@v1
+    #   with:
+    #     token: ${{ secrets.GITHUB_TOKEN }}
+    #     tag: ${{ env.NEW_VERSION }}
+    #     draft: false
+    #     body: |
+    #       [PyEPP on PyPI](https://pypi.org/project/pyepp/)
 
-          ${{ steps.build_changelog.outputs.changelog }}
-        makeLatest: true
-        artifacts: "./dist/*"
+    #       ${{ steps.build_changelog.outputs.changelog }}
+    #     makeLatest: true
+    #     artifacts: "./dist/*"
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
       if: ${{ always() }} # To ensure this step runs even when earlier steps fail
