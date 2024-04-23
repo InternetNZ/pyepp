@@ -48,63 +48,64 @@ jobs:
         echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
         TRIMMED_VERSION=$(echo "$NEW_VERSION" | sed 's/^v//')
         echo "TRIMMED_VERSION=$TRIMMED_VERSION" >> $GITHUB_ENV
-    # - name: Publish to TestPyPi
-    #   if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && env.LATEST_TAG != env.NEW_VERSION
-    #   run: |
-    #     rm -rf dist
-    #     python -m build
-    #     twine check dist/*
-    #     twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
-    # - name: Publish to PyPi
-    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LATEST_TAG != env.NEW_VERSION
-    #   run: |
-    #     rm -rf dist
-    #     python -m build
-    #     twine check dist/*
-    #     twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/* 
+    - name: Publish to TestPyPi
+      if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && env.LATEST_TAG != env.NEW_VERSION
+      run: |
+        rm -rf dist
+        python -m build
+        twine check dist/*
+        twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
+    - name: Publish to PyPi
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LATEST_TAG != env.NEW_VERSION
+      run: |
+        rm -rf dist
+        python -m build
+        twine check dist/*
+        twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/* 
     - name: Create Tag
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LATEST_TAG != env.NEW_VERSION
       run: |
         git tag ${{env.NEW_VERSION}}
         git push origin ${{env.NEW_VERSION}}
-    # - name: Generate changelog
-    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LATEST_TAG != env.NEW_VERSION
-    #   id: build_changelog
-    #   uses: mikepenz/release-changelog-builder-action@v4
-    #   with:
-    #     configurationJson: |
-    #       {
-    #         "categories": [
-    #           {
-    #               "title": "## 💬 Changes",
-    #               "labels": []
-    #           },
-    #           {
-    #               "title": "## 🐛 Fixes",
-    #               "labels": ["fix", "bug"]
-    #           },
-    #           {
-    #               "title": "## 📦 Dependencies",
-    #               "labels": ["dependencies"]
-    #           }
-    #         ]
-    #       }
-    #     ignorePreReleases: "false"
-    #     fromTag: ${{ steps.previous_tag.outputs.tag }}
-    #     toTag: ${{env.NEW_VERSION}}
-    #     token: ${{ secrets.GITHUB_TOKEN }}
-    # - name: Create release
-    #   if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LATEST_TAG != env.NEW_VERSION
-    #   uses: ncipollo/release-action@v1
-    #   with:
-    #     token: ${{ secrets.GITHUB_TOKEN }}
-    #     tag: ${{ env.NEW_VERSION }}
-    #     draft: false
-    #     body: |
-    #       [PyEPP on PyPI](https://pypi.org/project/pyepp/${{env.TRIMMED_VERSION}}/)
+    - name: Generate changelog
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LATEST_TAG != env.NEW_VERSION
+      id: build_changelog
+      uses: mikepenz/release-changelog-builder-action@v4
+      with:
+        configurationJson: |
+          {
+            "categories": [
+              {
+                  "title": "## 💬 Changes",
+                  "labels": []
+              },
+              {
+                  "title": "## 🐛 Fixes",
+                  "labels": ["fix", "bug"]
+              },
+              {
+                  "title": "## 📦 Dependencies",
+                  "labels": ["dependencies"]
+              }
+            ]
+          }
+        ignorePreReleases: "false"
+        fromTag: ${{ steps.previous_tag.outputs.tag }}
+        toTag: ${{env.NEW_VERSION}}
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Create release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LATEST_TAG != env.NEW_VERSION
+      uses: ncipollo/release-action@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag: ${{ env.NEW_VERSION }}
+        draft: false
+        body: |
+          [PyEPP on PyPI](https://pypi.org/project/pyepp/${{env.TRIMMED_VERSION}}/)
 
-    #       ${{ steps.build_changelog.outputs.changelog }}
-    #     makeLatest: true
-    #     artifacts: "./dist/*"
+          ${{ steps.build_changelog.outputs.changelog }}
+        makeLatest: true
+        artifacts: "./dist/*"
     - name: Cleanup workspace
       uses: colpal/actions-clean@v1
       if: ${{ always() }} # To ensure this step runs even when earlier steps fail
