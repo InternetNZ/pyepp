@@ -54,10 +54,9 @@ jobs:
       if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && steps.check-tag.outputs.exists == 'false'
       run: |
         rm -rf dist
-        echo "TEST RELEASE CHECK CONDITION"
         python -m build
-        # twine check dist/*
-        # twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
+        twine check dist/*
+        twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
     - name: Publish to PyPi
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.check-tag.outputs.exists == 'false'
       run: |
