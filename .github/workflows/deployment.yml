@@ -45,8 +45,13 @@ jobs:
         echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
         TRIMMED_VERSION=$(echo "$NEW_VERSION" | sed 's/^v//')
         echo "TRIMMED_VERSION=$TRIMMED_VERSION" >> $GITHUB_ENV
+    - name: Check tag
+      uses: mukunku/tag-exists-action@v1.6.0
+      id: check-tag
+      with:
+        tag: ${{env.NEW_VERSION}}
     - name: Publish to TestPyPi
-      if: steps.previous_tag.outputs.tag < env.NEW_VERSION
+      if: steps.check-tag.outputs.exists == 'false'
       run: |
         rm -rf dist
         echo "TEST RELEASE CHECK CONDITION"
