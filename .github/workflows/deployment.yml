@@ -37,6 +37,7 @@ jobs:
         ./scripts/code-security-check.sh
     - name: Get Latest tag
       run: |
+        git fetch --tags
         LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
         echo "LATEST_TAG: $LATEST_TAG"
         echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
