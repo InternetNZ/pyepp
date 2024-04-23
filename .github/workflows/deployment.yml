@@ -35,9 +35,11 @@ jobs:
     - name: Code Security Check
       run: |
         ./scripts/code-security-check.sh
-    - name: Get Previous tag
-      id: previous_tag
-      uses: "WyriHaximus/github-action-get-previous-tag@v1"
+    - name: Get Latest tag
+      run: |
+        LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
+        echo "LATEST_TAG: $LATEST_TAG"
+        echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
     - name: Extract version
       run: |
         NEW_VERSION=$(grep '^__version__' "pyepp/__init__.py" | sed -E 's/^__version__ = "(.*)"/v\1/')
