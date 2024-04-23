@@ -46,12 +46,13 @@ jobs:
         TRIMMED_VERSION=$(echo "$NEW_VERSION" | sed 's/^v//')
         echo "TRIMMED_VERSION=$TRIMMED_VERSION" >> $GITHUB_ENV
     - name: Publish to TestPyPi
-      if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && steps.previous_tag.outputs.tag < env.NEW_VERSION
+      if: steps.previous_tag.outputs.tag < env.NEW_VERSION
       run: |
         rm -rf dist
+        echo "TEST RELEASE CHECK CONDITION"
         python -m build
-        twine check dist/*
-        twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
+        # twine check dist/*
+        # twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
     - name: Publish to PyPi
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.previous_tag.outputs.tag < env.NEW_VERSION
       run: |
