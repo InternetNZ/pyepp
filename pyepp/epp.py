@@ -217,7 +217,7 @@ class EppCommunicator:
         :raises EppCommunicatorException: When there is any errors
         """
         try:
-            self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT, ssl_version=ssl.PROTOCOL_SSLv23)
+            self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT, ssl_version=ssl.PROTOCOL_TLSv1_2)
             self._context.minimum_version = ssl.TLSVersion.TLSv1_2
             self._context.load_default_certs()
             self._context.load_cert_chain(certfile=self._client_cert, keyfile=self._client_key)
