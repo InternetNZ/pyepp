@@ -76,9 +76,9 @@ def pyepp_cli(ctx, server, port, client_cert, client_key, user, password, output
     ctx.obj = cli.PyEppCli(server, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run)
 
     if verbose:
-        logging.basicConfig(level=logging.INFO)
+        logging.getLogger().setLevel(level=logging.INFO)
     if debug:
-        logging.basicConfig(level=logging.DEBUG)
+        logging.getLogger().setLevel(level=logging.DEBUG)
 
     utils.OUTPUT_FILE = file
 
