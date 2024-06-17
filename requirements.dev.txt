@@ -1,4 +1,4 @@
-bandit==1.7.8
+bandit==1.7.9
 coverage==7.5.3
 pylint==3.2.3
 pytest==8.2.2
