@@ -146,8 +146,8 @@ class Contact(BaseCommand):
             'create_date': raw_response.find('crDate').text,
             'creat_client_id': raw_response.find('crID').text,
             'sponsoring_client_id': raw_response.find('clID').text,
-            'update_client_id': raw_response.find('upID').text,
-            'update_date': raw_response.find('upDate').text,
+            'update_client_id': raw_response.find('upID').text if raw_response.find('upID') else None,
+            'update_date': raw_response.find('upDate').text if raw_response.find('upDate') else None,
             'postal_info': PostalInfoData(**{
                 'name': raw_response.find('name').text,
                 'organization': raw_response.find('org').text if raw_response.find('org') else None,
