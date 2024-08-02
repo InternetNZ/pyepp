@@ -11,8 +11,6 @@ It supports the bellow RFCs:
 * `RFC 5733 - Contact Mapping <https://datatracker.ietf.org/doc/html/rfc5733>`_
 * `RFC 5734 - Transport over TCP <https://datatracker.ietf.org/doc/html/rfc5734>`_
 
-.. note::
-   This is an early version and not stable yet. Please use with care.
 
 Installation
 ------------

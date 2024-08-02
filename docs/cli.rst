@@ -72,6 +72,36 @@ And to get help for a specific command:
       --client-transaction-id TEXT
       -h, --help                    Show this message and exit.
 
+Enable shell autocomplete
+-------------------------
+To enable shell autocompletion for your shell follow the below commands:
+
+Zsh
+^^^^
+.. code-block:: text
+
+    mkdir -p ~/.pyepp
+    _PYEPP_COMPLETE=zsh_source pyepp > ~/.pyepp/shell-complete.zsh
+
+Source the file in ``~/.zshrc``.
+
+.. code-block:: text
+
+    . ~/.pyepp/shell-complete.zsh
+
+Bash
+^^^^
+.. code-block:: text
+
+    mkdir -p ~/.pyepp
+    _PYEPP_COMPLETE=bash_source pyepp > ~/.pyepp/shell-complete.bash
+
+Source the file in ``~/.bashrc``.
+
+.. code-block:: text
+
+    . ~/.pyepp/shell-complete.bash
+
 How to configure
 ----------------
 The epp server configuration and credentials can be passed to the cli in three different ways. It can be done either

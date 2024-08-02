@@ -9,7 +9,6 @@ any registry systems that support EPP and work with it. It supports bellow RFCs:
 - [RFC 5733 - Contact Mapping](https://datatracker.ietf.org/doc/html/rfc5733)
 - [RFC 5734 - Transport over TCP](https://datatracker.ietf.org/doc/html/rfc5734)
 
->This is an early version and not stable yet. Please use with care.
 
 ## Installation
 
@@ -126,6 +125,31 @@ Commands:
   host     To work with Host objects in the registry.
   poll     To manage registry service messages.
   run      Receive an XML file containing an EPP XML command and execute it.
+```
+
+### Enable shell autocomplete
+To enable shell autocompletion for your shell follow the below commands:
+
+#### Zsh
+```sh
+mkdir -p ~/.pyepp
+_PYEPP_COMPLETE=zsh_source pyepp > ~/.pyepp/shell-complete.zsh
+```
+
+Source the file in `~/.zshrc`.
+```sh
+. ~/.pyepp/shell-complete.zsh
+```
+
+#### Bash
+```sh
+mkdir -p ~/.pyepp
+_PYEPP_COMPLETE=bash_source pyepp > ~/.pyepp/shell-complete.bash
+```
+
+Source the file in `~/.bashrc`.
+```sh
+. ~/.pyepp/shell-complete.bash
 ```
 
 ## Development setup
