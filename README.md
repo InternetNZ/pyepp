@@ -128,6 +128,31 @@ Commands:
   run      Receive an XML file containing an EPP XML command and execute it.
 ```
 
+### Enable shell autocomplete
+To enable shell autocompletion for your shell follow the below commands:
+
+#### Zsh
+```sh
+mkdir -p ~/.pyepp
+_PYEPP_COMPLETE=zsh_source pyepp > ~/.pyepp/shell-complete.zsh
+```
+
+Source the file in `~/.zshrc`.
+```sh
+. ~/.pyepp/shell-complete.zsh
+```
+
+#### Bash
+```sh
+mkdir -p ~/.pyepp
+_PYEPP_COMPLETE=bash_source pyepp > ~/.pyepp/shell-complete.bash
+```
+
+Source the file in `~/.bashrc`.
+```sh
+. ~/.pyepp/shell-complete.bash
+```
+
 ## Development setup
 Clone this project. It's recommended to create virtual environment. Then install the dependencies and 
 development dependencies:
