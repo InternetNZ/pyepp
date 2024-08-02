@@ -61,7 +61,7 @@ jobs:
         rm -rf dist
         python -m build
         twine check dist/*
-        twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/* 
+        twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*
     - name: Create Tag
       if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.LATEST_TAG != env.NEW_VERSION
       run: |
