@@ -25,6 +25,8 @@ from pyepp import EppCommunicator
 from pyepp.domain import Domain, DomainData, DSRecordData, DNSSECAlgorithm, DigestTypeEnum
 from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
 
+# client_cert and client_key may be omitted where
+# a registry does not require certificate based authentication
 config = {
     "server": "epp.test.net.nz",
     "port": "700",
