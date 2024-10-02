@@ -22,8 +22,8 @@ To see the help page:
     Options:
       --server TEXT                   [required]
       --port TEXT                     [required]
-      --client-cert TEXT              [required]
-      --client-key TEXT               [required]
+      --client-cert TEXT              [optional]
+      --client-key TEXT               [optional]
       --user TEXT                     [required]
       --password TEXT                 [required]
       -o, --output-format [XML|OBJECT|MIN]

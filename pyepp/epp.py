@@ -120,8 +120,8 @@ class EppCommunicator:
     """
 
     # pylint: disable=too-many-instance-attributes,too-many-arguments
-    def __init__(self, server: str, port: str, client_cert: str,
-                 client_key: str, dry_run: Optional[bool] = False) -> None:
+    def __init__(self, server: str, port: str, client_cert: Optional[str] = None,
+                 client_key: Optional[str] = None, dry_run: Optional[bool] = False) -> None:
         """
         :param server: EPP server to connect to.
         :param port: EPP port to connect to.
@@ -248,8 +248,8 @@ class EppCommunicator:
             self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT, ssl_version=ssl.TLSVersion.TLSv1_3)
             self._context.minimum_version = ssl.TLSVersion.TLSv1_2
             self._context.load_default_certs()
-            self._context.load_cert_chain(certfile=self._client_cert, keyfile=self._client_key)
-
+            if self._client_cert and self._client_key:
+                self._context.load_cert_chain(certfile=self._client_cert, keyfile=self._client_key)
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
             self._socket.settimeout(10)
 

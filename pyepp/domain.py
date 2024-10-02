@@ -160,8 +160,10 @@ class Domain(BaseCommand):
             'status': [status.get('s') for status in raw_response.find_all('status')],
             'host': [host.text for host in raw_response.find_all('hostObj')] if raw_response.find('ns') else None,
             'registrant': raw_response.find('registrant').text,
-            'admin': raw_response.find('contact', {'type': 'admin'}).text,
-            'tech': raw_response.find('contact', {'type': 'tech'}).text,
+            'admin': raw_response.find('contact', {'type': 'admin'}).text 
+            if raw_response.find('contact', {'type': 'admin'}) else None,
+            'tech': raw_response.find('contact', {'type': 'tech'}).text 
+            if raw_response.find('contact', {'type': 'tech'}) else None,
             'billing': [billing.text for billing in raw_response.find_all('contact', {'type': 'billing'})]
             if raw_response.find('contact', {'type': 'billing'}) else None,
             'create_date': raw_response.find('crDate').text if raw_response.find('crDate') else None,
