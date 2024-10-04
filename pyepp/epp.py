@@ -1,6 +1,7 @@
 """
 EPP Communicator Module
 """
+
 import ssl
 import socket
 import struct
@@ -28,6 +29,7 @@ class EppResultCode(Enum):
     """
     EPP result codes enumeration.
     """
+
     SUCCESS = 1000
     SUCCESS_ACTION_PENDING = 1001
     SUCCESS_NO_MESSAGE = 1300
@@ -75,12 +77,16 @@ def get_format_32() -> str:
         format_32 = ">L"
         if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
             logging.error("Integer size does not match the length size!")
-            raise EppCommunicatorException("Integer size does not match the length size!")
+            raise EppCommunicatorException(
+                "Integer size does not match the length size!"
+            )
     elif struct.calcsize(format_32) > LENGTH_FIELD_SIZE:
         format_32 = ">H"
         if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
             logging.error("Integer size does not match the length size!")
-            raise EppCommunicatorException("Integer size does not match the length size!")
+            raise EppCommunicatorException(
+                "Integer size does not match the length size!"
+            )
 
     return format_32
 
@@ -88,16 +94,16 @@ def get_format_32() -> str:
 # pylint: disable=too-many-instance-attributes
 @dataclass
 class EppResultData:
-    """Epp result data structure.
-    """
+    """Epp result data structure."""
+
     code: int
     message: str
     raw_response: str
     result_data: Any
     reason: Optional[str] = None
-    client_transaction_id:  Optional[str] = None
-    server_transaction_id:  Optional[str] = None
-    repository_object_id:  Optional[str] = None
+    client_transaction_id: Optional[str] = None
+    server_transaction_id: Optional[str] = None
+    repository_object_id: Optional[str] = None
 
     def __setitem__(self, key, value):
         self.__dict__[key] = value
@@ -109,8 +115,7 @@ class EppResultData:
         return len(self.__dict__)
 
     def to_dict(self) -> dict:
-        """Convert an EppResultData object to a dictionary.
-        """
+        """Convert an EppResultData object to a dictionary."""
         return asdict(self)
 
 
@@ -120,12 +125,18 @@ class EppCommunicator:
     """
 
     # pylint: disable=too-many-instance-attributes,too-many-arguments
-    def __init__(self, server: str, port: str, client_cert: Optional[str] = None,
-                 client_key: Optional[str] = None, dry_run: Optional[bool] = False) -> None:
+    def __init__(
+        self,
+        server: str,
+        port: str,
+        client_cert: Optional[str] = None,
+        client_key: Optional[str] = None,
+        dry_run: Optional[bool] = False,
+    ) -> None:
         """
         :param server: EPP server to connect to.
         :param port: EPP port to connect to.
-        :param client_cert: Path client certificate
+        :param client_cert: Path to client certificate
         :param client_key: Path to client key
         :param dry_run: dry run the request
         """
@@ -146,8 +157,7 @@ class EppCommunicator:
 
     @property
     def user(self):
-        """User property
-        """
+        """User property"""
         return self._user
 
     def _unpack_data(self, data: int) -> str:
@@ -188,7 +198,7 @@ class EppCommunicator:
         while len(buffer) < total_bytes:
             total_bytes = total_bytes - len(buffer)
             buffer += self._ssl_socket.recv(total_bytes)
-            logging.info('Received %s/%s bytes', len(buffer), total_bytes)
+            logging.info("Received %s/%s bytes", len(buffer), total_bytes)
         return buffer
 
     def _write(self, xml: str) -> int:
@@ -245,22 +255,29 @@ class EppCommunicator:
         :raises EppCommunicatorException: When there is any errors
         """
         try:
-            self._context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT, ssl_version=ssl.TLSVersion.TLSv1_3)
+            self._context = ssl.create_default_context()
             self._context.minimum_version = ssl.TLSVersion.TLSv1_2
+            self._context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1
             self._context.load_default_certs()
             if self._client_cert and self._client_key:
-                self._context.load_cert_chain(certfile=self._client_cert, keyfile=self._client_key)
+                self._context.load_cert_chain(
+                    certfile=self._client_cert, keyfile=self._client_key
+                )
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
             self._socket.settimeout(10)
 
-            self._ssl_socket = self._context.wrap_socket(self._socket, server_hostname=self._server)
+            self._ssl_socket = self._context.wrap_socket(
+                self._socket, server_hostname=self._server
+            )
             self._ssl_socket.connect((self._server, int(self._port)))
             self.greeting = self._read()
-            logging.debug(BeautifulSoup(self.greeting, 'xml'))
+            logging.debug(BeautifulSoup(self.greeting, "xml"))
             return self.greeting
         except Exception as ex:
             logging.error("Could not setup a sec sure connection. %s", str(ex))
-            raise EppCommunicatorException("Could not setup a sec sure connection") from ex
+            raise EppCommunicatorException(
+                "Could not setup a sec sure connection"
+            ) from ex
 
     def execute(self, cmd: str) -> EppResultData:
         """
@@ -275,27 +292,38 @@ class EppCommunicator:
         """
         try:
             if not self.greeting and not self._dry_run:
-                raise EppCommunicatorException("The connection to the server has not been established yet!")
+                raise EppCommunicatorException(
+                    "The connection to the server has not been established yet!"
+                )
 
             raw_response = self._execute_command(cmd)
-            xml_response = BeautifulSoup(raw_response, 'xml')
+            xml_response = BeautifulSoup(raw_response, "xml")
 
-            response = xml_response.find('response')
-            result = xml_response.find('result')
-            message = result.find('msg').string
+            response = xml_response.find("response")
+            result = xml_response.find("result")
+            message = result.find("msg").string
 
             try:
-                code = int(result.get('code'))
+                code = int(result.get("code"))
             except AttributeError as exc:
                 raise EppCommunicatorException("Could not get result code.") from exc
 
             reason = None
-            if code not in (EppResultCode.SUCCESS.value, EppResultCode.SUCCESS_END_SESSION.value):
-                reason = result.find('reason').string if result.find('reason') else None
+            if code not in (
+                EppResultCode.SUCCESS.value,
+                EppResultCode.SUCCESS_END_SESSION.value,
+            ):
+                reason = result.find("reason").string if result.find("reason") else None
 
-            client_transaction_id = response.find('clTRID').text if response.find('clTRID') else None
-            server_transaction_id = response.find('svTRID').text if response.find('svTRID') else None
-            repository_object_id = response.find('roid').text if response.find('roid') else None
+            client_transaction_id = (
+                response.find("clTRID").text if response.find("clTRID") else None
+            )
+            server_transaction_id = (
+                response.find("svTRID").text if response.find("svTRID") else None
+            )
+            repository_object_id = (
+                response.find("roid").text if response.find("roid") else None
+            )
 
             logging.debug("Command executed:\n%s", xml_response)
 
@@ -307,7 +335,7 @@ class EppCommunicator:
                 client_transaction_id=client_transaction_id,
                 server_transaction_id=server_transaction_id,
                 repository_object_id=repository_object_id,
-                result_data=None
+                result_data=None,
             )
         except EppCommunicatorException as epp_ex:
             raise epp_ex
@@ -325,7 +353,9 @@ class EppCommunicator:
         greeting = self._execute_command(HELLO_XML)
         return greeting
 
-    def login(self, user: str, password: str, extensions: Optional[list[str]] = None) -> EppResultData:
+    def login(
+        self, user: str, password: str, extensions: Optional[list[str]] = None
+    ) -> EppResultData:
         """
         Login the user to EPP server.
 
@@ -344,17 +374,25 @@ class EppCommunicator:
         self._user = user
 
         command_template = template_engine.from_string(LOGIN_XML)
-        command = command_template.render(user=user, password=password, extensions=extensions)
+        command = command_template.render(
+            user=user, password=password, extensions=extensions
+        )
 
         result = self.execute(command)
 
         if result.code == EppResultCode.SUCCESS.value:
-            logging.info("User %s logged in to %s:%s", self._user, self._server, self._port)
+            logging.info(
+                "User %s logged in to %s:%s", self._user, self._server, self._port
+            )
         elif result.code == EppResultCode.PARAMETER_RANGE_ERROR.value:
-            raise EppCommunicatorException("Incorrect user name or password. Please try again!")
+            raise EppCommunicatorException(
+                "Incorrect user name or password. Please try again!"
+            )
         else:
-            raise EppCommunicatorException(f"Something went wrong! Code: {result.code} - Message: "
-                                           f"{result.message} - Reason {result.reason}")
+            raise EppCommunicatorException(
+                f"Something went wrong! Code: {result.code} - Message: "
+                f"{result.message} - Reason {result.reason}"
+            )
 
         return result
 
@@ -368,6 +406,8 @@ class EppCommunicator:
 
         logout = self.execute(LOGOUT_XML)
         self._socket.close()
-        logging.info("User %s logged out from %s:%s", self._user, self._server, self._port)
+        logging.info(
+            "User %s logged out from %s:%s", self._user, self._server, self._port
+        )
 
         return logout

@@ -106,10 +106,10 @@ Usage: pyepp [OPTIONS] COMMAND [ARGS]...
 Options:
   --server TEXT                   [required]
   --port TEXT                     [required]
-  --client-cert TEXT              [required]
-  --client-key TEXT               [required]
   --user TEXT                     [required]
   --password TEXT                 [required]
+  --client-cert TEXT              [optional]
+  --client-key TEXT               [optional]
   -o, --output-format [XML|OBJECT|MIN]
                                   [default: XML]
   --no-pretty
