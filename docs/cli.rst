@@ -107,7 +107,7 @@ How to configure
 The epp server configuration and credentials can be passed to the cli in three different ways. It can be done either
 through the command line options, environment variables or a config file.
 
-NOTE: Clien certificate and key are optional and only required if the server requires client authentication.
+NOTE: Client certificate and key are optional and only required if the server requires client authentication.
 
 Command line options
 ^^^^^^^^^^^^^^^^^^^^
