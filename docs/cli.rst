@@ -22,10 +22,10 @@ To see the help page:
     Options:
       --server TEXT                   [required]
       --port TEXT                     [required]
-      --client-cert TEXT              [optional]
-      --client-key TEXT               [optional]
       --user TEXT                     [required]
       --password TEXT                 [required]
+      --client-cert TEXT              [optional]
+      --client-key TEXT               [optional]
       -o, --output-format [XML|OBJECT|MIN]
                                       [default: XML]
       --no-pretty
@@ -107,6 +107,8 @@ How to configure
 The epp server configuration and credentials can be passed to the cli in three different ways. It can be done either
 through the command line options, environment variables or a config file.
 
+NOTE: Clien certificate and key are optional and only required if the server requires client authentication.
+
 Command line options
 ^^^^^^^^^^^^^^^^^^^^
 The server configuration and credentials can be passed to the cli by command line options:
@@ -115,10 +117,10 @@ The server configuration and credentials can be passed to the cli by command lin
 
     sh> pyepp --server epp.test.net.nz \
         --port 700 \
-        --client-key /path/to/epp.key.pem \
-        --client-cert /path/to/epp.crt \
         --user epp_user \
         --password SecurePassWord \
+        --client-key /path/to/epp.key.pem \
+        --client-cert /path/to/epp.crt \
         contact info ehsan-contact-1
 
 Environment variables
@@ -130,10 +132,10 @@ this way you don't have to pass the parameters for running each command.
 
     PYEPP_SERVER=epp.test.net.nz
     PYEPP_PORT=700
-    PYEPP_CLIENT_CERT=/path/to/epp.crt
-    PYEPP_CLIENT_KEY=/path/to/epp.key.pem
     PYEPP_USER=epp_user
     PYEPP_PASSWORD=SecurePassWord
+    PYEPP_CLIENT_CERT=/path/to/epp.crt
+    PYEPP_CLIENT_KEY=/path/to/epp.key.pem
 
 Config file
 ^^^^^^^^^^^
@@ -154,10 +156,10 @@ Then add the below lines to the file:
     [pyepp]
     server = epp.test.net.nz
     port = 700
-    client_cert = /path/to/epp.crt
-    client_key = /path/to/epp.key.pem 
     user = epp_user
     password = SecurePassWord
+    client_cert = /path/to/epp.crt
+    client_key = /path/to/epp.key.pem 
 
 Examples
 ---------------
