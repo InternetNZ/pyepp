@@ -212,7 +212,8 @@ class EppCommunicator:
         """
         # +4 for the length field itself (section 4 mandates that)
         # +2 for the CRLF at the end
-        length = self._pack_data(len(xml) + LENGTH_FIELD_SIZE + CRLF_SIZE)
+        xml_bytes = xml.encode("utf-8")
+        length = self._pack_data(len(xml_bytes) + LENGTH_FIELD_SIZE + CRLF_SIZE)
 
         self._ssl_socket.send(length)
         xml += "\r\n"
