@@ -17,8 +17,11 @@ def generate_password(length: int) -> str:
     :rtype: str
     """
     return "".join(
-        [random.choice(string.ascii_letters + string.digits) for _ in range(length)]
-    )  # nosec
+        [
+            random.choice(string.ascii_letters + string.digits)  # nosec
+            for _ in range(length)
+        ]
+    )
 
 
 def xml_pretty(bxml: bytes) -> str:
