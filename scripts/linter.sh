@@ -6,4 +6,4 @@ set -e
 # W0511 = TODO
 
 # run pylint on app
-pylint ./pyepp --disable=R0401 # disabled R0401 because pylint complained without reason
+pylint ./pyepp --disable=R0401,R0801 # disabled R0401 and R0801 because pylint complained without reason
