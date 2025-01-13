@@ -1,6 +1,7 @@
 """
 PyEpp command line interface module.
 """
+
 # pylint: skip-file
 import functools
 import pprint
@@ -30,7 +31,18 @@ def login_logout(func):
 
 
 class PyEppCli:
-    def __init__(self, server, port, client_cert, client_key, user, password, output_format, no_pretty, dry_run=False):
+    def __init__(
+        self,
+        server,
+        port,
+        client_cert,
+        client_key,
+        user,
+        password,
+        output_format,
+        no_pretty,
+        dry_run=False,
+    ):
         self.epp = EppCommunicator(server, port, client_cert, client_key, dry_run)
 
         self.user = user
@@ -53,11 +65,11 @@ class PyEppCli:
 
     def format_output(self, result: EppResultData):
         output = result
-        if self.output_format == 'XML':
+        if self.output_format == "XML":
             output = result.raw_response
             if not self.no_pretty:
                 output = xml_pretty(result.raw_response)
-        elif self.output_format == 'MIN':
+        elif self.output_format == "MIN":
             return result.result_data
         else:
             if not self.no_pretty:
@@ -113,6 +125,16 @@ class PyEppCli:
     @login_logout
     def acknowledge(self, *args, **kwargs):
         result = self.registry_object.acknowledge(*args, **kwargs)
+        return self.format_output(result)
+
+    @login_logout
+    def restore(self, *args, **kwargs):
+        result = self.registry_object.restore(*args, **kwargs)
+        return self.format_output(result)
+
+    @login_logout
+    def restore_report(self, *args, **kwargs):
+        result = self.registry_object.restore_report(*args, **kwargs)
         return self.format_output(result)
 
 

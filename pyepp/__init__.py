@@ -2,7 +2,7 @@
 PyEPP Package
 """
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from pyepp.epp import (
     EppCommunicator,
@@ -21,3 +21,4 @@ from pyepp.domain import (
     DNSSECAlgorithm,
 )
 from pyepp.host import Host, HostData, IPAddressData
+from pyepp.poll import Poll, ServiceMessageQueueData, ServiceMessageData

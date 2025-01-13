@@ -1,12 +1,12 @@
 """
 EPP XML command templates
 """
+
 from jinja2 import Environment, BaseLoader
 
-template_engine = Environment(loader=BaseLoader(),
-                              trim_blocks=True,
-                              lstrip_blocks=True,
-                              autoescape=True)
+template_engine = Environment(
+    loader=BaseLoader(), trim_blocks=True, lstrip_blocks=True, autoescape=True
+)
 
 HELLO_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
@@ -383,6 +383,53 @@ DOMAIN_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8"?>
     </update>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
+</epp>"""
+
+DOMAIN_RESTORE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+ <command>
+   <update>
+     <domain:update xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+       <domain:name>{{ domain_name }}</domain:name>
+       <domain:chg/>
+     </domain:update>
+   </update>
+   <extension>
+     <rgp:update xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0">
+       <rgp:restore op="request"/>
+     </rgp:update>
+   </extension>
+   <clTRID>{{ client_transaction_id }}</clTRID>
+ </command>
+</epp>"""
+
+DOMAIN_RESTORE_REPORT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
+ <command>
+   <update>
+     <domain:update xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
+       <domain:name>{{ domain_name }}</domain:name>
+       <domain:chg/>
+     </domain:update>
+   </update>
+   <extension>
+       <rgp:update xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0">
+          <rgp:restore op="report">
+              <rgp:report>
+                 <rgp:preData>{{ pre_data }}</rgp:preData>
+                  <rgp:postData>{{ post_data }}</rgp:postData>
+                  <rgp:delTime>{{ delete_datetime }}</rgp:delTime>
+                  <rgp:resTime>{{ restore_datetime }}</rgp:resTime>
+                  <rgp:resReason>{{restore_reason }}</rgp:resReason>
+                  <rgp:statement>{{ statement_1 }}</rgp:statement>
+                  <rgp:statement>{{ statement_2 }}</rgp:statement>
+                  <rgp:other>{{ other }}</rgp:other>
+                </rgp:report>
+             </rgp:restore>
+       </rgp:update>
+   </extension>
+   <clTRID>{{ client_transaction_id }}</clTRID>
+ </command>
 </epp>"""
 
 HOST_CHECK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
