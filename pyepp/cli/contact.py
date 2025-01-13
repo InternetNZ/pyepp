@@ -1,3 +1,4 @@
+# pylint: disable=cyclic-import
 """
 Contact cli module
 """
@@ -5,7 +6,7 @@ Contact cli module
 import click
 
 from pyepp.cli import utils
-from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
+from pyepp import Contact, ContactData, PostalInfoData, AddressData
 
 
 @click.group(name="contact")

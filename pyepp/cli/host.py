@@ -5,7 +5,7 @@ Host cli module
 import click
 
 from pyepp.cli import utils
-from pyepp.host import Host, IPAddressData, HostData
+from pyepp import Host, IPAddressData, HostData
 
 
 @click.group(name="host")

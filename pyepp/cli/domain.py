@@ -7,7 +7,7 @@ from datetime import datetime
 import click
 
 from pyepp.cli import utils
-from pyepp.domain import Domain, DomainData
+from pyepp import Domain, DomainData
 
 
 @click.group(name="domain")

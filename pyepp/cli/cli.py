@@ -9,8 +9,7 @@ import pprint
 import click
 
 from pyepp.helper import xml_pretty
-from pyepp.epp import EppResultData
-from pyepp import EppCommunicator
+from pyepp import EppCommunicator, EppResultData
 
 
 def login_logout(func):
