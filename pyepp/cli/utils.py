@@ -1,6 +1,7 @@
 """
 Utilities module
 """
+
 from typing import Optional, Any
 
 import click
@@ -8,10 +9,12 @@ import click
 OUTPUT_FILE = None
 
 
-def echo(message: Optional[Any] = None,
-         new_line: bool = True,
-         err: bool = False,
-         color: Optional[bool] = None) -> None:
+def echo(
+    message: Optional[Any] = None,
+    new_line: bool = True,
+    err: bool = False,
+    color: Optional[bool] = None,
+) -> None:
     """
 
     :param message: The string or bytes to output. Other objects are
