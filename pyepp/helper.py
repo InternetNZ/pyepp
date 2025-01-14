@@ -1,6 +1,7 @@
 """
 Helper functions
 """
+
 import random
 import string
 
@@ -15,7 +16,12 @@ def generate_password(length: int) -> str:
     :return: password
     :rtype: str
     """
-    return ''.join([random.choice(string.ascii_letters + string.digits) for _ in range(length)])  # nosec
+    return "".join(
+        [
+            random.choice(string.ascii_letters + string.digits)  # nosec
+            for _ in range(length)
+        ]
+    )
 
 
 def xml_pretty(bxml: bytes) -> str:
@@ -26,5 +32,5 @@ def xml_pretty(bxml: bytes) -> str:
 
     :return: xml in string
     """
-    xml_str = BeautifulSoup(bxml, 'xml')
+    xml_str = BeautifulSoup(bxml, "xml")
     return xml_str.decode(pretty_print=True)
