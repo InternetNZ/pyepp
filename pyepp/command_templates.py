@@ -24,13 +24,14 @@ LOGIN_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         <lang>en</lang>
       </options>
       <svcs>
+        <objURI>urn:ietf:params:xml:ns:epp-1.0</objURI>
         <objURI>urn:ietf:params:xml:ns:domain-1.0</objURI>
         <objURI>urn:ietf:params:xml:ns:contact-1.0</objURI>
         <objURI>urn:ietf:params:xml:ns:host-1.0</objURI>
         <svcExtension>
           <extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI>
           {% for extension in extensions %}
-          <extURI>{{ extension }}</extURI>
+          <extURI>urn:ietf:params:xml:ns:{{ extension }}</extURI>
           {% endfor %}
         </svcExtension>
       </svcs>
