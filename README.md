@@ -1,14 +1,15 @@
 # PyEPP
-> A Python API on top of EPP protocol to work with registry systems.
+>
+> A Python API on top of the EPP protocol to work easier with registry systems.
 
 This a Python API on [EPP](https://en.wikipedia.org/wiki/Extensible_Provisioning_Protocol) protocol to connect to
 any registry systems that support EPP and work with it. It supports bellow RFCs:
+
 - [RFC 5730 - Extensible Provisioning Protocol](https://datatracker.ietf.org/doc/html/rfc5730)
 - [RFC 5731 - Domain Name Mapping](https://datatracker.ietf.org/doc/html/rfc5731)
 - [RFC 5732 - Host Mapping](https://datatracker.ietf.org/doc/html/rfc5732)
 - [RFC 5733 - Contact Mapping](https://datatracker.ietf.org/doc/html/rfc5733)
 - [RFC 5734 - Transport over TCP](https://datatracker.ietf.org/doc/html/rfc5734)
-
 
 ## Installation
 
@@ -96,6 +97,7 @@ renew_domain = domain.renew(domain_name='example-1.nz', expiry_date=date(2024, 2
 ```
 
 ## PyEPP CLI
+
 PyEPP also has a command line interface that allows the user to interact with the registry system.
 
 ```text
@@ -108,8 +110,10 @@ Options:
   --port TEXT                     [required]
   --user TEXT                     [required]
   --password TEXT                 [required]
-  --client-cert TEXT              [optional]
-  --client-key TEXT               [optional]
+  --client-cert TEXT
+  --client-key TEXT
+  --extension TEXT                The extension to be loaded for the EPP
+                                  command.
   -o, --output-format [XML|OBJECT|MIN]
                                   [default: XML]
   --no-pretty
@@ -124,38 +128,45 @@ Options:
 Commands:
   contact  To work with Contact objects in the registry.
   domain   To work with Domain name objects in the registry.
+  hello    Sends a hello command to the server and receives the Greeting...
   host     To work with Host objects in the registry.
   poll     To manage registry service messages.
   run      Receive an XML file containing an EPP XML command and execute it.
 ```
 
 ### Enable shell autocomplete
+
 To enable shell autocompletion for your shell follow the below commands:
 
 #### Zsh
+
 ```sh
 mkdir -p ~/.pyepp
 _PYEPP_COMPLETE=zsh_source pyepp > ~/.pyepp/shell-complete.zsh
 ```
 
 Source the file in `~/.zshrc`.
+
 ```sh
 . ~/.pyepp/shell-complete.zsh
 ```
 
 #### Bash
+
 ```sh
 mkdir -p ~/.pyepp
 _PYEPP_COMPLETE=bash_source pyepp > ~/.pyepp/shell-complete.bash
 ```
 
 Source the file in `~/.bashrc`.
+
 ```sh
 . ~/.pyepp/shell-complete.bash
 ```
 
 ## Development setup
-Clone this project. It's recommended to create virtual environment. Then install the dependencies and 
+
+Clone this project. It's recommended to create virtual environment. Then install the dependencies and
 development dependencies:
 
 ```shell
@@ -163,7 +174,7 @@ pip install -r requirements.txt
 pip install -r requirements.dev.txt
 ```
 
-Before creating any pull requests please make sure your code lints and there is no security issues in your code 
+Before creating any pull requests please make sure your code lints and there is no security issues in your code
 by running below scripts:
 
 ```shell
@@ -172,8 +183,9 @@ by running below scripts:
 ```
 
 Happy developing!
+
 ## Contributing
+
 Please refer to [CONTRIBUTING.md](CONTRIBUTING.md)
 
 <!-- Markdown link & img dfn's -->
-[wiki]: https://github.com/internetnz/pyepp/wiki
