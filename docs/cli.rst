@@ -17,15 +17,17 @@ To see the help page:
     sh> pyepp -h
     Usage: pyepp [OPTIONS] COMMAND [ARGS]...
 
-    A command line interface to work with PyEpp library.
+      A command line interface to work with PyEpp library.
 
     Options:
       --server TEXT                   [required]
       --port TEXT                     [required]
       --user TEXT                     [required]
       --password TEXT                 [required]
-      --client-cert TEXT              [optional]
-      --client-key TEXT               [optional]
+      --client-cert TEXT
+      --client-key TEXT
+      --extension TEXT                The extension to be loaded for the EPP
+                                      command.
       -o, --output-format [XML|OBJECT|MIN]
                                       [default: XML]
       --no-pretty
@@ -40,6 +42,7 @@ To see the help page:
     Commands:
       contact  To work with Contact objects in the registry.
       domain   To work with Domain name objects in the registry.
+      hello    Sends a hello command to the server and receives the Greeting...
       host     To work with Host objects in the registry.
       poll     To manage registry service messages.
       run      Receive an XML file containing an EPP XML command and execute it.

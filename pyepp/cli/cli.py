@@ -38,6 +38,7 @@ class PyEppCli:
         client_key,
         user,
         password,
+        extensions,
         output_format,
         no_pretty,
         dry_run=False,
@@ -46,6 +47,8 @@ class PyEppCli:
 
         self.user = user
         self.password = password
+
+        self.extensions = extensions
 
         self.output_format = output_format
         self.no_pretty = no_pretty
@@ -57,10 +60,15 @@ class PyEppCli:
         self.epp.connect()
 
     def login(self):
-        self.epp.login(self.user, self.password)
+        self.epp.login(self.user, self.password, extensions=self.extensions)
 
     def logout(self):
         self.epp.logout()
+
+    def hello(self):
+        self.connect()
+        result = self.epp.hello()
+        return result
 
     def format_output(self, result: EppResultData):
         output = result

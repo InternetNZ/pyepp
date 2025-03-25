@@ -63,6 +63,13 @@ load_config()
 @click.option("--client-cert", envvar="PYEPP_CLIENT_CERT", required=False)
 @click.option("--client-key", envvar="PYEPP_CLIENT_KEY", required=False)
 @click.option(
+    "--extension",
+    envvar="PYEPP_EXTESION",
+    required=False,
+    help="The extension to be loaded for the EPP command.",
+    multiple=True,
+)
+@click.option(
     "-o",
     "--output-format",
     show_default=True,
@@ -91,6 +98,7 @@ def pyepp_cli(
     client_key,
     user,
     password,
+    extension,
     output_format,
     no_pretty,
     dry_run,
@@ -106,6 +114,7 @@ def pyepp_cli(
         client_key,
         user,
         password,
+        extension,
         output_format,
         no_pretty,
         dry_run,
@@ -132,8 +141,17 @@ def run_xml(ctx, xml):
     utils.echo(result)
 
 
+@click.command("hello")
+@click.pass_context
+def hello(ctx):
+    """Sends a hello command to the server and receives the Greeting response."""
+    greeting = ctx.obj.hello()
+    utils.echo(greeting)
+
+
 pyepp_cli.add_command(run_xml)
 pyepp_cli.add_command(contact_group)
 pyepp_cli.add_command(domain_group)
 pyepp_cli.add_command(host_group)
 pyepp_cli.add_command(poll_group)
+pyepp_cli.add_command(hello)
