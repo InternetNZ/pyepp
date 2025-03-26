@@ -1,0 +1,36 @@
+name: PyEPP - Deployment Checks
+
+on:
+  push:
+    branches:
+      - '*'
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements.dev.txt
+        pip install setuptools==65.5.1
+        pip install build twine
+    - name: Lint
+      run: |
+        ./scripts/linter.sh
+    - name: Tests
+      run: |
+        ./scripts/tests.sh
+    - name: Package Audit
+      run: |
+        ./scripts/package-audit.sh
+    - name: Code Security Check
+      run: |
+        ./scripts/code-security-check.sh
+
