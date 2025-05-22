@@ -5,6 +5,9 @@ on:
     branches:
       - '*'
 
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-24.04
@@ -19,7 +22,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r requirements.dev.txt
-        pip install setuptools==65.5.1
+        pip install setuptools==78.1.1
         pip install build twine
     - name: Lint
       run: |
