@@ -1,0 +1,38 @@
+name: PyEPP - Release
+
+on:
+  release:
+      types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.12
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install setuptools==78.1.1
+        pip install build twine
+    - name: Publish to TestPyPi
+      if: github.event_name == 'release' && github.event.release.target_commitish == 'develop' && contains(github.ref_name, '-beta')
+      run: |
+        rm -rf dist
+        python -m build
+        twine check dist/*
+        twine upload -r testpypi --username __token__ --password ${{ secrets.TEST_PYPI_API_TOKEN }} --skip-existing dist/*
+    - name: Publish to PyPi
+      if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
+      run: |
+        rm -rf dist
+        python -m build
+        twine check dist/*
+        twine upload --username __token__ --password ${{ secrets.PYPI_API_TOKEN }} dist/*

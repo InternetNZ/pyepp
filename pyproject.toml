@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 61.0.0"]
+requires = ["setuptools >=77.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,17 +9,26 @@ readme = "README.md"
 authors = [
     { name = "InternetNZ", email = "ehsan@internetnz.net.nz" }
 ]
-license = {text = "GNU GPLv3"}
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Topic :: Internet :: Name Service (DNS)",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
-keywords = ["epp", "registry"]
+keywords = ["epp", "registry", "api", "domain", "nameserver"]
 dependencies = [
-    "jinja2>=3.1.5",
-    "lxml>=5.3.0",
-    "beautifulsoup4>=4.12.3",
-    "click>=8.1.8"
+    "jinja2>=3.1.6",
+    "lxml>=5.4.0",
+    "beautifulsoup4>=4.13.4",
+    "click>=8.2.0"
 ]
 requires-python = ">=3.10"
 
@@ -32,8 +41,9 @@ version = {attr = "pyepp.__version__"}
 dev = ["bandit", "coverage", "pylint", "pytest", "safety"]
 
 [project.urls]
-"Homepage" = "https://pyepp.readthedocs.io/en/latest/index.html"
+"Homepage" = "https://github.com/InternetNZ/pyepp"
 "Repository" = "https://github.com/InternetNZ/pyepp"
+"Documentation" = "https://pyepp.readthedocs.io/en/latest/index.html"
 
 [project.scripts]
 pyepp = "pyepp.cli.__main__:pyepp_cli"
