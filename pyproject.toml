@@ -9,7 +9,7 @@ readme = "README.md"
 authors = [
     { name = "InternetNZ", email = "ehsan@internetnz.net.nz" }
 ]
-license = "GNU GPLv3"
+license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 classifiers = [
     "Programming Language :: Python",
