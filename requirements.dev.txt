@@ -1,5 +1,5 @@
 bandit==1.8.6
-coverage==7.10.6
+coverage==7.10.7
 pylint==3.3.8
 pytest==8.4.2
 pip-audit==2.9.0
