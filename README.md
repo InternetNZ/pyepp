@@ -1,9 +1,10 @@
 # PyEPP
 >
-> A Python API on top of the EPP protocol to work easier with registry systems.
+> A Python API on top of the EPP protocol and an EPP CLI client to work easier with registry systems.
 
-This a Python API on [EPP](https://en.wikipedia.org/wiki/Extensible_Provisioning_Protocol) protocol to connect to
-any registry systems that support EPP and work with it. It supports bellow RFCs:
+This is a Python API on [EPP](https://en.wikipedia.org/wiki/Extensible_Provisioning_Protocol) protocol to connect to
+any registry systems that support EPP and work with it. Also, it is a CLI client to interact with the registry systems.
+It supports bellow RFCs:
 
 - [RFC 5730 - Extensible Provisioning Protocol](https://datatracker.ietf.org/doc/html/rfc5730)
 - [RFC 5731 - Domain Name Mapping](https://datatracker.ietf.org/doc/html/rfc5731)
