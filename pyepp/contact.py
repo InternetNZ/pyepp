@@ -82,7 +82,7 @@ class Contact(BaseCommand):
         """
         data_dict = asdict(data)
         postal_info = data_dict.pop("postal_info", {})
-        address = postal_info.pop("address", {})
+        address = postal_info.pop("address", {}) if postal_info is not None else {}
 
         if address:
             data_dict.update(address)
@@ -287,7 +287,7 @@ class Contact(BaseCommand):
         params["remove_status"] = remove_status
 
         params["postalinfo_change"] = bool(contact.postal_info)
-        params["address_change"] = bool(contact.postal_info.address)
+        params["address_change"] = bool(contact.postal_info and contact.postal_info.address)
         params["client_transaction_id"] = client_transaction_id
 
         result = self.execute(CONTACT_UPDATE_XML, **params)
