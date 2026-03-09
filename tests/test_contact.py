@@ -85,11 +85,20 @@ class ContactTest(unittest.TestCase):
 
         result = contact._data_to_dict(data)
 
-        self.assertEqual(result['id'], 'id')
-        self.assertEqual(result['email'], 'email')
-        self.assertNotIn('name', result)
-        self.assertNotIn('organization', result)
-        self.assertNotIn('city', result)
+        expected_result = {
+            'id': 'id',
+            'status': None,
+            'create_date': '',
+            'creat_client_id': '',
+            'sponsoring_client_id': '',
+            'update_client_id': '',
+            'update_date': '',
+            'phone': '',
+            'fax': '',
+            'email': 'email',
+            'password': '',
+        }
+        self.assertDictEqual(result, expected_result)
 
     def test_check_unsuccessful(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
