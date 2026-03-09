@@ -6,6 +6,7 @@ from typing import Optional
 from dataclasses import dataclass, asdict
 from bs4 import BeautifulSoup
 
+from pyepp import helper
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import (
     CONTACT_CHECK_XML,
@@ -239,6 +240,9 @@ class Contact(BaseCommand):
         """
         params = self._data_to_dict(contact)
         params["client_transaction_id"] = client_transaction_id
+
+        if not params.get('password'):
+            params['password'] = helper.generate_password(16)
 
         result = self.execute(CONTACT_CREAT_XML, **params)
 
