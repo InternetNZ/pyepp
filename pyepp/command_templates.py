@@ -161,9 +161,11 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
          {% if phone %} <contact:voice>{{ phone }}</contact:voice> {% endif %}
          {% if fax %} <contact:fax>{{ fax }}</contact:fax> {% endif %}
          {% if email %} <contact:email>{{ email }}</contact:email> {% endif %}
+         {% if password %}
          <contact:authInfo>
            <contact:pw>{{ password }}</contact:pw>
          </contact:authInfo>
+         {% endif %}
          {% if privacy %}
          <contact:disclose flag="0">
            {% for element in privacy %}

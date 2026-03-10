@@ -22,6 +22,7 @@ from pyepp.command_templates import (
     DOMAIN_RESTORE_XML,
     DOMAIN_RESTORE_REPORT_XML,
 )
+from pyepp import helper
 from pyepp.epp import EppResultCode
 
 
@@ -288,6 +289,9 @@ class Domain(BaseCommand):
         """
         params = self._data_to_dict(domain)
         params["client_transaction_id"] = client_transaction_id
+
+        if not params.get('password'):
+            params['password'] = helper.generate_password(16)
 
         result = self.execute(DOMAIN_CREATE_XML, **params)
 

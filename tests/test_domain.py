@@ -630,3 +630,45 @@ class DomainTest(unittest.TestCase):
         )
 
         self.assertEqual(result, expected_result)
+
+    def test_create_generates_password_when_not_supplied(self) -> None:
+        """domain.create() must auto-generate a password when none is provided."""
+        create_params = DomainData(
+            domain_name="internet.nz",
+            registrant="inz-contact-3",
+            period=3,
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=EppResultData(
+            code=1000, message="Command completed successfully", raw_response="", result_data=None
+        ))
+
+        domain.create(create_params)
+
+        _, kwargs = domain.execute.call_args
+        self.assertIn("password", kwargs)
+        self.assertTrue(kwargs["password"], "Password should be a non-empty generated string")
+
+    def test_update_does_not_generate_password_when_not_supplied(self) -> None:
+        """domain.update() must NOT generate or include a password when none is provided."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=EppResultData(
+            code=1000, message="Command completed successfully", raw_response="", result_data=None
+        ))
+        domain.info = MagicMock(
+            return_value={
+                "result_data": DomainData(
+                    domain_name="internet.nz",
+                    registrant="registrant1",
+                    period=1,
+                )
+            }
+        )
+
+        domain.update(domain_name="internet.nz", add_admins=["contact-admin"])
+
+        _, kwargs = domain.execute.call_args
+        self.assertFalse(kwargs.get("password"), "Password should not be set when not supplied to update()")

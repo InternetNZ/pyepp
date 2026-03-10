@@ -25,19 +25,31 @@ class BaseCommandTest(unittest.TestCase):
 
         self.assertEqual(expected_result, resul)
 
-    @patch('pyepp.base_command.helper.generate_password')
-    def test_prepare_command_password(self, mock_generate_password) -> None:
+    def test_prepare_command_no_password_auto_generation(self) -> None:
+        """When no password is supplied, _prepare_command must NOT auto-generate one."""
         command = """<?xml version="1.0" encoding="UTF-8"?>
-<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><contact:authInfo><contact:pw>{{ password }}</contact:pw></contact:authInfo></command></epp>"""
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command>{% if password %}<contact:authInfo><contact:pw>{{ password }}</contact:pw></contact:authInfo>{% endif %}</command></epp>"""
         expected_result = """<?xml version="1.0" encoding="UTF-8"?>
-<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><contact:authInfo><contact:pw>wle2Dj6zIJCHTNrX</contact:pw></contact:authInfo></command></epp>"""
-        mock_generate_password.return_value = 'wle2Dj6zIJCHTNrX'
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command></command></epp>"""
         epp_communicator = MagicMock(EppCommunicator)
 
         base_command = BaseCommand(epp_communicator)
-        resul = base_command._prepare_command(command)
+        result = base_command._prepare_command(command)
 
-        self.assertEqual(expected_result, resul)
+        self.assertEqual(expected_result, result)
+
+    def test_prepare_command_password_supplied(self) -> None:
+        """When a password is supplied, _prepare_command must include it in the output."""
+        command = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command>{% if password %}<contact:authInfo><contact:pw>{{ password }}</contact:pw></contact:authInfo>{% endif %}</command></epp>"""
+        expected_result = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><contact:authInfo><contact:pw>myPassword1</contact:pw></contact:authInfo></command></epp>"""
+        epp_communicator = MagicMock(EppCommunicator)
+
+        base_command = BaseCommand(epp_communicator)
+        result = base_command._prepare_command(command, password='myPassword1')
+
+        self.assertEqual(expected_result, result)
 
     def test_escape_list(self) -> None:
         test_list = [
