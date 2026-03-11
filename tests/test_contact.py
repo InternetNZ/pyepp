@@ -73,6 +73,33 @@ class ContactTest(unittest.TestCase):
         result = contact._data_to_dict(data)
         self.assertDictEqual(result, expected_result)
 
+    def test_data_to_dict_without_postal_info(self) -> None:
+        data = ContactData(
+            id='id',
+            email='email',
+            postal_info=None,
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        result = contact._data_to_dict(data)
+
+        expected_result = {
+            'id': 'id',
+            'status': None,
+            'create_date': '',
+            'creat_client_id': '',
+            'sponsoring_client_id': '',
+            'update_client_id': '',
+            'update_date': '',
+            'phone': '',
+            'fax': '',
+            'email': 'email',
+            'password': '',
+        }
+        self.assertDictEqual(result, expected_result)
+
     def test_check_unsuccessful(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
         contact = Contact(epp_communicator)
@@ -357,4 +384,87 @@ class ContactTest(unittest.TestCase):
 
         result = contact.update(update_params)
 
+        _, call_kwargs = contact.execute.call_args
+        self.assertTrue(call_kwargs['postalinfo_change'])
         self.assertEqual(result, expected_result)
+
+    def test_update_without_postal_info(self) -> None:
+        """Regression test: update() must not raise AttributeError when postal_info=None."""
+        update_params = ContactData(
+            id='inz-contact-1',
+            email='ehsan@internetnz.net.nz',
+            postal_info=None,
+        )
+
+        expected_result = EppResultData(**{'client_transaction_id': '0e872842-b77b-4800-9572-c72e46e068d2',
+                                           'code': 1000,
+                                           'message': 'Command completed successfully',
+                                           'raw_response': '<response>\n'
+                                                           '<result code="1000">\n'
+                                                           '<msg>Command completed successfully</msg>\n'
+                                                           '</result>\n'
+                                                           '<trID>\n'
+                                                           '<clTRID>0e872842-b77b-4800-9572-c72e46e068d2</clTRID>\n'
+                                                           '<svTRID>CIRA-000062223355-0000000004</svTRID>\n'
+                                                           '</trID>\n'
+                                                           '</response>',
+                                           'reason': None,
+                                           'repository_object_id': None,
+                                           'server_transaction_id': 'CIRA-000062223355-0000000004',
+                                           'result_data': None})
+
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        contact.execute = MagicMock(return_value=expected_result)
+
+        result = contact.update(update_params)
+
+        _, call_kwargs = contact.execute.call_args
+        self.assertFalse(call_kwargs['postalinfo_change'])
+        self.assertEqual(result, expected_result)
+
+    def test_create_generates_password_when_not_supplied(self) -> None:
+        """contact.create() must auto-generate a password when none is provided."""
+        create_params = ContactData(
+            id='inz-contact-1',
+            email='epp@internetnz.net.nz',
+            postal_info=PostalInfoData(
+                name='IRS EPP',
+                address=AddressData(
+                    street_1='18 Willis Street',
+                    city='Wellington',
+                    country_code='NZ',
+                ),
+            ),
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        contact.execute = MagicMock(return_value=EppResultData(
+            code=1000, message='Command completed successfully', raw_response='', result_data=None
+        ))
+
+        contact.create(create_params)
+
+        _, kwargs = contact.execute.call_args
+        self.assertIn('password', kwargs)
+        self.assertTrue(kwargs['password'], "Password should be a non-empty generated string")
+
+    def test_update_does_not_generate_password_when_not_supplied(self) -> None:
+        """contact.update() must NOT generate or include a password when none is provided."""
+        update_params = ContactData(
+            id='inz-contact-1',
+            email='epp@internetnz.net.nz',
+            postal_info=PostalInfoData(name='IRS EPP2')
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        contact.execute = MagicMock(return_value=EppResultData(
+            code=1000, message='Command completed successfully', raw_response='', result_data=None
+        ))
+
+        contact.update(update_params)
+
+        _, kwargs = contact.execute.call_args
+        self.assertFalse(kwargs.get('password'), "Password should not be set when not supplied to update()")

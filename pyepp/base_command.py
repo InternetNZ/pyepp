@@ -6,7 +6,6 @@ import uuid
 from dataclasses import dataclass
 from html import escape
 
-import pyepp.helper as helper  # pylint: disable=consider-using-from-import
 from pyepp.epp import EppCommunicator, EppResultData
 from pyepp.command_templates import template_engine
 
@@ -53,9 +52,6 @@ class BaseCommand:
         """
         if cmd.find('client_transaction_id') != -1 and not kwargs.get('client_transaction_id'):
             kwargs['client_transaction_id'] = str(uuid.uuid4())
-
-        if cmd.find('password') != -1 and not kwargs.get('password'):
-            kwargs['password'] = helper.generate_password(16)
 
         kwargs = {key: value for key, value in kwargs.items() if value}
 
