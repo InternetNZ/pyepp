@@ -243,20 +243,27 @@ DOMAIN_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     {% if dns_sec %}
     <extension>
       <secDNS:create xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+        {% if dns_sec is mapping %}
+          {% set dns_sec_list = [dns_sec] %}
+        {% else %}
+          {% set dns_sec_list = dns_sec %}
+        {% endif %}
+        {% for ds in dns_sec_list %}
         <secDNS:dsData>
-          <secDNS:keyTag>{{ dns_sec.get('key_tag') }}</secDNS:keyTag>
-          <secDNS:alg>{{ dns_sec.get('algorithm') }}</secDNS:alg>
-          <secDNS:digestType>{{ dns_sec.get('digest_type') }}</secDNS:digestType>
-          <secDNS:digest>{{ dns_sec.get('digest') }}</secDNS:digest>
-          {% if dns_sec.get('dns_key') %}
+          <secDNS:keyTag>{{ ds.get('key_tag') }}</secDNS:keyTag>
+          <secDNS:alg>{{ ds.get('algorithm') }}</secDNS:alg>
+          <secDNS:digestType>{{ ds.get('digest_type') }}</secDNS:digestType>
+          <secDNS:digest>{{ ds.get('digest') }}</secDNS:digest>
+          {% if ds.get('dns_key') %}
           <secDNS:keyData>
-            <secDNS:flags>{{ dns_sec.get('dns_key').get('flag') }}</secDNS:flags>
-            <secDNS:protocol>{{ dns_sec.get('dns_key').get('protocol') }}</secDNS:protocol>
-            <secDNS:alg>{{ dns_sec.get('dns_key').get('algorithm') }}</secDNS:alg>
-            <secDNS:pubKey>{{ dns_sec.get('dns_key').get('public_key') }}</secDNS:pubKey>
+            <secDNS:flags>{{ ds.get('dns_key').get('flag') }}</secDNS:flags>
+            <secDNS:protocol>{{ ds.get('dns_key').get('protocol') }}</secDNS:protocol>
+            <secDNS:alg>{{ ds.get('dns_key').get('algorithm') }}</secDNS:alg>
+            <secDNS:pubKey>{{ ds.get('dns_key').get('public_key') }}</secDNS:pubKey>
           </secDNS:keyData>
           {% endif %}
         </secDNS:dsData>
+        {% endfor %}
         {% if dns_key %}
         <secDNS:keyData>
           <secDNS:flags>{{ dns_key.dns_key.get('flag') }}</secDNS:flags>
@@ -310,7 +317,7 @@ TRANSFER_REQUEST_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <domain:period unit='y'>{{ period }}</domain:period>
       {% endif %}
       <domain:authInfo>
-        <domain:pw>{{ password }}</domains:pw>
+        <domain:pw>{{ password }}</domain:pw>
       </domain:authInfo>
     </domain:transfer>
   </transfer>
