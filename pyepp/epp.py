@@ -170,7 +170,7 @@ class EppCommunicator:
         Read the response from the socket.
 
         :return: Response
-        :rtype: bytes
+        :rtype: Optional[bytes]
         """
         length = self._ssl_socket.read(LENGTH_FIELD_SIZE)
         buffer = bytes()
