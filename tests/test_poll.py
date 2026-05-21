@@ -144,13 +144,16 @@ class HostTest(unittest.TestCase):
         data = ServiceMessageQueueData(
             message_count=1,
             message_id=123,
-            queue_date='2023-01-01T00:00:00.000Z',
-            messages=[ServiceMessageData(language='en', message='Test msg')]
+            queue_date="2023-01-01T00:00:00.000Z",
+            messages=[ServiceMessageData(language="en", message="Test msg")],
         )
         result = poll._data_to_dict(data)
-        self.assertDictEqual(result, {
-            'message_count': 1,
-            'message_id': 123,
-            'queue_date': '2023-01-01T00:00:00.000Z',
-            'messages': [{'language': 'en', 'message': 'Test msg'}]
-        })
+        self.assertDictEqual(
+            result,
+            {
+                "message_count": 1,
+                "message_id": 123,
+                "queue_date": "2023-01-01T00:00:00.000Z",
+                "messages": [{"language": "en", "message": "Test msg"}],
+            },
+        )
