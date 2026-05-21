@@ -183,7 +183,7 @@ class EppCommunicator:
             remaining = total_bytes - len(buffer)
             chunk = self._ssl_socket.recv(remaining)
             if not chunk:
-                break
+                return None
             buffer += chunk
             logging.info("Received %s/%s bytes", len(buffer), total_bytes)
         return buffer
