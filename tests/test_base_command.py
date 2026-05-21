@@ -70,7 +70,8 @@ class BaseCommandTest(unittest.TestCase):
             {'key': '<hello&world>'},
             '<hello&world>',
             0,
-            False
+            False,
+            None
         ]
         expected_result = [
             ['hi&amp;', '&lt;world&gt;'],

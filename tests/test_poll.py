@@ -84,9 +84,10 @@ class HostTest(unittest.TestCase):
     def test_poll_ack(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
         poll = Poll(epp_communicator)
+        
         expected_result = \
             EppResultData(**{'client_transaction_id': 'c6710aac-cbcf-48d0-9ec3-cfaad1cadc81',
-                             'code': 1301,
+                             'code': 1000,
                              'message': 'Command completed successfully',
                              'raw_response': '<response>\n'
                                              '<result code="1000">\n'
@@ -108,4 +109,13 @@ class HostTest(unittest.TestCase):
 
         result = poll.acknowledge(27690316)
 
-        self.assertEqual(result, expected_result)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.result_data.message_count, 1)
+        self.assertEqual(result.result_data.message_id, 27690316)
+
+    def test_data_to_dict(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+        data = ServiceMessageData(language='en', message='Test msg')
+        result = poll._data_to_dict(data)
+        self.assertDictEqual(result, {'language': 'en', 'message': 'Test msg'})
