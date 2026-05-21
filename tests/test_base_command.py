@@ -51,16 +51,33 @@ class BaseCommandTest(unittest.TestCase):
 
         self.assertEqual(expected_result, result)
 
+    def test_prepare_command_falsy_values(self) -> None:
+        """_prepare_command must preserve falsy values like 0 and False."""
+        command = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><val1>{{ val1 }}</val1><val2>{{ val2 }}</val2></command></epp>"""
+        expected_result = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><val1>0</val1><val2>False</val2></command></epp>"""
+        epp_communicator = MagicMock(EppCommunicator)
+
+        base_command = BaseCommand(epp_communicator)
+        result = base_command._prepare_command(command, val1=0, val2=False)
+
+        self.assertEqual(expected_result, result)
+
     def test_escape_list(self) -> None:
         test_list = [
             ['hi&', '<world>'],
             {'key': '<hello&world>'},
-            '<hello&world>'
+            '<hello&world>',
+            0,
+            False
         ]
         expected_result = [
             ['hi&amp;', '&lt;world&gt;'],
             {'key': '&lt;hello&amp;world&gt;'},
-            '&lt;hello&amp;world&gt;'
+            '&lt;hello&amp;world&gt;',
+            0,
+            False
         ]
 
         epp_communicator = MagicMock(EppCommunicator)
@@ -71,21 +88,25 @@ class BaseCommandTest(unittest.TestCase):
         self.assertEqual(expected_result, result)
 
     def test_escape_dict(self) -> None:
-        test_list = {
+        test_dict = {
             'key1': ['hi&', '<world>'],
             'key2': {'key': '<hello&world>'},
-            'key3': '<hello&world>'
+            'key3': '<hello&world>',
+            'key4': 0,
+            'key5': False
         }
         expected_result = {
             'key1': ['hi&amp;', '&lt;world&gt;'],
             'key2': {'key': '&lt;hello&amp;world&gt;'},
-            'key3': '&lt;hello&amp;world&gt;'
+            'key3': '&lt;hello&amp;world&gt;',
+            'key4': 0,
+            'key5': False
         }
 
         epp_communicator = MagicMock(EppCommunicator)
         base_command = BaseCommand(epp_communicator)
 
-        result = base_command._BaseCommand__escape_dict(test_list)
+        result = base_command._BaseCommand__escape_dict(test_dict)
 
         self.assertEqual(expected_result, result)
 

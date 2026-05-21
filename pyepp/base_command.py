@@ -53,7 +53,7 @@ class BaseCommand:
         if cmd.find('client_transaction_id') != -1 and not kwargs.get('client_transaction_id'):
             kwargs['client_transaction_id'] = str(uuid.uuid4())
 
-        kwargs = {key: value for key, value in kwargs.items() if value}
+        kwargs = {key: value for key, value in kwargs.items() if value is not None}
 
         new_kwargs = self.__escape_dict(kwargs)
 
