@@ -672,3 +672,59 @@ class DomainTest(unittest.TestCase):
 
         _, kwargs = domain.execute.call_args
         self.assertFalse(kwargs.get("password"), "Password should not be set when not supplied to update()")
+
+    def test_create_renders_dns_sec_single(self) -> None:
+        """domain.create() must render a single dns_sec record correctly."""
+        dns_sec = DSRecordData(
+            key_tag=1235,
+            algorithm=DNSSECAlgorithm.DSA_SHA_1.value,
+            digest_type=DigestTypeEnum.SHA_1.value,
+            digest="8cdb09364147aed879d12c68d615f98af5900b73",
+        )
+        create_params = DomainData(
+            domain_name="internet.nz",
+            registrant="inz-contact-3",
+            dns_sec=dns_sec,
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.create(create_params)
+
+        # Access the rendered XML from the call to epp_communicator.execute
+        xml_command = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<secDNS:keyTag>1235</secDNS:keyTag>", xml_command)
+        self.assertIn("<secDNS:alg>3</secDNS:alg>", xml_command)
+        self.assertEqual(xml_command.count("<secDNS:dsData>"), 1)
+
+    def test_create_renders_dns_sec_list(self) -> None:
+        """domain.create() must render a list of dns_sec records correctly."""
+        dns_sec = [
+            DSRecordData(
+                key_tag=1235,
+                algorithm=DNSSECAlgorithm.DSA_SHA_1.value,
+                digest_type=DigestTypeEnum.SHA_1.value,
+                digest="digest1",
+            ),
+            DSRecordData(
+                key_tag=5678,
+                algorithm=DNSSECAlgorithm.RSA_SHA_256.value,
+                digest_type=DigestTypeEnum.SHA_256.value,
+                digest="digest2",
+            )
+        ]
+        create_params = DomainData(
+            domain_name="internet.nz",
+            registrant="inz-contact-3",
+            dns_sec=dns_sec,
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.create(create_params)
+
+        # Access the rendered XML from the call to epp_communicator.execute
+        xml_command = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<secDNS:keyTag>1235</secDNS:keyTag>", xml_command)
+        self.assertIn("<secDNS:keyTag>5678</secDNS:keyTag>", xml_command)
+        self.assertEqual(xml_command.count("<secDNS:dsData>"), 2)
