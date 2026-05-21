@@ -72,7 +72,7 @@ class BaseCommand:
                 result.append(self.__escape_dict(value))
             elif isinstance(value, str):
                 result.append(escape(value))
-            elif value:
+            elif value is not None:
                 result.append(value)
 
         return result
@@ -87,7 +87,7 @@ class BaseCommand:
                 result[key] = self.__escape_dict(value)
             elif isinstance(value, str):
                 result[key] = escape(value)
-            elif value:
+            elif value is not None:
                 result[key] = value
 
         return result
