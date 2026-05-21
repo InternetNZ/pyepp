@@ -84,7 +84,7 @@ class HostTest(unittest.TestCase):
     def test_poll_ack(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
         poll = Poll(epp_communicator)
-        
+
         expected_result = \
             EppResultData(**{'client_transaction_id': 'c6710aac-cbcf-48d0-9ec3-cfaad1cadc81',
                              'code': 1000,
