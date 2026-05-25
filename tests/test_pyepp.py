@@ -170,13 +170,12 @@ class PyEPPTests(unittest.TestCase):
     def test_write(self) -> None:
         epp = EppCommunicator(**self.epp_config)
         expected_result = 103
-        epp._ssl_socket = MagicMock(
-            send=MagicMock(return_value=expected_result),
-        )
+        epp._ssl_socket = MagicMock()
 
         result = epp._write(HELLO_XML)
 
         self.assertEqual(result, expected_result)
+        self.assertEqual(epp._ssl_socket.sendall.call_count, 2)
 
 
 if __name__ == "__main__":
