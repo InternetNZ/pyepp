@@ -4,7 +4,7 @@ PyEPP
 This is a Python API on `EPP <https://en.wikipedia.org/wiki/Extensible_Provisioning_Protocol>`_
 protocol to connect to any registry systems that support EPP and manage the registry objects.
 Also, it is a CLI client to interact with the registry systems.
-It supports the bellow RFCs:
+It supports the below RFCs:
 
 * `RFC 5730 - Extensible Provisioning Protocol <https://datatracker.ietf.org/doc/html/rfc5730>`_
 * `RFC 5731 - Domain Name Mapping <https://datatracker.ietf.org/doc/html/rfc5731>`_
@@ -30,6 +30,7 @@ Usage example
    from pyepp import EppCommunicator
    from pyepp.domain import Domain, DomainData, DSRecordData, DNSSECAlgorithm, DigestTypeEnum
    from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
+   from pyepp.host import Host, HostData, IPAddressData
 
    config = {
        "server": "epp.test.net.nz",
@@ -86,12 +87,12 @@ Usage example
        billing='contact-3',
        period=3,
        host=['01y.test-indwrx2vkicn2otgm3otav5wpnzvjd.co.nz', '0d9x6239.example.co.nz'],
-       dns_sec=DSRecordData(
+       dns_sec=[DSRecordData(
            key_tag=1235,
            algorithm=DNSSECAlgorithm.DSA_SHA_1.value,
            digest_type=DigestTypeEnum.SHA_1.value,
            digest='8cdb09364147aed879d12c68d615f98af5900b73'
-       ),
+       )],
    )
    domain_create = domain.create(domain_create_params)
 
@@ -135,7 +136,6 @@ PyEPP also has a command line interface that allows the user to interact with th
       host     To work with Host objects in the registry.
       poll     To manage registry service messages.
       run      Receive an XML file containing an EPP XML command and execute it.
-
 
 .. toctree::
    :maxdepth: 2

@@ -672,3 +672,124 @@ class DomainTest(unittest.TestCase):
 
         _, kwargs = domain.execute.call_args
         self.assertFalse(kwargs.get("password"), "Password should not be set when not supplied to update()")
+
+    def test_create_renders_dns_sec_single(self) -> None:
+        """domain.create() must render a single dns_sec record correctly."""
+        dns_sec = DSRecordData(
+            key_tag=1235,
+            algorithm=DNSSECAlgorithm.DSA_SHA_1.value,
+            digest_type=DigestTypeEnum.SHA_1.value,
+            digest="8cdb09364147aed879d12c68d615f98af5900b73",
+        )
+        create_params = DomainData(
+            domain_name="internet.nz",
+            registrant="inz-contact-3",
+            dns_sec=dns_sec,
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.create(create_params)
+
+        # Access the rendered XML from the call to epp_communicator.execute
+        xml_command = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<secDNS:keyTag>1235</secDNS:keyTag>", xml_command)
+        self.assertIn("<secDNS:alg>3</secDNS:alg>", xml_command)
+        self.assertEqual(xml_command.count("<secDNS:dsData>"), 1)
+
+    def test_create_renders_dns_sec_list(self) -> None:
+        """domain.create() must render a list of dns_sec records correctly."""
+        dns_sec = [
+            DSRecordData(
+                key_tag=1235,
+                algorithm=DNSSECAlgorithm.DSA_SHA_1.value,
+                digest_type=DigestTypeEnum.SHA_1.value,
+                digest="digest1",
+            ),
+            DSRecordData(
+                key_tag=5678,
+                algorithm=DNSSECAlgorithm.RSA_SHA_256.value,
+                digest_type=DigestTypeEnum.SHA_256.value,
+                digest="digest2",
+            )
+        ]
+        create_params = DomainData(
+            domain_name="internet.nz",
+            registrant="inz-contact-3",
+            dns_sec=dns_sec,
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.create(create_params)
+
+        # Access the rendered XML from the call to epp_communicator.execute
+        xml_command = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<secDNS:keyTag>1235</secDNS:keyTag>", xml_command)
+        self.assertIn("<secDNS:keyTag>5678</secDNS:keyTag>", xml_command)
+        self.assertEqual(xml_command.count("<secDNS:dsData>"), 2)
+
+    def test_create_with_explicit_password(self) -> None:
+        """domain.create() must use the explicit password when provided."""
+        create_params = DomainData(
+            domain_name="internet.nz",
+            registrant="inz-contact-3",
+            password="MyExplicitPassword"
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=EppResultData(
+            code=1000, message="Command completed successfully", raw_response="", result_data=None
+        ))
+
+        domain.create(create_params)
+
+        _, kwargs = domain.execute.call_args
+        self.assertEqual(kwargs["password"], "MyExplicitPassword")
+
+    def test_info_without_dns_sec(self) -> None:
+        """domain.info() must handle response when no <secDNS:infData> node is present."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        execute_result = EppResultData(
+            **{
+                "client_transaction_id": None,
+                "code": 1000,
+                "message": "Command completed successfully",
+                "raw_response": "<response>\n"
+                '<result code="1000">\n'
+                "<msg>Command completed successfully</msg>\n"
+                "</result>\n"
+                "<resData>\n"
+                "<domain:infData>\n"
+                "<domain:name>internet.nz</domain:name>\n"
+                "<domain:roid>9204701-INZ</domain:roid>\n"
+                '<domain:status s="inactive"/>\n'
+                "<domain:registrant>inz-contact-1</domain:registrant>\n"
+                "<domain:contact "
+                'type="admin">inz-contact-1</domain:contact>\n'
+                "<domain:contact "
+                'type="tech">inz-contact-1</domain:contact>\n'
+                "<domain:clID>933</domain:clID>\n"
+                "<domain:crID>933</domain:crID>\n"
+                "<domain:crDate>2023-02-23T21:56:22.713Z</domain:crDate>\n"
+                "<domain:upID>CIRA_RAR_1</domain:upID>\n"
+                "<domain:upDate>2023-02-24T21:59:27.901Z</domain:upDate>\n"
+                "<domain:exDate>2024-02-23T21:56:22.713Z</domain:exDate>\n"
+                "</domain:infData>\n"
+                "</resData>\n"
+                "<trID>\n"
+                "<svTRID>CIRA-000063163743-0000000003</svTRID>\n"
+                "</trID>\n"
+                "</response>",
+                "reason": None,
+                "repository_object_id": "9204701-INZ",
+                "server_transaction_id": "CIRA-000063163743-0000000003",
+                "result_data": None,
+            }
+        )
+
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.info("internet.nz")
+        self.assertIsNone(result.result_data.dns_sec)

@@ -2,7 +2,7 @@ CLI
 =============
 
 PyEPP comes with a command line interface that allows the user to interact with the registry system. It will be installed
-the main library.
+with the main library.
 
 .. code-block:: text
 
@@ -316,4 +316,60 @@ host
            </info>
            <clTRID>dab02e31-5658-44c4-bbd5-ff66b88539b5</clTRID>
          </command>
+        </epp>
+
+poll
+^^^^^^^^^^^
+
+.. code-block:: text
+
+    sh> pyepp poll request
+        <?xml version="1.0" encoding="utf-8"?>
+        <epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+         <response>
+          <result code="1301">
+           <msg>
+            Command completed successfully; ack to dequeue
+           </msg>
+          </result>
+          <msgQ count="5" id="12345">
+           <qDate>
+            2024-04-12T00:41:59.977Z
+           </qDate>
+           <msg>
+            Transfer requested.
+           </msg>
+          </msgQ>
+          <trID>
+           <clTRID>
+            poll-req-1234
+           </clTRID>
+           <svTRID>
+            CIRA-000232270901-0000000003
+           </svTRID>
+          </trID>
+         </response>
+        </epp>
+
+.. code-block:: text
+
+    sh> pyepp poll acknowledge 12345
+        <?xml version="1.0" encoding="utf-8"?>
+        <epp xmlns="urn:ietf:params:xml:ns:epp-1.0" xmlns:contact="urn:ietf:params:xml:ns:contact-1.0" xmlns:domain="urn:ietf:params:xml:ns:domain-1.0" xmlns:host="urn:ietf:params:xml:ns:host-1.0" xmlns:rgp="urn:ietf:params:xml:ns:rgp-1.0" xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+         <response>
+          <result code="1000">
+           <msg>
+            Command completed successfully
+           </msg>
+          </result>
+          <msgQ count="4" id="12345"/>
+          <trID>
+           <clTRID>
+            poll-ack-12345
+           </clTRID>
+           <svTRID>
+            CIRA-000232270901-0000000004
+           </svTRID>
+          </trID>
+         </response>
         </epp>

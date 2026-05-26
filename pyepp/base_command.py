@@ -1,6 +1,9 @@
 """
 Base command
 """
+
+from typing import Any
+
 import uuid
 
 from dataclasses import dataclass
@@ -21,6 +24,7 @@ class BaseCommand:
     """
     Base command class. Other EPP commands will inherit this class.
     """
+
     PARAMS = ()
 
     def __init__(self, epp_communicator: EppCommunicator) -> None:
@@ -42,7 +46,7 @@ class BaseCommand:
         result = self._epp_communicator.execute(cmd)
         return result
 
-    def _prepare_command(self, cmd: str, **kwargs: str) -> str:
+    def _prepare_command(self, cmd: str, **kwargs: Any) -> str:
         """Prepare an EPP XML command for execution by setting up the arguments.
 
         :param cmd: Command in XML format
@@ -50,10 +54,12 @@ class BaseCommand:
 
         :return: XML command
         """
-        if cmd.find('client_transaction_id') != -1 and not kwargs.get('client_transaction_id'):
-            kwargs['client_transaction_id'] = str(uuid.uuid4())
+        if cmd.find("client_transaction_id") != -1 and not kwargs.get(
+            "client_transaction_id"
+        ):
+            kwargs["client_transaction_id"] = str(uuid.uuid4())
 
-        kwargs = {key: value for key, value in kwargs.items() if value}
+        kwargs = {key: value for key, value in kwargs.items() if value is not None}
 
         new_kwargs = self.__escape_dict(kwargs)
 
@@ -72,7 +78,7 @@ class BaseCommand:
                 result.append(self.__escape_dict(value))
             elif isinstance(value, str):
                 result.append(escape(value))
-            elif value:
+            elif value is not None:
                 result.append(value)
 
         return result
@@ -87,7 +93,7 @@ class BaseCommand:
                 result[key] = self.__escape_dict(value)
             elif isinstance(value, str):
                 result[key] = escape(value)
-            elif value:
+            elif value is not None:
                 result[key] = value
 
         return result
