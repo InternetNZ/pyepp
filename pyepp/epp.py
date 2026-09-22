@@ -72,23 +72,7 @@ def get_format_32() -> str:
 
     From http://www.bortzmeyer.org/4934.html
     """
-    format_32 = ">I"
-    if struct.calcsize(format_32) < LENGTH_FIELD_SIZE:
-        format_32 = ">L"
-        if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
-            logging.error("Integer size does not match the length size!")
-            raise EppCommunicatorException(
-                "Integer size does not match the length size!"
-            )
-    elif struct.calcsize(format_32) > LENGTH_FIELD_SIZE:
-        format_32 = ">H"
-        if struct.calcsize(format_32) != LENGTH_FIELD_SIZE:
-            logging.error("Integer size does not match the length size!")
-            raise EppCommunicatorException(
-                "Integer size does not match the length size!"
-            )
-
-    return format_32
+    return ">I"
 
 
 # pylint: disable=too-many-instance-attributes
@@ -186,7 +170,7 @@ class EppCommunicator:
         Read the response from the socket.
 
         :return: Response
-        :rtype: bytes
+        :rtype: Optional[bytes]
         """
         length = self._ssl_socket.read(LENGTH_FIELD_SIZE)
         buffer = bytes()
@@ -196,8 +180,11 @@ class EppCommunicator:
 
         total_bytes = self._unpack_data(length) - LENGTH_FIELD_SIZE
         while len(buffer) < total_bytes:
-            total_bytes = total_bytes - len(buffer)
-            buffer += self._ssl_socket.recv(total_bytes)
+            remaining = total_bytes - len(buffer)
+            chunk = self._ssl_socket.recv(remaining)
+            if not chunk:
+                return None
+            buffer += chunk
             logging.info("Received %s/%s bytes", len(buffer), total_bytes)
         return buffer
 
@@ -215,9 +202,11 @@ class EppCommunicator:
         xml_bytes = xml.encode("utf-8")
         length = self._pack_data(len(xml_bytes) + LENGTH_FIELD_SIZE + CRLF_SIZE)
 
-        self._ssl_socket.send(length)
+        self._ssl_socket.sendall(length)
         xml += "\r\n"
-        return self._ssl_socket.send(xml.encode("utf-8"))
+        data_to_send = xml.encode("utf-8")
+        self._ssl_socket.sendall(data_to_send)
+        return len(data_to_send)
 
     def _execute_command(self, cmd: str) -> bytes:
         """

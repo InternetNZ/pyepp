@@ -135,3 +135,7 @@ dmypy.json
 
 # VS Code
 .vscode/
+
+# AI md files
+GEMINI.md
+CLAUDE.md
