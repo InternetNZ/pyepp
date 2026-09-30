@@ -93,16 +93,18 @@ def host_update(
         [IPAddressData(item[0], item[1]) for item in add_ip] if add_ip else None
     )
     remove_ip_address = (
-        [IPAddressData(item[0], item[1]) for item in remove_ip] if add_ip else None
+        [IPAddressData(item[0], item[1]) for item in remove_ip]
+        if remove_ip
+        else None
     )
-    add_statue = list(add_status) if add_status else None
-    remove_status = list(remove_status) if add_status else None
+    add_statuses = list(add_status) if add_status else None
+    remove_statuses = list(remove_status) if remove_status else None
     result = ctx.obj.update(
         host_name,
         add_ip_address=add_ip_address,
         remove_ip_address=remove_ip_address,
-        add_status=add_statue,
-        remove_status=remove_status,
+        add_status=add_statuses,
+        remove_status=remove_statuses,
         new_host_name=new_host_name,
         client_transaction_id=client_transaction_id,
     )
