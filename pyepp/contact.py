@@ -46,7 +46,7 @@ class PostalInfoData:
     name: Optional[str]
     organization: Optional[str] = ""
     address: Optional[AddressData] = None
-    type: Union[PostalInfoTypeEnum, Literal["loc", "int"]] = "loc"
+    type: Optional[Union[PostalInfoTypeEnum, Literal["loc", "int"]]] = "loc"
 
     def __post_init__(self) -> None:
         """Validate type conforms to RFC 5733."""
@@ -276,6 +276,17 @@ class Contact(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
+        if not contact.postal_info or not contact.postal_info.name:
+            raise ValueError("Contact creation requires postal info with 'name'.")
+        if (
+            not contact.postal_info.address
+            or not contact.postal_info.address.city
+            or not contact.postal_info.address.country_code
+        ):
+            raise ValueError(
+                "Contact creation requires postal info address with 'city' and 'country_code'."
+            )
+
         params = self._data_to_dict(contact)
         params["client_transaction_id"] = client_transaction_id
 
@@ -322,6 +333,30 @@ class Contact(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
+        if contact.postal_info:
+            if contact.postal_info.type == "int":
+                if (
+                    not contact.postal_info.name
+                    or not contact.postal_info.address
+                    or not contact.postal_info.address.city
+                    or not contact.postal_info.address.country_code
+                ):
+                    raise ValueError(
+                        "Postal info update with type 'int' requires complete 'name', 'city', and 'country_code'."
+                    )
+            elif contact.postal_info.address:
+                if (
+                    not contact.postal_info.address.city
+                    or not contact.postal_info.address.country_code
+                ):
+                    raise ValueError(
+                        "Postal info address update requires both 'city' and 'country_code'."
+                    )
+            elif (
+                not contact.postal_info.name
+                and not contact.postal_info.organization
+            ):
+                raise ValueError("Postal info update cannot be empty.")
 
         params = self._data_to_dict(contact)
 

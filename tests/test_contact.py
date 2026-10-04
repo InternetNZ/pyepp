@@ -720,11 +720,17 @@ class ContactTest(unittest.TestCase):
             postal_info=PostalInfoData(
                 name="Local Contact",
                 type="loc",
+                address=AddressData(
+                    city="Wellington",
+                    country_code="NZ",
+                ),
             ),
         )
         contact.update(loc_contact)
         loc_xml = epp_communicator.execute.call_args[0][0]
         self.assertIn('<contact:postalInfo type="loc">', loc_xml)
+        self.assertIn('<contact:city>Wellington</contact:city>', loc_xml)
+        self.assertIn('<contact:cc>NZ</contact:cc>', loc_xml)
 
         # int
         int_contact = ContactData(
@@ -732,11 +738,18 @@ class ContactTest(unittest.TestCase):
             postal_info=PostalInfoData(
                 name="International Contact",
                 type="int",
+                address=AddressData(
+                    city="Tokyo",
+                    country_code="JP",
+                ),
             ),
         )
         contact.update(int_contact)
         int_xml = epp_communicator.execute.call_args[0][0]
         self.assertIn('<contact:postalInfo type="int">', int_xml)
+        self.assertIn('<contact:name>International Contact</contact:name>', int_xml)
+        self.assertIn('<contact:city>Tokyo</contact:city>', int_xml)
+        self.assertIn('<contact:cc>JP</contact:cc>', int_xml)
 
     def test_info_with_int_type(self) -> None:
         """contact.info() must parse type='int' from <contact:postalInfo> node."""
@@ -815,5 +828,122 @@ class ContactTest(unittest.TestCase):
         data.postal_info.type = "unsupported"
         with self.assertRaises(ValueError):
             contact._data_to_dict(data)
+
+    def test_create_missing_postal_info_raises_value_error(self) -> None:
+        """create() must raise ValueError if postal_info is missing."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(id="test-id", postal_info=None)
+        with self.assertRaises(ValueError):
+            contact.create(data)
+
+    def test_create_missing_name_raises_value_error(self) -> None:
+        """create() must raise ValueError if postal_info name is missing."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            postal_info=PostalInfoData(
+                name="",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.create(data)
+
+    def test_create_missing_address_raises_value_error(self) -> None:
+        """create() must raise ValueError if address is missing."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            postal_info=PostalInfoData(name="Test", address=None),
+        )
+        with self.assertRaises(ValueError):
+            contact.create(data)
+
+    def test_create_missing_city_or_country_code_raises_value_error(self) -> None:
+        """create() must raise ValueError if city or country_code is missing."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            postal_info=PostalInfoData(
+                name="Test",
+                address=AddressData(city="", country_code="NZ"),
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.create(data)
+
+        data.postal_info.address.city = "Wellington"
+        data.postal_info.address.country_code = ""
+        with self.assertRaises(ValueError):
+            contact.create(data)
+
+    def test_update_int_type_missing_address_raises_value_error(self) -> None:
+        """update() must raise ValueError if int postal_info lacks address."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            postal_info=PostalInfoData(
+                name="Int Name",
+                type="int",
+                address=None,
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.update(data)
+
+    def test_update_int_type_missing_name_raises_value_error(self) -> None:
+        """update() must raise ValueError if int postal_info lacks name."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            postal_info=PostalInfoData(
+                name="",
+                type="int",
+                address=AddressData(city="Tokyo", country_code="JP"),
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.update(data)
+
+    def test_update_address_missing_city_or_country_code_raises_value_error(self) -> None:
+        """update() must raise ValueError if address is provided without city or country_code."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            postal_info=PostalInfoData(
+                name="Name",
+                type="loc",
+                address=AddressData(city="", country_code="NZ"),
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.update(data)
+
+        data.postal_info.address.city = "Wellington"
+        data.postal_info.address.country_code = ""
+        with self.assertRaises(ValueError):
+            contact.update(data)
+
+    def test_update_empty_postal_info_raises_value_error(self) -> None:
+        """update() must raise ValueError if postal_info has neither name, org, nor address."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            postal_info=PostalInfoData(
+                name="",
+                organization="",
+                address=None,
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.update(data)
 
 

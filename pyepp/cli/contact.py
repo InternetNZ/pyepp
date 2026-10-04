@@ -101,37 +101,59 @@ def contact_update(
 
     CONTACT_ID: Contact id
     """
+    has_address_fields = any(
+        [
+            street_1,
+            street_2,
+            street_3,
+            city,
+            province,
+            postal_code,
+            country_code,
+        ]
+    )
+    has_name_or_org = any([name, organization])
+    has_postal_update = any([postal_type, has_name_or_org, has_address_fields])
+
+    postal_info = None
+    if has_postal_update:
+        if postal_type == "int":
+            if not (name and city and country_code):
+                raise click.UsageError(
+                    "Updating postal info with type 'int' requires --name, --city, and --country-code."
+                )
+        elif has_address_fields and not (city and country_code):
+            raise click.UsageError(
+                "Updating contact address requires --city and --country-code."
+            )
+
+        address = None
+        if has_address_fields or postal_type == "int":
+            address = AddressData(
+                street_1=street_1,
+                street_2=street_2,
+                street_3=street_3,
+                city=city,
+                province=province,
+                postal_code=postal_code,
+                country_code=country_code,
+            )
+
+        postal_info = PostalInfoData(
+            name=name,
+            organization=organization,
+            type=postal_type or "loc",
+            address=address,
+        )
+
     contact_to_update = ContactData(
         id=contact_id,
         email=email,
         phone=phone,
         fax=fax,
         password=password,
-        postal_info=PostalInfoData(
-            name=name,
-            organization=organization,
-            type=postal_type or "loc",
-        ),
+        postal_info=postal_info,
     )
-
-    if (
-        street_1
-        or street_2
-        or street_3
-        or city
-        or province
-        or postal_code
-        or country_code
-    ):
-        contact_to_update.postal_info.address = AddressData(
-            street_1=street_1,
-            street_2=street_2,
-            street_3=street_3,
-            city=city,
-            province=province,
-            postal_code=postal_code,
-            country_code=country_code,
-        )
 
     result = ctx.obj.update(
         contact_to_update, add_status, remove_status, client_transaction_id
