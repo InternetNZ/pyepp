@@ -38,6 +38,7 @@ class PostalInfoData:
     name: Optional[str]
     organization: Optional[str] = ""
     address: Optional[AddressData] = None
+    type: Optional[str] = "loc"
 
 
 @dataclass
@@ -177,6 +178,12 @@ class Contact(BaseCommand):
                         raw_response.find("org").text
                         if raw_response.find("org")
                         else None
+                    ),
+                    "type": (
+                        raw_response.find("postalInfo").get("type")
+                        if raw_response.find("postalInfo")
+                        and raw_response.find("postalInfo").get("type")
+                        else "loc"
                     ),
                     "address": AddressData(
                         **{

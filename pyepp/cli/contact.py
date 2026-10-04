@@ -67,12 +67,19 @@ def contact_delete(ctx, contact_id, client_transaction_id) -> None:
 @click.option("--password")
 @click.option("--add-status")
 @click.option("--remove-status")
+@click.option(
+    "--type",
+    "postal_type",
+    type=click.Choice(["loc", "int"], case_sensitive=False),
+    help="Postal info type (loc: localized, int: international)",
+)
 @click.option("--client-transaction-id")
 @click.pass_context
-# pylint: disable=too-many-arguments, too-many-locals, too-many-boolean-expressions
+# pylint: disable=too-many-arguments, too-many-locals, too-many-boolean-expressions, too-many-positional-arguments
 def contact_update(
     ctx,
     contact_id,
+    postal_type,
     name,
     organization,
     street_1,
@@ -103,6 +110,7 @@ def contact_update(
         postal_info=PostalInfoData(
             name=name,
             organization=organization,
+            type=postal_type or "loc",
         ),
     )
 
@@ -137,6 +145,14 @@ def contact_update(
 @click.option("--name", required=True)
 @click.option("--city", required=True)
 @click.option("--country-code", required=True)
+@click.option(
+    "--type",
+    "postal_type",
+    type=click.Choice(["loc", "int"], case_sensitive=False),
+    default="loc",
+    show_default=True,
+    help="Postal info type (loc: localized, int: international)",
+)
 @click.option("--organization")
 @click.option("--street-1")
 @click.option("--street-2")
@@ -148,10 +164,11 @@ def contact_update(
 @click.option("--password")
 @click.option("--client-transaction-id")
 @click.pass_context
-# pylint: disable=too-many-arguments, too-many-locals
+# pylint: disable=too-many-arguments, too-many-locals, too-many-positional-arguments
 def contact_create(
     ctx,
     contact_id,
+    postal_type,
     name,
     organization,
     street_1,
@@ -180,6 +197,7 @@ def contact_create(
         postal_info=PostalInfoData(
             name=name,
             organization=organization,
+            type=postal_type,
             address=AddressData(
                 street_1=street_1,
                 street_2=street_2,

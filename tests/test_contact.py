@@ -66,6 +66,7 @@ class ContactTest(unittest.TestCase):
             "fax": "fax",
             "email": "email",
             "password": "",
+            "type": "loc",
         }
 
         epp_communicator = MagicMock(EppCommunicator)
@@ -615,3 +616,166 @@ class ContactTest(unittest.TestCase):
         contact.execute = MagicMock(return_value=execute_result)
         result = contact.info("inz-contact-1")
         self.assertEqual(result.result_data.password, "")
+
+    def test_data_to_dict_with_int_type(self) -> None:
+        """_data_to_dict should correctly extract type='int' from postal_info."""
+        data = ContactData(
+            id="id",
+            postal_info=PostalInfoData(
+                name="name",
+                organization="organization",
+                type="int",
+                address=AddressData(
+                    city="city",
+                    country_code="country_code",
+                ),
+            ),
+        )
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        result = contact._data_to_dict(data)
+        self.assertEqual(result["type"], "int")
+
+    def test_create_with_int_type(self) -> None:
+        """contact.create() must pass type='int' when postal_info type is 'int'."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        contact.execute = MagicMock(
+            return_value=EppResultData(
+                code=1000,
+                message="Command completed successfully",
+                raw_response="",
+                result_data=None,
+            )
+        )
+        create_params = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="International Contact",
+                type="int",
+                address=AddressData(
+                    street_1="123 Int St",
+                    city="Tokyo",
+                    country_code="JP",
+                ),
+            ),
+        )
+        contact.create(create_params)
+        _, kwargs = contact.execute.call_args
+        self.assertEqual(kwargs["type"], "int")
+
+    def test_create_xml_rendering_loc_and_int(self) -> None:
+        """Verify CONTACT_CREATE_XML renders correct postalInfo type attribute."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        # Default / loc
+        loc_contact = ContactData(
+            id="loc-contact",
+            email="loc@example.com",
+            postal_info=PostalInfoData(
+                name="Local Contact",
+                address=AddressData(
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.create(loc_contact)
+        loc_xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:postalInfo type="loc">', loc_xml)
+
+        # int
+        int_contact = ContactData(
+            id="int-contact",
+            email="int@example.com",
+            postal_info=PostalInfoData(
+                name="International Contact",
+                type="int",
+                address=AddressData(
+                    city="Tokyo",
+                    country_code="JP",
+                ),
+            ),
+        )
+        contact.create(int_contact)
+        int_xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:postalInfo type="int">', int_xml)
+
+    def test_update_xml_rendering_loc_and_int(self) -> None:
+        """Verify CONTACT_UPDATE_XML renders correct postalInfo type attribute."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        # loc
+        loc_contact = ContactData(
+            id="loc-contact",
+            postal_info=PostalInfoData(
+                name="Local Contact",
+                type="loc",
+            ),
+        )
+        contact.update(loc_contact)
+        loc_xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:postalInfo type="loc">', loc_xml)
+
+        # int
+        int_contact = ContactData(
+            id="int-contact",
+            postal_info=PostalInfoData(
+                name="International Contact",
+                type="int",
+            ),
+        )
+        contact.update(int_contact)
+        int_xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:postalInfo type="int">', int_xml)
+
+    def test_info_with_int_type(self) -> None:
+        """contact.info() must parse type='int' from <contact:postalInfo> node."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        execute_result = EppResultData(
+            **{
+                "client_transaction_id": "5123c3d4-79ce-4d87-ad7b-d234eb992474",
+                "code": 1000,
+                "message": "Command completed successfully",
+                "raw_response": "<response>\n"
+                '<result code="1000">\n'
+                "<msg>Command completed successfully</msg>\n"
+                "</result>\n"
+                "<resData>\n"
+                "<contact:infData>\n"
+                "<contact:id>inz-contact-int</contact:id>\n"
+                "<contact:roid>9175701-INZ</contact:roid>\n"
+                '<contact:status s="linked"/>\n'
+                '<contact:postalInfo type="int">\n'
+                "<contact:name>inz int</contact:name>\n"
+                "<contact:addr>\n"
+                "<contact:street>Test street</contact:street>\n"
+                "<contact:city>Tokyo</contact:city>\n"
+                "<contact:cc>JP</contact:cc>\n"
+                "</contact:addr>\n"
+                "</contact:postalInfo>\n"
+                "<contact:email>inz@internet.net.nz</contact:email>\n"
+                "<contact:clID>933</contact:clID>\n"
+                "<contact:crID>933</contact:crID>\n"
+                "<contact:crDate>2023-02-23T02:59:16.784Z</contact:crDate>\n"
+                "</contact:infData>\n"
+                "</resData>\n"
+                "<trID>\n"
+                "<clTRID>5123c3d4-79ce-4d87-ad7b-d234eb992474</clTRID>\n"
+                "<svTRID>CIRA-000062211375-0000000003</svTRID>\n"
+                "</trID>\n"
+                "</response>",
+                "reason": None,
+                "repository_object_id": "9175701-INZ",
+                "server_transaction_id": "CIRA-000062211375-0000000003",
+                "result_data": None,
+            }
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("inz-contact-int")
+        self.assertEqual(result.result_data.postal_info.type, "int")
+
