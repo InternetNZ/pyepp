@@ -115,7 +115,7 @@ Options:
   --client-key TEXT
   --extension TEXT                The extension to be loaded for the EPP
                                   command.
-  -o, --output-format [XML|OBJECT|MIN]
+  -o, --output-format [xml|object|min]
                                   [default: XML]
   --no-pretty
   --dry-run

@@ -67,12 +67,19 @@ def contact_delete(ctx, contact_id, client_transaction_id) -> None:
 @click.option("--password")
 @click.option("--add-status")
 @click.option("--remove-status")
+@click.option(
+    "--type",
+    "postal_type",
+    type=click.Choice(["loc", "int"], case_sensitive=False),
+    help="Postal info type (loc: localized, int: international)",
+)
 @click.option("--client-transaction-id")
 @click.pass_context
-# pylint: disable=too-many-arguments, too-many-locals, too-many-boolean-expressions
+# pylint: disable=too-many-arguments, too-many-locals, too-many-boolean-expressions, too-many-positional-arguments
 def contact_update(
     ctx,
     contact_id,
+    postal_type,
     name,
     organization,
     street_1,
@@ -94,36 +101,59 @@ def contact_update(
 
     CONTACT_ID: Contact id
     """
+    has_address_fields = any(
+        [
+            street_1,
+            street_2,
+            street_3,
+            city,
+            province,
+            postal_code,
+            country_code,
+        ]
+    )
+    has_name_or_org = any([name, organization])
+    has_postal_update = any([postal_type, has_name_or_org, has_address_fields])
+
+    postal_info = None
+    if has_postal_update:
+        if postal_type == "int":
+            if not (name and city and country_code):
+                raise click.UsageError(
+                    "Updating postal info with type 'int' requires --name, --city, and --country-code."
+                )
+        elif has_address_fields and not (city and country_code):
+            raise click.UsageError(
+                "Updating contact address requires --city and --country-code."
+            )
+
+        address = None
+        if has_address_fields or postal_type == "int":
+            address = AddressData(
+                street_1=street_1,
+                street_2=street_2,
+                street_3=street_3,
+                city=city,
+                province=province,
+                postal_code=postal_code,
+                country_code=country_code,
+            )
+
+        postal_info = PostalInfoData(
+            name=name,
+            organization=organization,
+            type=postal_type or "loc",
+            address=address,
+        )
+
     contact_to_update = ContactData(
         id=contact_id,
         email=email,
         phone=phone,
         fax=fax,
         password=password,
-        postal_info=PostalInfoData(
-            name=name,
-            organization=organization,
-        ),
+        postal_info=postal_info,
     )
-
-    if (
-        street_1
-        or street_2
-        or street_3
-        or city
-        or province
-        or postal_code
-        or country_code
-    ):
-        contact_to_update.postal_info.address = AddressData(
-            street_1=street_1,
-            street_2=street_2,
-            street_3=street_3,
-            city=city,
-            province=province,
-            postal_code=postal_code,
-            country_code=country_code,
-        )
 
     result = ctx.obj.update(
         contact_to_update, add_status, remove_status, client_transaction_id
@@ -137,6 +167,14 @@ def contact_update(
 @click.option("--name", required=True)
 @click.option("--city", required=True)
 @click.option("--country-code", required=True)
+@click.option(
+    "--type",
+    "postal_type",
+    type=click.Choice(["loc", "int"], case_sensitive=False),
+    default="loc",
+    show_default=True,
+    help="Postal info type (loc: localized, int: international)",
+)
 @click.option("--organization")
 @click.option("--street-1")
 @click.option("--street-2")
@@ -148,10 +186,11 @@ def contact_update(
 @click.option("--password")
 @click.option("--client-transaction-id")
 @click.pass_context
-# pylint: disable=too-many-arguments, too-many-locals
+# pylint: disable=too-many-arguments, too-many-locals, too-many-positional-arguments
 def contact_create(
     ctx,
     contact_id,
+    postal_type,
     name,
     organization,
     street_1,
@@ -180,6 +219,7 @@ def contact_create(
         postal_info=PostalInfoData(
             name=name,
             organization=organization,
+            type=postal_type,
             address=AddressData(
                 street_1=street_1,
                 street_2=street_2,

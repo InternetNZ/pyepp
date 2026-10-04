@@ -10,7 +10,13 @@ from pyepp.epp import (
     EppCommunicatorException,
     EppResultData,
 )
-from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
+from pyepp.contact import (
+    Contact,
+    ContactData,
+    PostalInfoData,
+    PostalInfoTypeEnum,
+    AddressData,
+)
 from pyepp.domain import (
     Domain,
     DomainData,

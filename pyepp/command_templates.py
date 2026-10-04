@@ -80,7 +80,7 @@ CONTACT_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <create>
       <contact:create xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">
         <contact:id>{{ id }}</contact:id>
-          <contact:postalInfo type="loc">
+          <contact:postalInfo type="{{ type or 'loc' }}">
             <contact:name>{{ name }}</contact:name>
             {% if organization %} <contact:org>{{ organization }}</contact:org> {% endif %}
             <contact:addr>
@@ -142,7 +142,7 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         {% endif %}
         <contact:chg>
          {% if postalinfo_change %}
-          <contact:postalInfo type="loc">
+          <contact:postalInfo type="{{ type or 'loc' }}">
             {% if name %} <contact:name>{{ name }}</contact:name> {% endif %}
             {% if organization %} <contact:org>{{ organization }}</contact:org> {% endif %}
             {% if address_change %}

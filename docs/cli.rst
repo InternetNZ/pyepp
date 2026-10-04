@@ -63,6 +63,8 @@ And to get help for a specific command:
       --name TEXT                   [required]
       --city TEXT                   [required]
       --country-code TEXT           [required]
+      --type [loc|int]              Postal info type (loc: localized, int:
+                                    international)  [default: loc]
       --organization TEXT
       --street-1 TEXT
       --street-2 TEXT
