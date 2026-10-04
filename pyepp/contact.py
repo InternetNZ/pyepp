@@ -2,7 +2,8 @@
 Contact Mapping Module. This module is used to manage contact objects in Registry.
 """
 
-from typing import Optional
+from enum import Enum
+from typing import Literal, Optional, Union
 from dataclasses import dataclass, asdict
 from bs4 import BeautifulSoup
 
@@ -16,6 +17,13 @@ from pyepp.command_templates import (
     CONTACT_UPDATE_XML,
 )
 from pyepp.epp import EppResultCode, EppResultData
+
+
+class PostalInfoTypeEnum(str, Enum):
+    """Postal info type enumeration."""
+
+    LOC = "loc"
+    INT = "int"
 
 
 @dataclass
@@ -38,7 +46,18 @@ class PostalInfoData:
     name: Optional[str]
     organization: Optional[str] = ""
     address: Optional[AddressData] = None
-    type: Optional[str] = "loc"
+    type: Union[PostalInfoTypeEnum, Literal["loc", "int"]] = "loc"
+
+    def __post_init__(self) -> None:
+        """Validate type conforms to RFC 5733."""
+        if self.type is None:
+            self.type = "loc"
+        elif isinstance(self.type, PostalInfoTypeEnum):
+            self.type = self.type.value
+        elif self.type not in ("loc", "int"):
+            raise ValueError(
+                f"Invalid postal info type '{self.type}'. Must be 'loc' or 'int'."
+            )
 
 
 @dataclass
@@ -90,6 +109,18 @@ class Contact(BaseCommand):
             data_dict.update(address)
         if postal_info:
             data_dict.update(postal_info)
+
+        if "type" in data_dict:
+            type_val = (
+                data_dict["type"].value
+                if isinstance(data_dict["type"], Enum)
+                else data_dict["type"]
+            )
+            if type_val not in ("loc", "int"):
+                raise ValueError(
+                    f"Invalid postal info type '{type_val}'. Must be 'loc' or 'int'."
+                )
+            data_dict["type"] = type_val
 
         return data_dict
 

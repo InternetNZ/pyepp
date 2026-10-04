@@ -5,7 +5,13 @@ Contact unit tests
 import unittest
 from unittest.mock import MagicMock
 
-from pyepp.contact import ContactData, PostalInfoData, AddressData, Contact
+from pyepp.contact import (
+    ContactData,
+    PostalInfoData,
+    PostalInfoTypeEnum,
+    AddressData,
+    Contact,
+)
 from pyepp.epp import EppCommunicator, EppResultData
 
 
@@ -778,4 +784,36 @@ class ContactTest(unittest.TestCase):
         contact.execute = MagicMock(return_value=execute_result)
         result = contact.info("inz-contact-int")
         self.assertEqual(result.result_data.postal_info.type, "int")
+
+    def test_postal_info_type_enum(self) -> None:
+        """PostalInfoData must accept PostalInfoTypeEnum values."""
+        postal_loc = PostalInfoData(name="Loc Name", type=PostalInfoTypeEnum.LOC)
+        self.assertEqual(postal_loc.type, "loc")
+
+        postal_int = PostalInfoData(name="Int Name", type=PostalInfoTypeEnum.INT)
+        self.assertEqual(postal_int.type, "int")
+
+    def test_postal_info_invalid_type_raises_value_error(self) -> None:
+        """PostalInfoData must raise ValueError when type is neither 'loc' nor 'int'."""
+        with self.assertRaises(ValueError):
+            PostalInfoData(name="Test", type="invalid")
+
+    def test_postal_info_none_type_defaults_to_loc(self) -> None:
+        """PostalInfoData must default to 'loc' when type is None."""
+        postal = PostalInfoData(name="Test", type=None)
+        self.assertEqual(postal.type, "loc")
+
+    def test_data_to_dict_invalid_type_raises_value_error(self) -> None:
+        """_data_to_dict must raise ValueError if type is invalid."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            postal_info=PostalInfoData(name="Test"),
+        )
+        # Directly bypass dataclass __post_init__ to test _data_to_dict safeguard
+        data.postal_info.type = "unsupported"
+        with self.assertRaises(ValueError):
+            contact._data_to_dict(data)
+
 
