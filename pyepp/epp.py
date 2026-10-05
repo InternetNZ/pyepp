@@ -104,8 +104,13 @@ def _mask_with_expat(data: bytes) -> Optional[bytes]:
     if not replacements:
         return data
 
+    outermost_replacements = []
+    for start, end in sorted(replacements):
+        if not outermost_replacements or end > outermost_replacements[-1][1]:
+            outermost_replacements.append((start, end))
+
     out = to_parse
-    for start, end in sorted(replacements, key=lambda x: x[0], reverse=True):
+    for start, end in reversed(outermost_replacements):
         out = out[:start] + b"***" + out[end:]
 
     if is_wrapped:
