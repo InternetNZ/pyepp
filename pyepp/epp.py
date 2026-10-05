@@ -6,10 +6,12 @@ import ssl
 import socket
 import struct
 import logging
+import re
 import sys
+from xml.parsers import expat
 from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Optional, Any
+from typing import Optional, Any, Union
 
 from bs4 import BeautifulSoup
 
@@ -17,6 +19,129 @@ from pyepp.command_templates import LOGOUT_XML, LOGIN_XML, HELLO_XML, template_e
 
 LENGTH_FIELD_SIZE = 4
 CRLF_SIZE = 2
+
+PASSWORD_TAG_FALLBACK_REGEX = re.compile(
+    r"(?P<open><(?P<tag>(?:[\w.-]+:)?(?:pw|newPW))\b[^>]*>)(?:.*?(?P<close></(?P=tag)\s*>)|.*$)",
+    re.IGNORECASE | re.DOTALL,
+)
+PASSWORD_TAG_REGEX = PASSWORD_TAG_FALLBACK_REGEX
+
+
+def _is_sensitive_tag(name: str) -> bool:
+    """
+    Check if an XML element name corresponds to a sensitive password tag.
+
+    :param str name: XML element tag name (with optional namespace prefix)
+    :return: True if sensitive, False otherwise
+    :rtype: bool
+    """
+    local_name = name.split(":")[-1]
+    return local_name.lower() in ("pw", "newpw")
+
+
+def _find_tag_end(data: bytes, start_idx: int, max_idx: int) -> int:
+    """
+    Find the index immediately following the closing '>' of an opening tag.
+
+    :param bytes data: Raw XML payload bytes
+    :param int start_idx: Starting index of the opening tag
+    :param int max_idx: Upper bound index to search within
+    :return: Offset immediately following '>', or -1 if not found
+    :rtype: int
+    """
+    in_quote = None
+    for idx in range(start_idx, max_idx):
+        char = data[idx : idx + 1]
+        if in_quote:
+            if char == in_quote:
+                in_quote = None
+        elif char in (b'"', b"'"):
+            in_quote = char
+        elif char == b">":
+            return idx + 1
+    return -1
+
+
+def _mask_with_expat(data: bytes) -> Optional[bytes]:
+    """
+    Mask sensitive tags in XML using expat parser element boundaries.
+
+    :param bytes data: Raw XML bytes
+    :return: Masked XML bytes, or None if parsing fails
+    :rtype: Optional[bytes]
+    """
+    stripped = data.lstrip()
+    is_wrapped = False
+    to_parse = data
+    if not stripped.startswith(b"<?xml"):
+        to_parse = b"<root>" + data + b"</root>"
+        is_wrapped = True
+
+    parser = expat.ParserCreate()
+    replacements = []
+    stack = []
+
+    def start_element(name, _attrs):
+        if _is_sensitive_tag(name):
+            stack.append((name, parser.CurrentByteIndex))
+
+    def end_element(name):
+        end_tag_start = parser.CurrentByteIndex
+        if stack and stack[-1][0] == name:
+            _, start_idx = stack.pop()
+            tag_end = _find_tag_end(to_parse, start_idx, end_tag_start)
+            if tag_end != -1 and not to_parse[start_idx:tag_end].rstrip().endswith(b"/>"):
+                replacements.append((tag_end, end_tag_start))
+
+    parser.StartElementHandler = start_element
+    parser.EndElementHandler = end_element
+
+    try:
+        parser.Parse(to_parse, True)
+    except (expat.ExpatError, ValueError):
+        return None
+
+    if not replacements:
+        return data
+
+    outermost_replacements = []
+    for start, end in sorted(replacements):
+        if not outermost_replacements or end > outermost_replacements[-1][1]:
+            outermost_replacements.append((start, end))
+
+    out = to_parse
+    for start, end in reversed(outermost_replacements):
+        out = out[:start] + b"***" + out[end:]
+
+    if is_wrapped:
+        out = out[len(b"<root>") : -len(b"</root>")]
+    return out
+
+
+def mask_sensitive_xml(xml_content: Union[str, bytes, Any]) -> str:
+    """
+    Mask sensitive XML elements like passwords prior to logging.
+
+    :param xml_content: XML payload in string or bytes
+    :return: XML string with masked sensitive fields
+    :rtype: str
+    """
+    if isinstance(xml_content, bytes):
+        raw_bytes = xml_content
+    else:
+        raw_bytes = str(xml_content).encode("utf-8", errors="replace")
+
+    masked_bytes = _mask_with_expat(raw_bytes)
+    if masked_bytes is not None:
+        return masked_bytes.decode("utf-8", errors="replace")
+
+    content_str = raw_bytes.decode("utf-8", errors="replace")
+
+    def repl(match):
+        close = match.group("close") or ""
+        return match.group("open") + "***" + close
+
+    return PASSWORD_TAG_FALLBACK_REGEX.sub(repl, content_str)
 
 
 class EppCommunicatorException(Exception):
@@ -185,7 +310,7 @@ class EppCommunicator:
             if not chunk:
                 return None
             buffer += chunk
-            logging.info("Received %s/%s bytes", len(buffer), total_bytes)
+            logging.debug("Received %s/%s bytes", len(buffer), total_bytes)
         return buffer
 
     def _write(self, xml: str) -> int:
@@ -206,6 +331,7 @@ class EppCommunicator:
         xml += "\r\n"
         data_to_send = xml.encode("utf-8")
         self._ssl_socket.sendall(data_to_send)
+        logging.debug("Sent %s bytes", len(data_to_send))
         return len(data_to_send)
 
     def _execute_command(self, cmd: str) -> bytes:
@@ -223,7 +349,7 @@ class EppCommunicator:
             print(cmd)
             sys.exit()
 
-        logging.debug("Sending xml to server :\n%s", cmd)
+        logging.debug("Sending xml to server :\n%s", mask_sensitive_xml(cmd))
 
         self._write(cmd)
 
@@ -231,7 +357,9 @@ class EppCommunicator:
         if response is None:
             raise EppCommunicatorException("Cannot connect to server. Please re-login!")
 
-        logging.debug("Received xml response from server :\n%s", response)
+        logging.debug(
+            "Received xml response from server :\n%s", mask_sensitive_xml(response)
+        )
 
         return response
 
@@ -261,7 +389,7 @@ class EppCommunicator:
             )
             self._ssl_socket.connect((self._server, int(self._port)))
             self.greeting = self._read()
-            logging.debug(BeautifulSoup(self.greeting, "xml"))
+            logging.debug("Received greeting from server :\n%s", self.greeting)
             return self.greeting
         except Exception as ex:
             logging.error("Could not setup a secure connection. %s", str(ex))
@@ -315,7 +443,7 @@ class EppCommunicator:
                 response.find("roid").text if response.find("roid") else None
             )
 
-            logging.debug("Command executed:\n%s", xml_response)
+            logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
 
             return EppResultData(
                 code=code,
