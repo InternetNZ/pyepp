@@ -342,7 +342,7 @@ DOMAIN_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8"?>
           {% for billing in add_billings %}
           <domain:contact type="billing">{{ billing }}</domain:contact>
           {% endfor %}
-          {% for status in add_statues %}
+          {% for status in add_statuses %}
           <domain:status s="{{ status[0] }}" lang="en">{{ status[1] }}</domain:status>
           {% endfor %}
           {% if add_hosts %}
@@ -365,7 +365,7 @@ DOMAIN_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8"?>
           {% for billing in remove_billings %}
           <domain:contact type="billing">{{ billing }}</domain:contact>
           {% endfor %}
-          {% for status in remove_statues %}
+          {% for status in remove_statuses %}
           <domain:status s="{{ status }}" />
           {% endfor %}
           {% if remove_hosts %}
@@ -468,7 +468,7 @@ HOST_INFO_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
  </command>
 </epp>"""
 
-HOST_CREAT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+HOST_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
   <command>
     <create>
@@ -483,6 +483,7 @@ HOST_CREAT_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
 
 HOST_DELETE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0">

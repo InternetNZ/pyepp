@@ -13,7 +13,7 @@ from pyepp.base_command import BaseCommand
 from pyepp.command_templates import (
     HOST_CHECK_XML,
     HOST_INFO_XML,
-    HOST_CREAT_XML,
+    HOST_CREATE_XML,
     HOST_DELETE_XML,
     HOST_UPDATE_XML,
 )
@@ -37,7 +37,7 @@ class HostData:
     address: Optional[list[IPAddressData]] = None
     status: Optional[list[str]] = None
     create_date: Optional[str] = ""
-    creat_client_id: Optional[str] = ""
+    create_client_id: Optional[str] = ""
     update_client_id: Optional[str] = ""
     update_date: Optional[str] = ""
 
@@ -142,7 +142,7 @@ class Host(BaseCommand):
                 if raw_response.find("crDate")
                 else None
             ),
-            "creat_client_id": (
+            "create_client_id": (
                 raw_response.find("crID").text if raw_response.find("crID") else None
             ),
             "update_client_id": (
@@ -173,7 +173,7 @@ class Host(BaseCommand):
         params = self._data_to_dict(host)
         params["client_transaction_id"] = client_transaction_id
 
-        result = self.execute(HOST_CREAT_XML, **params)
+        result = self.execute(HOST_CREATE_XML, **params)
 
         return result
 

@@ -264,9 +264,9 @@ class EppCommunicator:
             logging.debug(BeautifulSoup(self.greeting, "xml"))
             return self.greeting
         except Exception as ex:
-            logging.error("Could not setup a sec sure connection. %s", str(ex))
+            logging.error("Could not setup a secure connection. %s", str(ex))
             raise EppCommunicatorException(
-                "Could not setup a sec sure connection"
+                "Could not setup a secure connection"
             ) from ex
 
     def execute(self, cmd: str) -> EppResultData:

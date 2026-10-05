@@ -54,7 +54,7 @@ class EppCommunicatorTest(unittest.TestCase):
         mock_ssl.side_effect = Exception("SSL Error")
         with self.assertRaises(EppCommunicatorException) as context:
             self.epp.connect()
-        self.assertIn("Could not setup a sec sure connection", str(context.exception))
+        self.assertIn("Could not setup a secure connection", str(context.exception))
 
     def test_execute_not_connected(self):
         self.epp.greeting = None

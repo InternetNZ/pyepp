@@ -28,7 +28,7 @@ class ContactTest(unittest.TestCase):
             id="id",
             status=["status1", "status2"],
             create_date="create_date",
-            creat_client_id="creat_client_id",
+            create_client_id="create_client_id",
             sponsoring_client_id="sponsoring_client_id",
             update_client_id="update_client_id",
             update_date="update_date",
@@ -55,7 +55,7 @@ class ContactTest(unittest.TestCase):
             "id": "id",
             "status": ["status1", "status2"],
             "create_date": "create_date",
-            "creat_client_id": "creat_client_id",
+            "create_client_id": "create_client_id",
             "sponsoring_client_id": "sponsoring_client_id",
             "update_client_id": "update_client_id",
             "update_date": "update_date",
@@ -97,7 +97,7 @@ class ContactTest(unittest.TestCase):
             "id": "id",
             "status": None,
             "create_date": "",
-            "creat_client_id": "",
+            "create_client_id": "",
             "sponsoring_client_id": "",
             "update_client_id": "",
             "update_date": "",
@@ -300,7 +300,7 @@ class ContactTest(unittest.TestCase):
                     fax=None,
                     password="PassWord",
                     create_date="2023-02-23T02:59:16.784Z",
-                    creat_client_id="933",
+                    create_client_id="933",
                     sponsoring_client_id="933",
                     update_client_id="CIRA_RAR_1",
                     update_date="2023-02-23T21:59:01.021Z",
@@ -946,4 +946,7 @@ class ContactTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             contact.update(data)
 
-
+    def test_contact_data_create_client_id(self) -> None:
+        """ContactData create_client_id field."""
+        data = ContactData(id="contact-1", create_client_id="client123")
+        self.assertEqual(data.create_client_id, "client123")
