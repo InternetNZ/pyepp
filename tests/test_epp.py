@@ -207,5 +207,32 @@ class MaskSensitiveXmlTest(unittest.TestCase):
         xml = "<domain:name>example.com</domain:name>"
         self.assertEqual(mask_sensitive_xml(xml), xml)
 
+    def test_mask_passwords_with_cdata(self):
+        xml = "<login><pw><![CDATA[cdataSecret]]></pw></login>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<login><pw>***</pw></login>")
+        self.assertNotIn("cdataSecret", masked)
+
+    def test_mask_passwords_multiline_cdata(self):
+        xml = "<domain:pw>\n  <![CDATA[\n    multilineSecret\n  ]]>\n</domain:pw>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<domain:pw>***</domain:pw>")
+        self.assertNotIn("multilineSecret", masked)
+
+    def test_mask_passwords_with_hyphen_and_dot_namespace_prefixes(self):
+        xml = (
+            "<secDNS-1.1:pw><![CDATA[secDnsSecret]]></secDNS-1.1:pw>"
+            "<registry-ext:pw>regSecret</registry-ext:pw>"
+            "<custom.ext:newPW>customSecret</custom.ext:newPW>"
+        )
+        masked = mask_sensitive_xml(xml)
+        self.assertIn("<secDNS-1.1:pw>***</secDNS-1.1:pw>", masked)
+        self.assertIn("<registry-ext:pw>***</registry-ext:pw>", masked)
+        self.assertIn("<custom.ext:newPW>***</custom.ext:newPW>", masked)
+        self.assertNotIn("secDnsSecret", masked)
+        self.assertNotIn("regSecret", masked)
+        self.assertNotIn("customSecret", masked)
+
+
 
 

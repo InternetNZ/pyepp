@@ -20,8 +20,8 @@ LENGTH_FIELD_SIZE = 4
 CRLF_SIZE = 2
 
 PASSWORD_TAG_REGEX = re.compile(
-    r"(?P<open><(?P<tag>(?:[\w]+:)?(?:pw|newPW))\b[^>]*>)[^<]*(?P<close></(?P=tag)>)",
-    re.IGNORECASE,
+    r"(?P<open><(?P<tag>(?:[\w.-]+:)?(?:pw|newPW))\b[^>]*>).*?(?P<close></(?P=tag)\s*>)",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
