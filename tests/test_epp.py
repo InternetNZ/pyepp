@@ -7,7 +7,13 @@ import sys
 import struct
 import socket
 
-from pyepp.epp import EppCommunicator, EppResultData, EppCommunicatorException
+from pyepp.epp import (
+    EppCommunicator,
+    EppResultData,
+    EppCommunicatorException,
+    mask_sensitive_xml,
+    _find_tag_end,
+)
 
 class EppResultDataTest(unittest.TestCase):
     def test_dunder_methods_and_to_dict(self):
@@ -135,3 +141,138 @@ class EppCommunicatorTest(unittest.TestCase):
         self.epp._ssl_socket.recv.return_value = b''
         result = self.epp._read()
         self.assertIsNone(result)
+
+    def test_read_logging_debug(self):
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 8)
+        self.epp._ssl_socket.recv.return_value = b'test'
+        with self.assertLogs(level='DEBUG') as log:
+            result = self.epp._read()
+            self.assertEqual(result, b'test')
+            self.assertTrue(any("DEBUG:root:Received 4/4 bytes" in msg for msg in log.output))
+            self.assertFalse(any("INFO:root:Received" in msg for msg in log.output))
+
+    def test_write_logging_debug(self):
+        self.epp._ssl_socket = MagicMock()
+        with self.assertLogs(level='DEBUG') as log:
+            result = self.epp._write("<xml/>")
+            self.assertEqual(result, 8)
+            self.assertTrue(any("DEBUG:root:Sent 8 bytes" in msg for msg in log.output))
+            self.assertFalse(any("INFO:root:Sent" in msg for msg in log.output))
+
+    @patch('pyepp.epp.ssl.create_default_context')
+    def test_connect_logging_debug(self, mock_ssl):
+        epp = EppCommunicator('localhost', '700', dry_run=False)
+        epp._read = MagicMock(return_value=b'greeting')
+        with self.assertLogs(level='DEBUG') as log:
+            epp.connect()
+            self.assertTrue(any("DEBUG:root:Received greeting from server :\n" in msg for msg in log.output))
+
+    def test_execute_command_masks_passwords_in_debug_logs(self):
+        self.epp._write = MagicMock()
+        self.epp._read = MagicMock(return_value=b"<domain:pw>respSecret</domain:pw>")
+        with self.assertLogs(level='DEBUG') as log:
+            result = self.epp._execute_command("<command><pw>reqSecret</pw></command>")
+            self.assertEqual(result, b"<domain:pw>respSecret</domain:pw>")
+            full_log = "\n".join(log.output)
+            self.assertIn("<pw>***</pw>", full_log)
+            self.assertIn("<domain:pw>***</domain:pw>", full_log)
+            self.assertNotIn("reqSecret", full_log)
+            self.assertNotIn("respSecret", full_log)
+
+
+class MaskSensitiveXmlTest(unittest.TestCase):
+    def test_mask_passwords_in_string(self):
+        xml = "<login><clID>user</clID><pw>secret123</pw><newPW>new456</newPW></login>"
+        masked = mask_sensitive_xml(xml)
+        self.assertIn("<pw>***</pw>", masked)
+        self.assertIn("<newPW>***</newPW>", masked)
+        self.assertNotIn("secret123", masked)
+        self.assertNotIn("new456", masked)
+
+    def test_mask_domain_and_contact_passwords(self):
+        xml = '<authInfo><domain:pw roid="1">domSecret</domain:pw><contact:pw>conSecret</contact:pw></authInfo>'
+        masked = mask_sensitive_xml(xml)
+        self.assertIn('<domain:pw roid="1">***</domain:pw>', masked)
+        self.assertIn("<contact:pw>***</contact:pw>", masked)
+        self.assertNotIn("domSecret", masked)
+        self.assertNotIn("conSecret", masked)
+
+    def test_mask_passwords_in_bytes(self):
+        xml_bytes = b"<domain:pw>byteSecret</domain:pw>"
+        masked = mask_sensitive_xml(xml_bytes)
+        self.assertEqual(masked, "<domain:pw>***</domain:pw>")
+        self.assertNotIn("byteSecret", masked)
+
+    def test_no_sensitive_tags(self):
+        xml = "<domain:name>example.com</domain:name>"
+        self.assertEqual(mask_sensitive_xml(xml), xml)
+
+    def test_mask_passwords_with_cdata(self):
+        xml = "<login><pw><![CDATA[cdataSecret]]></pw></login>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<login><pw>***</pw></login>")
+        self.assertNotIn("cdataSecret", masked)
+
+    def test_mask_passwords_multiline_cdata(self):
+        xml = "<domain:pw>\n  <![CDATA[\n    multilineSecret\n  ]]>\n</domain:pw>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<domain:pw>***</domain:pw>")
+        self.assertNotIn("multilineSecret", masked)
+
+    def test_mask_passwords_with_hyphen_and_dot_namespace_prefixes(self):
+        xml = (
+            "<secDNS-1.1:pw><![CDATA[secDnsSecret]]></secDNS-1.1:pw>"
+            "<registry-ext:pw>regSecret</registry-ext:pw>"
+            "<custom.ext:newPW>customSecret</custom.ext:newPW>"
+        )
+        masked = mask_sensitive_xml(xml)
+        self.assertIn("<secDNS-1.1:pw>***</secDNS-1.1:pw>", masked)
+        self.assertIn("<registry-ext:pw>***</registry-ext:pw>", masked)
+        self.assertIn("<custom.ext:newPW>***</custom.ext:newPW>", masked)
+        self.assertNotIn("secDnsSecret", masked)
+        self.assertNotIn("regSecret", masked)
+        self.assertNotIn("customSecret", masked)
+
+    def test_mask_passwords_with_cdata_containing_closing_tag(self):
+        xml = "<pw><![CDATA[first</pw>tailSecret]]></pw>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<pw>***</pw>")
+        self.assertNotIn("first", masked)
+        self.assertNotIn("tailSecret", masked)
+
+    def test_mask_passwords_with_comment_containing_closing_tag(self):
+        xml = "<pw><!-- </pw> -->commentSecret<!-- comment --></pw>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<pw>***</pw>")
+        self.assertNotIn("commentSecret", masked)
+
+    def test_mask_passwords_self_closing_tag(self):
+        xml = "<domain:create><domain:pw/></domain:create>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, xml)
+
+    def test_mask_passwords_with_xml_declaration(self):
+        xml = '<?xml version="1.0" encoding="UTF-8"?><epp><login><pw>declSecret</pw></login></epp>'
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(
+            masked,
+            '<?xml version="1.0" encoding="UTF-8"?><epp><login><pw>***</pw></login></epp>',
+        )
+        self.assertNotIn("declSecret", masked)
+
+    def test_mask_passwords_malformed_xml_fallback(self):
+        xml = "<login><pw>unclosed_secret"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<login><pw>***")
+        self.assertNotIn("unclosed_secret", masked)
+
+    def test_find_tag_end(self):
+        self.assertEqual(_find_tag_end(b"<pw>", 0, 4), 4)
+        self.assertEqual(_find_tag_end(b"<pw roid='1'>", 0, 13), 13)
+        self.assertEqual(_find_tag_end(b"<pw", 0, 3), -1)
+
+
+
+
+
