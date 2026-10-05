@@ -12,6 +12,7 @@ from pyepp.epp import (
     EppResultData,
     EppCommunicatorException,
     mask_sensitive_xml,
+    _find_tag_end,
 )
 
 class EppResultDataTest(unittest.TestCase):
@@ -232,6 +233,45 @@ class MaskSensitiveXmlTest(unittest.TestCase):
         self.assertNotIn("secDnsSecret", masked)
         self.assertNotIn("regSecret", masked)
         self.assertNotIn("customSecret", masked)
+
+    def test_mask_passwords_with_cdata_containing_closing_tag(self):
+        xml = "<pw><![CDATA[first</pw>tailSecret]]></pw>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<pw>***</pw>")
+        self.assertNotIn("first", masked)
+        self.assertNotIn("tailSecret", masked)
+
+    def test_mask_passwords_with_comment_containing_closing_tag(self):
+        xml = "<pw><!-- </pw> -->commentSecret<!-- comment --></pw>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<pw>***</pw>")
+        self.assertNotIn("commentSecret", masked)
+
+    def test_mask_passwords_self_closing_tag(self):
+        xml = "<domain:create><domain:pw/></domain:create>"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, xml)
+
+    def test_mask_passwords_with_xml_declaration(self):
+        xml = '<?xml version="1.0" encoding="UTF-8"?><epp><login><pw>declSecret</pw></login></epp>'
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(
+            masked,
+            '<?xml version="1.0" encoding="UTF-8"?><epp><login><pw>***</pw></login></epp>',
+        )
+        self.assertNotIn("declSecret", masked)
+
+    def test_mask_passwords_malformed_xml_fallback(self):
+        xml = "<login><pw>unclosed_secret"
+        masked = mask_sensitive_xml(xml)
+        self.assertEqual(masked, "<login><pw>***")
+        self.assertNotIn("unclosed_secret", masked)
+
+    def test_find_tag_end(self):
+        self.assertEqual(_find_tag_end(b"<pw>", 0, 4), 4)
+        self.assertEqual(_find_tag_end(b"<pw roid='1'>", 0, 13), 13)
+        self.assertEqual(_find_tag_end(b"<pw", 0, 3), -1)
+
 
 
 
