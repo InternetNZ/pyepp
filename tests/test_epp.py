@@ -135,3 +135,31 @@ class EppCommunicatorTest(unittest.TestCase):
         self.epp._ssl_socket.recv.return_value = b''
         result = self.epp._read()
         self.assertIsNone(result)
+
+    def test_read_logging_debug(self):
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 8)
+        self.epp._ssl_socket.recv.return_value = b'test'
+        with self.assertLogs(level='DEBUG') as log:
+            result = self.epp._read()
+            self.assertEqual(result, b'test')
+            self.assertTrue(any("DEBUG:root:Received 4/4 bytes" in msg for msg in log.output))
+            self.assertFalse(any("INFO:root:Received" in msg for msg in log.output))
+
+    def test_write_logging_debug(self):
+        self.epp._ssl_socket = MagicMock()
+        with self.assertLogs(level='DEBUG') as log:
+            result = self.epp._write("<xml/>")
+            self.assertEqual(result, 8)
+            self.assertTrue(any("DEBUG:root:Sent 8 bytes" in msg for msg in log.output))
+            self.assertFalse(any("INFO:root:Sent" in msg for msg in log.output))
+
+    @patch('pyepp.epp.ssl.create_default_context')
+    def test_connect_logging_debug(self, mock_ssl):
+        epp = EppCommunicator('localhost', '700', dry_run=False)
+        epp._read = MagicMock(return_value=b'greeting')
+        with self.assertLogs(level='DEBUG') as log:
+            epp.connect()
+            self.assertTrue(any("DEBUG:root:Received greeting from server :\n" in msg for msg in log.output))
+
+

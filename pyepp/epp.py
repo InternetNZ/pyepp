@@ -185,7 +185,7 @@ class EppCommunicator:
             if not chunk:
                 return None
             buffer += chunk
-            logging.info("Received %s/%s bytes", len(buffer), total_bytes)
+            logging.debug("Received %s/%s bytes", len(buffer), total_bytes)
         return buffer
 
     def _write(self, xml: str) -> int:
@@ -206,6 +206,7 @@ class EppCommunicator:
         xml += "\r\n"
         data_to_send = xml.encode("utf-8")
         self._ssl_socket.sendall(data_to_send)
+        logging.debug("Sent %s bytes", len(data_to_send))
         return len(data_to_send)
 
     def _execute_command(self, cmd: str) -> bytes:
@@ -261,7 +262,7 @@ class EppCommunicator:
             )
             self._ssl_socket.connect((self._server, int(self._port)))
             self.greeting = self._read()
-            logging.debug(BeautifulSoup(self.greeting, "xml"))
+            logging.debug("Received greeting from server :\n%s", self.greeting)
             return self.greeting
         except Exception as ex:
             logging.error("Could not setup a secure connection. %s", str(ex))
