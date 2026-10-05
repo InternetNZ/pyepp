@@ -6,10 +6,11 @@ import ssl
 import socket
 import struct
 import logging
+import re
 import sys
 from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Optional, Any
+from typing import Optional, Any, Union
 
 from bs4 import BeautifulSoup
 
@@ -17,6 +18,24 @@ from pyepp.command_templates import LOGOUT_XML, LOGIN_XML, HELLO_XML, template_e
 
 LENGTH_FIELD_SIZE = 4
 CRLF_SIZE = 2
+
+PASSWORD_TAG_REGEX = re.compile(
+    r"(?P<open><(?P<tag>(?:[\w]+:)?(?:pw|newPW))\b[^>]*>)[^<]*(?P<close></(?P=tag)>)",
+    re.IGNORECASE,
+)
+
+
+def mask_sensitive_xml(xml_content: Union[str, bytes, Any]) -> str:
+    """
+    Mask sensitive XML elements like passwords prior to logging.
+
+    :param xml_content: XML payload in string or bytes
+    :return: XML string with masked sensitive fields
+    :rtype: str
+    """
+    if isinstance(xml_content, bytes):
+        xml_content = xml_content.decode("utf-8", errors="replace")
+    return PASSWORD_TAG_REGEX.sub(r"\g<open>***\g<close>", str(xml_content))
 
 
 class EppCommunicatorException(Exception):
@@ -224,7 +243,7 @@ class EppCommunicator:
             print(cmd)
             sys.exit()
 
-        logging.debug("Sending xml to server :\n%s", cmd)
+        logging.debug("Sending xml to server :\n%s", mask_sensitive_xml(cmd))
 
         self._write(cmd)
 
@@ -232,7 +251,9 @@ class EppCommunicator:
         if response is None:
             raise EppCommunicatorException("Cannot connect to server. Please re-login!")
 
-        logging.debug("Received xml response from server :\n%s", response)
+        logging.debug(
+            "Received xml response from server :\n%s", mask_sensitive_xml(response)
+        )
 
         return response
 
@@ -316,7 +337,7 @@ class EppCommunicator:
                 response.find("roid").text if response.find("roid") else None
             )
 
-            logging.debug("Command executed:\n%s", xml_response)
+            logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
 
             return EppResultData(
                 code=code,

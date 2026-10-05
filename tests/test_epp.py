@@ -7,7 +7,12 @@ import sys
 import struct
 import socket
 
-from pyepp.epp import EppCommunicator, EppResultData, EppCommunicatorException
+from pyepp.epp import (
+    EppCommunicator,
+    EppResultData,
+    EppCommunicatorException,
+    mask_sensitive_xml,
+)
 
 class EppResultDataTest(unittest.TestCase):
     def test_dunder_methods_and_to_dict(self):
@@ -161,5 +166,46 @@ class EppCommunicatorTest(unittest.TestCase):
         with self.assertLogs(level='DEBUG') as log:
             epp.connect()
             self.assertTrue(any("DEBUG:root:Received greeting from server :\n" in msg for msg in log.output))
+
+    def test_execute_command_masks_passwords_in_debug_logs(self):
+        self.epp._write = MagicMock()
+        self.epp._read = MagicMock(return_value=b"<domain:pw>respSecret</domain:pw>")
+        with self.assertLogs(level='DEBUG') as log:
+            result = self.epp._execute_command("<command><pw>reqSecret</pw></command>")
+            self.assertEqual(result, b"<domain:pw>respSecret</domain:pw>")
+            full_log = "\n".join(log.output)
+            self.assertIn("<pw>***</pw>", full_log)
+            self.assertIn("<domain:pw>***</domain:pw>", full_log)
+            self.assertNotIn("reqSecret", full_log)
+            self.assertNotIn("respSecret", full_log)
+
+
+class MaskSensitiveXmlTest(unittest.TestCase):
+    def test_mask_passwords_in_string(self):
+        xml = "<login><clID>user</clID><pw>secret123</pw><newPW>new456</newPW></login>"
+        masked = mask_sensitive_xml(xml)
+        self.assertIn("<pw>***</pw>", masked)
+        self.assertIn("<newPW>***</newPW>", masked)
+        self.assertNotIn("secret123", masked)
+        self.assertNotIn("new456", masked)
+
+    def test_mask_domain_and_contact_passwords(self):
+        xml = '<authInfo><domain:pw roid="1">domSecret</domain:pw><contact:pw>conSecret</contact:pw></authInfo>'
+        masked = mask_sensitive_xml(xml)
+        self.assertIn('<domain:pw roid="1">***</domain:pw>', masked)
+        self.assertIn("<contact:pw>***</contact:pw>", masked)
+        self.assertNotIn("domSecret", masked)
+        self.assertNotIn("conSecret", masked)
+
+    def test_mask_passwords_in_bytes(self):
+        xml_bytes = b"<domain:pw>byteSecret</domain:pw>"
+        masked = mask_sensitive_xml(xml_bytes)
+        self.assertEqual(masked, "<domain:pw>***</domain:pw>")
+        self.assertNotIn("byteSecret", masked)
+
+    def test_no_sensitive_tags(self):
+        xml = "<domain:name>example.com</domain:name>"
+        self.assertEqual(mask_sensitive_xml(xml), xml)
+
 
 
