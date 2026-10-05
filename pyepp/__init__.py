@@ -2,7 +2,7 @@
 PyEPP Package
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from pyepp.epp import (
     EppCommunicator,
@@ -10,7 +10,13 @@ from pyepp.epp import (
     EppCommunicatorException,
     EppResultData,
 )
-from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
+from pyepp.contact import (
+    Contact,
+    ContactData,
+    PostalInfoData,
+    PostalInfoTypeEnum,
+    AddressData,
+)
 from pyepp.domain import (
     Domain,
     DomainData,

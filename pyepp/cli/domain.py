@@ -230,8 +230,8 @@ def domain_update(
         remove_techs=remove_tech,
         add_billings=add_billing,
         remove_billings=remove_billing,
-        add_statues=add_status,
-        remove_statues=remove_status,
+        add_statuses=add_status,
+        remove_statuses=remove_status,
         add_hosts=add_ns_host,
         remove_hosts=remove_ns_host,
         client_transaction_id=client_transaction_id,
@@ -307,8 +307,6 @@ def domain_restore_report(
 
     DOMAIN_NAME: Domain name
     """
-    print(delete_datetime)
-    print(restore_datetime)
     result = ctx.obj.restore_report(
         domain_name=domain_name,
         pre_data=pre_data,

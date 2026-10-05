@@ -2,7 +2,8 @@
 Contact Mapping Module. This module is used to manage contact objects in Registry.
 """
 
-from typing import Optional
+from enum import Enum
+from typing import Literal, Optional, Union
 from dataclasses import dataclass, asdict
 from bs4 import BeautifulSoup
 
@@ -16,6 +17,13 @@ from pyepp.command_templates import (
     CONTACT_UPDATE_XML,
 )
 from pyepp.epp import EppResultCode, EppResultData
+
+
+class PostalInfoTypeEnum(str, Enum):
+    """Postal info type enumeration."""
+
+    LOC = "loc"
+    INT = "int"
 
 
 @dataclass
@@ -38,6 +46,18 @@ class PostalInfoData:
     name: Optional[str]
     organization: Optional[str] = ""
     address: Optional[AddressData] = None
+    type: Optional[Union[PostalInfoTypeEnum, Literal["loc", "int"]]] = "loc"
+
+    def __post_init__(self) -> None:
+        """Validate type conforms to RFC 5733."""
+        if self.type is None:
+            self.type = "loc"
+        elif isinstance(self.type, PostalInfoTypeEnum):
+            self.type = self.type.value
+        elif self.type not in ("loc", "int"):
+            raise ValueError(
+                f"Invalid postal info type '{self.type}'. Must be 'loc' or 'int'."
+            )
 
 
 @dataclass
@@ -53,7 +73,7 @@ class ContactData:
     fax: Optional[str] = ""
     password: Optional[str] = ""
     create_date: Optional[str] = ""
-    creat_client_id: Optional[str] = ""
+    create_client_id: Optional[str] = ""
     sponsoring_client_id: Optional[str] = ""
     update_client_id: Optional[str] = ""
     update_date: Optional[str] = ""
@@ -89,6 +109,18 @@ class Contact(BaseCommand):
             data_dict.update(address)
         if postal_info:
             data_dict.update(postal_info)
+
+        if "type" in data_dict:
+            type_val = (
+                data_dict["type"].value
+                if isinstance(data_dict["type"], Enum)
+                else data_dict["type"]
+            )
+            if type_val not in ("loc", "int"):
+                raise ValueError(
+                    f"Invalid postal info type '{type_val}'. Must be 'loc' or 'int'."
+                )
+            data_dict["type"] = type_val
 
         return data_dict
 
@@ -160,7 +192,7 @@ class Contact(BaseCommand):
             "id": raw_response.find("id").text,
             "status": [status.text for status in raw_response.find_all("status")],
             "create_date": raw_response.find("crDate").text,
-            "creat_client_id": raw_response.find("crID").text,
+            "create_client_id": raw_response.find("crID").text,
             "sponsoring_client_id": raw_response.find("clID").text,
             "update_client_id": (
                 raw_response.find("upID").text if raw_response.find("upID") else None
@@ -177,6 +209,12 @@ class Contact(BaseCommand):
                         raw_response.find("org").text
                         if raw_response.find("org")
                         else None
+                    ),
+                    "type": (
+                        raw_response.find("postalInfo").get("type")
+                        if raw_response.find("postalInfo")
+                        and raw_response.find("postalInfo").get("type")
+                        else "loc"
                     ),
                     "address": AddressData(
                         **{
@@ -238,6 +276,17 @@ class Contact(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
+        if not contact.postal_info or not contact.postal_info.name:
+            raise ValueError("Contact creation requires postal info with 'name'.")
+        if (
+            not contact.postal_info.address
+            or not contact.postal_info.address.city
+            or not contact.postal_info.address.country_code
+        ):
+            raise ValueError(
+                "Contact creation requires postal info address with 'city' and 'country_code'."
+            )
+
         params = self._data_to_dict(contact)
         params["client_transaction_id"] = client_transaction_id
 
@@ -284,6 +333,30 @@ class Contact(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
+        if contact.postal_info:
+            if contact.postal_info.type == "int":
+                if (
+                    not contact.postal_info.name
+                    or not contact.postal_info.address
+                    or not contact.postal_info.address.city
+                    or not contact.postal_info.address.country_code
+                ):
+                    raise ValueError(
+                        "Postal info update with type 'int' requires complete 'name', 'city', and 'country_code'."
+                    )
+            elif contact.postal_info.address:
+                if (
+                    not contact.postal_info.address.city
+                    or not contact.postal_info.address.country_code
+                ):
+                    raise ValueError(
+                        "Postal info address update requires both 'city' and 'country_code'."
+                    )
+            elif (
+                not contact.postal_info.name
+                and not contact.postal_info.organization
+            ):
+                raise ValueError("Postal info update cannot be empty.")
 
         params = self._data_to_dict(contact)
 

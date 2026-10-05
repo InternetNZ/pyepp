@@ -64,7 +64,7 @@ load_config()
 @click.option("--client-key", envvar="PYEPP_CLIENT_KEY", required=False)
 @click.option(
     "--extension",
-    envvar="PYEPP_EXTESION",
+    envvar="PYEPP_EXTENSION",
     required=False,
     help="The extension to be loaded for the EPP command.",
     multiple=True,
