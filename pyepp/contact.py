@@ -73,7 +73,7 @@ class ContactData:
     fax: Optional[str] = ""
     password: Optional[str] = ""
     create_date: Optional[str] = ""
-    creat_client_id: Optional[str] = ""
+    create_client_id: Optional[str] = ""
     sponsoring_client_id: Optional[str] = ""
     update_client_id: Optional[str] = ""
     update_date: Optional[str] = ""
@@ -192,7 +192,7 @@ class Contact(BaseCommand):
             "id": raw_response.find("id").text,
             "status": [status.text for status in raw_response.find_all("status")],
             "create_date": raw_response.find("crDate").text,
-            "creat_client_id": raw_response.find("crID").text,
+            "create_client_id": raw_response.find("crID").text,
             "sponsoring_client_id": raw_response.find("clID").text,
             "update_client_id": (
                 raw_response.find("upID").text if raw_response.find("upID") else None

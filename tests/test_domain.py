@@ -287,7 +287,7 @@ class DomainTest(unittest.TestCase):
                     tech="inz-contact-1",
                     billing=None,
                     create_date="2023-02-23T21:56:22.713Z",
-                    creat_client_id="933",
+                    create_client_id="933",
                     update_client_id="CIRA_RAR_1",
                     update_date="2023-02-24T21:59:27.901Z",
                     expiry_date="2024-02-23T21:56:22.713Z",
@@ -793,3 +793,27 @@ class DomainTest(unittest.TestCase):
         domain.execute = MagicMock(return_value=execute_result)
         result = domain.info("internet.nz")
         self.assertIsNone(result.result_data.dns_sec)
+
+    def test_domain_update_with_statuses(self) -> None:
+        """domain.update() correctly accepts add_statuses and remove_statuses."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.execute = MagicMock(return_value=MagicMock())
+
+        domain.update(
+            domain_name="example.com",
+            add_statuses=[("clientHold", "Reason")],
+            remove_statuses=["clientUpdateProhibited"],
+        )
+
+        domain.execute.assert_called_once()
+        call_kwargs = domain.execute.call_args.kwargs
+        self.assertEqual(call_kwargs["add_statuses"], [("clientHold", "Reason")])
+        self.assertEqual(call_kwargs["remove_statuses"], ["clientUpdateProhibited"])
+        self.assertTrue(call_kwargs["add"])
+        self.assertTrue(call_kwargs["remove"])
+
+    def test_domain_data_create_client_id(self) -> None:
+        """DomainData create_client_id field."""
+        data = DomainData(domain_name="example.com", create_client_id="client123")
+        self.assertEqual(data.create_client_id, "client123")

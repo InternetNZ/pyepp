@@ -6,6 +6,7 @@ from datetime import date
 from unittest.mock import MagicMock
 
 from pyepp.host import Host, HostData, IPAddressData
+from pyepp.command_templates import HOST_CREATE_XML
 from pyepp.epp import EppCommunicator, EppResultData
 
 
@@ -156,7 +157,7 @@ class HostTest(unittest.TestCase):
                                                               IPAddressData(address='2620:0:1009:3:7426:52dc:b8c1:51b2',
                                                                             ip='v6')],
                                                      create_date='2023-05-27T08:06:36.407Z',
-                                                     creat_client_id='163',
+                                                     create_client_id='163',
                                                      update_client_id='CIRA_RAR_1',
                                                      update_date='2023-05-27T08:09:49.271Z'),
                              'server_transaction_id': 'CIRA-000073271502-0000000003'}))
@@ -258,3 +259,8 @@ class HostTest(unittest.TestCase):
                              new_host_name='new-host.internet.nz')
 
         self.assertEqual(result, expected_result)
+
+    def test_host_data_create_client_id(self) -> None:
+        """HostData create_client_id field."""
+        data = HostData(host_name="ns1.example.com", create_client_id="client123")
+        self.assertEqual(data.create_client_id, "client123")

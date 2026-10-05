@@ -96,7 +96,7 @@ class DomainData:
     status: Optional[list[str]] = None
     host: Optional[list[str]] = None
     create_date: Optional[str] = ""
-    creat_client_id: Optional[str] = ""
+    create_client_id: Optional[str] = ""
     update_client_id: Optional[str] = ""
     update_date: Optional[str] = ""
     expiry_date: Optional[str] = ""
@@ -216,7 +216,7 @@ class Domain(BaseCommand):
                 if raw_response.find("crDate")
                 else None
             ),
-            "creat_client_id": (
+            "create_client_id": (
                 raw_response.find("crID").text if raw_response.find("crID") else None
             ),
             "expiry_date": (
@@ -371,7 +371,7 @@ class Domain(BaseCommand):
 
         return result
 
-    # pylint: disable=too-many-arguments,too-many-locals
+    # pylint: disable=too-many-arguments,too-many-locals,too-many-positional-arguments
     def update(
         self,
         domain_name: str,
@@ -383,8 +383,8 @@ class Domain(BaseCommand):
         remove_techs: Optional[list[str]] = None,
         add_billings: Optional[list[str]] = None,
         remove_billings: Optional[list[str]] = None,
-        add_statues: Optional[list[tuple]] = None,
-        remove_statues: Optional[list[str]] = None,
+        add_statuses: Optional[list[tuple]] = None,
+        remove_statuses: Optional[list[str]] = None,
         add_hosts: Optional[list[str]] = None,
         remove_hosts: Optional[list[str]] = None,
         client_transaction_id: Optional[str] = None,
@@ -400,9 +400,9 @@ class Domain(BaseCommand):
         :param remove_techs: A list of contact ids to be removed from the tech contacts
         :param add_billings: A list of contact ids to add to the billing contacts
         :param remove_billings: A list of contact ids to remove from the billing contacts
-        :param add_statues: List of statuses to be added to the domain name. The tuple must contain two
+        :param add_statuses: List of statuses to be added to the domain name. The tuple must contain two
             elements. The first one will be the Status Code and the second element will be Descriptions.
-        :param remove_statues: A list of statues to be removed from the domain name.
+        :param remove_statuses: A list of statuses to be removed from the domain name.
         :param add_hosts: A list of host names to be added to the domain name.
         :param remove_hosts: A list of host names to be removed from the domain name.
         :param password: A new password to replace the old password.
@@ -411,12 +411,12 @@ class Domain(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
-        add = bool(add_admins or add_techs or add_billings or add_statues or add_hosts)
+        add = bool(add_admins or add_techs or add_billings or add_statuses or add_hosts)
         remove = bool(
             remove_admins
             or remove_techs
             or remove_billings
-            or remove_statues
+            or remove_statuses
             or remove_hosts
         )
         change = bool(registrant or password)
@@ -433,8 +433,8 @@ class Domain(BaseCommand):
             remove_techs=remove_techs,
             add_billings=add_billings,
             remove_billings=remove_billings,
-            add_statues=add_statues,
-            remove_statues=remove_statues,
+            add_statuses=add_statuses,
+            remove_statuses=remove_statuses,
             add_hosts=add_hosts,
             remove_hosts=remove_hosts,
             password=password,
