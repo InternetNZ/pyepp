@@ -93,6 +93,11 @@ class EppCommunicatorTest(unittest.TestCase):
         result = self.epp.login('user', 'pass')
         self.assertEqual(result.code, 1000)
         self.assertEqual(self.epp.user, 'user')
+        sent_command = mock_execute.call_args[0][0]
+        self.assertNotIn('<objURI>urn:ietf:params:xml:ns:epp-1.0</objURI>', sent_command)
+        self.assertIn('<objURI>urn:ietf:params:xml:ns:domain-1.0</objURI>', sent_command)
+        self.assertIn('<objURI>urn:ietf:params:xml:ns:contact-1.0</objURI>', sent_command)
+        self.assertIn('<objURI>urn:ietf:params:xml:ns:host-1.0</objURI>', sent_command)
 
     @patch('pyepp.epp.EppCommunicator.execute')
     def test_login_with_extensions(self, mock_execute):
@@ -101,6 +106,8 @@ class EppCommunicatorTest(unittest.TestCase):
         mock_execute.return_value = mock_result
         self.epp.login('user', 'pass', extensions=['urn:ietf:params:xml:ns:secDNS-1.1'])
         self.assertEqual(self.epp.user, 'user')
+        sent_command = mock_execute.call_args[0][0]
+        self.assertNotIn('<objURI>urn:ietf:params:xml:ns:epp-1.0</objURI>', sent_command)
 
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_with_cert_and_key(self, mock_ssl):
