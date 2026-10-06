@@ -30,3 +30,8 @@ class HelperTest(unittest.TestCase):
     def test_generate_password_randomness(self) -> None:
         passwords = {helper.generate_password(16) for _ in range(100)}
         self.assertEqual(len(passwords), 100)
+
+    def test_generate_password_invalid_length(self) -> None:
+        for invalid_length in (0, -1, -10):
+            with self.assertRaises(ValueError):
+                helper.generate_password(invalid_length)
