@@ -2,26 +2,25 @@
 Helper functions
 """
 
-import random
+import secrets
 import string
 
 from bs4 import BeautifulSoup
 
 
-def generate_password(length: int) -> str:
-    """Generate a random password including letters and digits.
+def generate_password(length: int = 16) -> str:
+    """Generate a cryptographically secure random password including letters and digits.
 
-    :param int length: password length
+    :param int length: password length, defaults to 16
 
     :return: password
     :rtype: str
+    :raises ValueError: if length is not a positive integer
     """
-    return "".join(
-        [
-            random.choice(string.ascii_letters + string.digits)  # nosec
-            for _ in range(length)
-        ]
-    )
+    if isinstance(length, bool) or not isinstance(length, int) or length <= 0:
+        raise ValueError("Password length must be a positive integer.")
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def xml_pretty(bxml: bytes) -> str:
