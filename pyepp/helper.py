@@ -17,7 +17,7 @@ def generate_password(length: int = 16) -> str:
     :rtype: str
     :raises ValueError: if length is not a positive integer
     """
-    if length <= 0:
+    if isinstance(length, bool) or not isinstance(length, int) or length <= 0:
         raise ValueError("Password length must be a positive integer.")
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
