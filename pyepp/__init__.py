@@ -2,12 +2,13 @@
 PyEPP Package
 """
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 from pyepp.epp import (
     EppCommunicator,
     EppResultCode,
     EppCommunicatorException,
+    EppDryRunException,
     EppResultData,
 )
 from pyepp.contact import (

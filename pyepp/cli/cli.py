@@ -4,6 +4,7 @@ PyEpp command line interface module.
 
 # pylint: skip-file
 import functools
+import logging
 import pprint
 
 import click
@@ -15,16 +16,28 @@ from pyepp import EppCommunicator, EppResultData
 def login_logout(func):
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
-        if not self.dry_run:
+        if self.dry_run:
+            return func(self, *args, **kwargs)
+
+        connected = False
+        logged_in = False
+        try:
             self.connect()
+            connected = True
             self.login()
-
-        result = func(self, *args, **kwargs)
-
-        if not self.dry_run:
-            self.logout()
-
-        return result
+            logged_in = True
+            return func(self, *args, **kwargs)
+        finally:
+            if logged_in:
+                try:
+                    self.logout()
+                except Exception as ex:
+                    logging.debug("Logout failed during cleanup: %s", ex)
+            elif connected:
+                try:
+                    self.disconnect()
+                except Exception as ex:
+                    logging.debug("Disconnect failed during cleanup: %s", ex)
 
     return wrapper
 
@@ -59,6 +72,9 @@ class PyEppCli:
     def connect(self):
         self.epp.connect()
 
+    def disconnect(self):
+        self.epp.disconnect()
+
     def login(self):
         self.epp.login(self.user, self.password, extensions=self.extensions)
 
@@ -66,7 +82,9 @@ class PyEppCli:
         self.epp.logout()
 
     def hello(self):
-        self.connect()
+        # In dry-run mode, avoid establishing a live socket connection before hello
+        if not self.dry_run:
+            self.connect()
         result = self.epp.hello()
         return result
 

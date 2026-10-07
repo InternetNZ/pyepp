@@ -60,7 +60,11 @@ class Poll(BaseCommand):
             POLL_REQUEST_XML, client_transaction_id=client_transaction_id
         )
 
-        if int(result.code) != int(EppResultCode.SUCCESS_ACK_TO_DEQUEUE.value):
+        # In dry-run mode or if no message to dequeue, skip XML payload parsing
+        if (
+            int(result.code) != int(EppResultCode.SUCCESS_ACK_TO_DEQUEUE.value)
+            or result.dry_run
+        ):
             return result
 
         message_queue = BeautifulSoup(result.raw_response, "xml")
@@ -103,7 +107,8 @@ class Poll(BaseCommand):
             client_transaction_id=client_transaction_id,
         )
 
-        if int(result.code) != int(EppResultCode.SUCCESS.value):
+        # In dry-run mode or on error, skip XML payload parsing since there is no response payload
+        if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
         message_queue = BeautifulSoup(result.raw_response, "xml")

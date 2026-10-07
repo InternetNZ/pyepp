@@ -85,6 +85,36 @@ class HostTest(unittest.TestCase):
 
         self.assertEqual(result, expected_result)
 
+    def test_check_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<host:check/>",
+            result_data=None,
+            dry_run=True,
+        )
+        host.execute = MagicMock(return_value=expected_result)
+        result = host.check(['test.host.nz'])
+        self.assertEqual(result, expected_result)
+
+    def test_info_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<host:info/>",
+            result_data=None,
+            dry_run=True,
+        )
+        host.execute = MagicMock(return_value=expected_result)
+        result = host.info('host.internet.nz')
+        self.assertEqual(result, expected_result)
+
     def test_info(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
         host = Host(epp_communicator)
