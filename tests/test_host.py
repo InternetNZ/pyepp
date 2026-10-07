@@ -94,6 +94,7 @@ class HostTest(unittest.TestCase):
             reason=None,
             raw_response="<host:check/>",
             result_data=None,
+            dry_run=True,
         )
         host.execute = MagicMock(return_value=expected_result)
         result = host.check(['test.host.nz'])
@@ -108,6 +109,7 @@ class HostTest(unittest.TestCase):
             reason=None,
             raw_response="<host:info/>",
             result_data=None,
+            dry_run=True,
         )
         host.execute = MagicMock(return_value=expected_result)
         result = host.info('host.internet.nz')

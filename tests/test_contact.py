@@ -196,6 +196,7 @@ class ContactTest(unittest.TestCase):
             reason=None,
             raw_response="<contact:check/>",
             result_data=None,
+            dry_run=True,
         )
         contact.execute = MagicMock(return_value=expected_result)
         result = contact.check(["contact1"])
@@ -210,6 +211,7 @@ class ContactTest(unittest.TestCase):
             reason=None,
             raw_response="<contact:info/>",
             result_data=None,
+            dry_run=True,
         )
         contact.execute = MagicMock(return_value=expected_result)
         result = contact.info("contact1")

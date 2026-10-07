@@ -141,7 +141,8 @@ class Domain(BaseCommand):
             client_transaction_id=client_transaction_id,
         )
 
-        if int(result.code) != int(EppResultCode.SUCCESS.value) or result.message == "Dry run":
+        # In dry-run mode or on error, skip XML payload parsing since there is no response payload
+        if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
         raw_response = BeautifulSoup(result.raw_response, "xml")
@@ -178,7 +179,8 @@ class Domain(BaseCommand):
             client_transaction_id=client_transaction_id,
         )
 
-        if int(result.code) != int(EppResultCode.SUCCESS.value) or result.message == "Dry run":
+        # In dry-run mode or on error, skip XML payload parsing since there is no response payload
+        if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
         raw_response = BeautifulSoup(result.raw_response, "xml")

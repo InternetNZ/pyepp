@@ -66,6 +66,7 @@ class PyEppCli:
         self.epp.logout()
 
     def hello(self):
+        # In dry-run mode, avoid establishing a live socket connection before hello
         if not self.dry_run:
             self.connect()
         result = self.epp.hello()

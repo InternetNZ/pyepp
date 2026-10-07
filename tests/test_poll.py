@@ -45,6 +45,7 @@ class HostTest(unittest.TestCase):
             reason=None,
             raw_response="<poll:request/>",
             result_data=None,
+            dry_run=True,
         )
         poll.execute = MagicMock(return_value=expected_result)
         result = poll.request()
@@ -126,6 +127,7 @@ class HostTest(unittest.TestCase):
             reason=None,
             raw_response="<poll:ack/>",
             result_data=None,
+            dry_run=True,
         )
         poll.execute = MagicMock(return_value=expected_result)
         result = poll.acknowledge(121212)

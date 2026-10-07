@@ -212,6 +212,7 @@ class EppResultData:
     client_transaction_id: Optional[str] = None
     server_transaction_id: Optional[str] = None
     repository_object_id: Optional[str] = None
+    dry_run: bool = False  # True if the command was executed offline in dry-run mode
 
     def __setitem__(self, key, value):
         self.__dict__[key] = value
@@ -354,6 +355,7 @@ class EppCommunicator:
         :rtype: bytes
         """
 
+        # In dry-run mode, return the command bytes without transmitting over the network
         if self._dry_run:
             logging.debug(
                 "Dry run - command not sent to server:\n%s", mask_sensitive_xml(cmd)
@@ -383,6 +385,15 @@ class EppCommunicator:
 
         :raises EppCommunicatorException: When there is any errors
         """
+        # In dry-run mode, bypass socket and TLS handshake and simulate a server greeting
+        if self._dry_run:
+            logging.debug("Dry run - skipping network connection")
+            self.greeting = (
+                b'<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+                b"<greeting><svID>DryRun</svID></greeting></epp>"
+            )
+            return self.greeting
+
         try:
             self._context = ssl.create_default_context()
             self._context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -419,6 +430,7 @@ class EppCommunicator:
         raw_response = self._execute_command(cmd).decode("utf-8")
         client_transaction_id = None
         try:
+            # Extract client transaction ID from the XML payload if present
             xml_cmd = BeautifulSoup(raw_response, "xml")
             cl_trid = xml_cmd.find("clTRID")
             if cl_trid:
@@ -426,6 +438,7 @@ class EppCommunicator:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logging.debug("Could not parse clTRID in dry run: %s", exc)
 
+        # Return simulated success result with dry_run flag set to True
         return EppResultData(
             code=EppResultCode.SUCCESS.value,
             message="Dry run",
@@ -435,6 +448,7 @@ class EppCommunicator:
             server_transaction_id=None,
             repository_object_id=None,
             result_data=None,
+            dry_run=True,
         )
 
     def execute(self, cmd: str) -> EppResultData:
@@ -454,6 +468,7 @@ class EppCommunicator:
                     "The connection to the server has not been established yet!"
                 )
 
+            # Route dry-run commands to offline execution handler
             if self._dry_run:
                 return self._execute_dry_run(cmd)
 
@@ -566,6 +581,7 @@ class EppCommunicator:
         """
 
         logout = self.execute(LOGOUT_XML)
+        # Close socket only if a connection was established (e.g. not in dry-run mode)
         if self._socket:
             self._socket.close()
         logging.info(
