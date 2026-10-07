@@ -44,3 +44,46 @@ class CliDomainTest(unittest.TestCase):
         """Verify CLI loads extension from PYEPP_EXTENSION."""
         param = next(p for p in pyepp_cli.params if p.name == "extension")
         self.assertEqual(param.envvar, "PYEPP_EXTENSION")
+
+    def test_cli_dry_run_domain_info(self) -> None:
+        """Verify CLI with --dry-run returns XML command without connecting to server."""
+        result = self.runner.invoke(
+            pyepp_cli,
+            [
+                "--server",
+                "localhost",
+                "--port",
+                "700",
+                "--user",
+                "testuser",
+                "--password",
+                "testpass",
+                "--dry-run",
+                "domain",
+                "info",
+                "example.com",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("<domain:info", result.output)
+        self.assertIn("example.com", result.output)
+
+    def test_cli_dry_run_hello(self) -> None:
+        """Verify CLI with --dry-run hello returns hello XML without connecting."""
+        result = self.runner.invoke(
+            pyepp_cli,
+            [
+                "--server",
+                "localhost",
+                "--port",
+                "700",
+                "--user",
+                "testuser",
+                "--password",
+                "testpass",
+                "--dry-run",
+                "hello",
+            ],
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("<hello/>", result.output)

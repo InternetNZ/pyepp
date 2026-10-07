@@ -108,6 +108,58 @@ class DomainTest(unittest.TestCase):
 
         self.assertEqual(result, expected_result)
 
+    def test_check_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<domain:check/>",
+            result_data=None,
+            dry_run=True,
+        )
+        domain.execute = MagicMock(return_value=expected_result)
+        result = domain.check(["internet.nz"])
+        self.assertEqual(result, expected_result)
+
+    def test_check_server_message_dry_run_parsed_when_not_dry_run(self) -> None:
+        """Verify that a server response with message 'Dry run' is parsed when dry_run=False."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        execute_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response=(
+                '<response><resData>'
+                '<cd><name avail="1">test.nz</name></cd>'
+                '</resData></response>'
+            ),
+            result_data=None,
+            dry_run=False,
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.check(["test.nz"])
+        self.assertEqual(
+            result.result_data, {"test.nz": {"avail": True, "reason": None}}
+        )
+
+    def test_info_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<domain:info/>",
+            result_data=None,
+            dry_run=True,
+        )
+        domain.execute = MagicMock(return_value=expected_result)
+        result = domain.info("internet.nz")
+        self.assertEqual(result, expected_result)
+
     def test_info(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
         domain = Domain(epp_communicator)

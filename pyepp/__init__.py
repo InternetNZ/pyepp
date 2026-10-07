@@ -8,6 +8,7 @@ from pyepp.epp import (
     EppCommunicator,
     EppResultCode,
     EppCommunicatorException,
+    EppDryRunException,
     EppResultData,
 )
 from pyepp.contact import (

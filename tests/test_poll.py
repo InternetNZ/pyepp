@@ -36,6 +36,21 @@ class HostTest(unittest.TestCase):
 
         self.assertEqual(result, expected_result)
 
+    def test_poll_request_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<poll:request/>",
+            result_data=None,
+            dry_run=True,
+        )
+        poll.execute = MagicMock(return_value=expected_result)
+        result = poll.request()
+        self.assertEqual(result, expected_result)
+
     def test_poll_request(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
         poll = Poll(epp_communicator)
@@ -101,6 +116,21 @@ class HostTest(unittest.TestCase):
 
         result = poll.acknowledge(121212)
 
+        self.assertEqual(result, expected_result)
+
+    def test_poll_ack_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<poll:ack/>",
+            result_data=None,
+            dry_run=True,
+        )
+        poll.execute = MagicMock(return_value=expected_result)
+        result = poll.acknowledge(121212)
         self.assertEqual(result, expected_result)
 
     def test_poll_ack(self) -> None:

@@ -11,6 +11,7 @@ from pyepp.epp import (
     EppCommunicator,
     EppResultData,
     EppCommunicatorException,
+    EppDryRunException,
     mask_sensitive_xml,
     _find_tag_end,
 )
@@ -27,6 +28,7 @@ class EppResultDataTest(unittest.TestCase):
         # test to_dict
         d = data.to_dict()
         self.assertEqual(d['code'], 1000)
+        self.assertFalse(data.dry_run)
         self.assertEqual(d['message'], 'Success')
 
 
@@ -34,13 +36,111 @@ class EppCommunicatorTest(unittest.TestCase):
     def setUp(self):
         self.epp = EppCommunicator('localhost', '700', dry_run=False)
 
-    @patch('pyepp.epp.sys.exit')
-    def test_execute_command_dry_run(self, mock_exit):
-        mock_exit.side_effect = SystemExit
+    def test_execute_command_dry_run(self):
         self.epp._dry_run = True
-        with self.assertRaises(SystemExit):
-            self.epp._execute_command("test")
-        mock_exit.assert_called_once()
+        cmd = "<epp><command><clTRID>TEST-123</clTRID></command></epp>"
+        raw = self.epp._execute_command(cmd)
+        self.assertEqual(raw, cmd.encode("utf-8"))
+
+    def test_execute_dry_run_with_cltrid(self):
+        self.epp._dry_run = True
+        cmd = "<epp><command><clTRID>TEST-TRID-123</clTRID></command></epp>"
+        result = self.epp.execute(cmd)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.raw_response, cmd)
+        self.assertEqual(result.client_transaction_id, "TEST-TRID-123")
+        self.assertIsNone(result.server_transaction_id)
+        self.assertIsNone(result.result_data)
+
+    def test_execute_dry_run_without_cltrid(self):
+        self.epp._dry_run = True
+        cmd = "<epp><command></command></epp>"
+        result = self.epp.execute(cmd)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.raw_response, cmd)
+        self.assertIsNone(result.client_transaction_id)
+
+    def test_execute_dry_run_invalid_xml(self):
+        self.epp._dry_run = True
+        cmd = "invalid <xml"
+        result = self.epp.execute(cmd)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertTrue(result.dry_run)
+        self.assertEqual(result.raw_response, cmd)
+        self.assertIsNone(result.client_transaction_id)
+
+    @patch("pyepp.epp.BeautifulSoup", side_effect=Exception("Parsing failed"))
+    def test_execute_dry_run_bs4_exception(self, _mock_bs4):
+        self.epp._dry_run = True
+        cmd = "<epp><command></command></epp>"
+        result = self.epp.execute(cmd)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertTrue(result.dry_run)
+        self.assertIsNone(result.client_transaction_id)
+
+    def test_dry_run_hello(self):
+        self.epp._dry_run = True
+        res = self.epp.hello()
+        self.assertIn(b"<hello/>", res)
+
+    def test_dry_run_logout_without_socket(self):
+        """Verify logout() works safely without an active socket connection in dry_run."""
+        self.epp._dry_run = True
+        self.epp._socket = None
+        result = self.epp.logout()
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertTrue(result.dry_run)
+
+    @patch('pyepp.epp.socket.socket')
+    @patch('pyepp.epp.ssl.create_default_context')
+    def test_connect_dry_run_no_network(self, mock_ssl, mock_socket):
+        """Verify connect() returns mock greeting without opening socket or TLS context in dry_run."""
+        epp = EppCommunicator('localhost', '700', dry_run=True)
+        greeting = epp.connect()
+        mock_ssl.assert_not_called()
+        mock_socket.assert_not_called()
+        self.assertIsNotNone(greeting)
+        self.assertEqual(greeting, epp.greeting)
+        self.assertIn(b"<svID>DryRun</svID>", greeting)
+
+    @patch('pyepp.epp.socket.socket')
+    @patch('pyepp.epp.ssl.create_default_context')
+    def test_offline_library_flow(self, mock_ssl, mock_socket):
+        """Verify the full library flow (connect -> login -> logout) works offline in dry_run."""
+        epp = EppCommunicator('example.com', '700', dry_run=True)
+        greeting = epp.connect()
+        self.assertIn(b"<svID>DryRun</svID>", greeting)
+
+        login_res = epp.login('testuser', 'testpass')
+        self.assertEqual(login_res.code, 1000)
+        self.assertTrue(login_res.dry_run)
+
+        logout_res = epp.logout()
+        self.assertEqual(logout_res.code, 1000)
+        self.assertTrue(logout_res.dry_run)
+
+        mock_ssl.assert_not_called()
+        mock_socket.assert_not_called()
+
+    def test_dry_run_exception(self):
+        mock_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            raw_response="<xml/>",
+            result_data=None,
+            dry_run=True,
+        )
+        exc = EppDryRunException("<xml/>", result=mock_result)
+        self.assertEqual(exc.cmd, "<xml/>")
+        self.assertEqual(exc.result, mock_result)
+        self.assertIn("Dry run: <xml/>", str(exc))
 
     def test_read_empty_length(self):
         self.epp._ssl_socket = MagicMock()
