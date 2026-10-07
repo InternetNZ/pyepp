@@ -7,7 +7,6 @@ import socket
 import struct
 import logging
 import re
-import sys
 from xml.parsers import expat
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -228,6 +227,17 @@ class EppResultData:
         return asdict(self)
 
 
+class EppDryRunException(EppCommunicatorException):
+    """
+    Exception raised or used to represent dry-run execution.
+    """
+
+    def __init__(self, cmd: str, result: Optional[EppResultData] = None) -> None:
+        self.cmd = cmd
+        self.result = result
+        super().__init__(f"Dry run: {cmd}")
+
+
 class EppCommunicator:
     """
     An EPP client for connecting to EPP server.
@@ -344,10 +354,11 @@ class EppCommunicator:
         :rtype: bytes
         """
 
-        # Print the xml command and exit the app
         if self._dry_run:
-            print(cmd)
-            sys.exit()
+            logging.debug(
+                "Dry run - command not sent to server:\n%s", mask_sensitive_xml(cmd)
+            )
+            return cmd.encode("utf-8")
 
         logging.debug("Sending xml to server :\n%s", mask_sensitive_xml(cmd))
 
@@ -397,6 +408,35 @@ class EppCommunicator:
                 "Could not setup a secure connection"
             ) from ex
 
+    def _execute_dry_run(self, cmd: str) -> EppResultData:
+        """
+        Execute command in dry-run mode without sending to server.
+
+        :param str cmd: XML Command
+        :return: Result object
+        :rtype: EppResultData
+        """
+        raw_response = self._execute_command(cmd).decode("utf-8")
+        client_transaction_id = None
+        try:
+            xml_cmd = BeautifulSoup(raw_response, "xml")
+            cl_trid = xml_cmd.find("clTRID")
+            if cl_trid:
+                client_transaction_id = cl_trid.text
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.debug("Could not parse clTRID in dry run: %s", exc)
+
+        return EppResultData(
+            code=EppResultCode.SUCCESS.value,
+            message="Dry run",
+            reason=None,
+            raw_response=raw_response,
+            client_transaction_id=client_transaction_id,
+            server_transaction_id=None,
+            repository_object_id=None,
+            result_data=None,
+        )
+
     def execute(self, cmd: str) -> EppResultData:
         """
         Execute the command. Sending the request to the server and receive the response.
@@ -413,6 +453,9 @@ class EppCommunicator:
                 raise EppCommunicatorException(
                     "The connection to the server has not been established yet!"
                 )
+
+            if self._dry_run:
+                return self._execute_dry_run(cmd)
 
             raw_response = self._execute_command(cmd)
             xml_response = BeautifulSoup(raw_response, "xml")
@@ -523,7 +566,8 @@ class EppCommunicator:
         """
 
         logout = self.execute(LOGOUT_XML)
-        self._socket.close()
+        if self._socket:
+            self._socket.close()
         logging.info(
             "User %s logged out from %s:%s", self._user, self._server, self._port
         )

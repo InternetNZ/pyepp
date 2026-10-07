@@ -143,7 +143,7 @@ class Contact(BaseCommand):
             client_transaction_id=client_transaction_id,
         )
 
-        if result.code != int(EppResultCode.SUCCESS.value):
+        if int(result.code) != int(EppResultCode.SUCCESS.value) or result.message == "Dry run":
             return result
 
         raw_response = BeautifulSoup(result.raw_response, "xml")
@@ -183,7 +183,7 @@ class Contact(BaseCommand):
             CONTACT_INFO_XML, id=contact_id, client_transaction_id=client_transaction_id
         )
 
-        if result.code != int(EppResultCode.SUCCESS.value):
+        if int(result.code) != int(EppResultCode.SUCCESS.value) or result.message == "Dry run":
             return result
 
         raw_response = BeautifulSoup(result.raw_response, "xml")

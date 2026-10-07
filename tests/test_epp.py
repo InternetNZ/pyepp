@@ -11,6 +11,7 @@ from pyepp.epp import (
     EppCommunicator,
     EppResultData,
     EppCommunicatorException,
+    EppDryRunException,
     mask_sensitive_xml,
     _find_tag_end,
 )
@@ -34,13 +35,68 @@ class EppCommunicatorTest(unittest.TestCase):
     def setUp(self):
         self.epp = EppCommunicator('localhost', '700', dry_run=False)
 
-    @patch('pyepp.epp.sys.exit')
-    def test_execute_command_dry_run(self, mock_exit):
-        mock_exit.side_effect = SystemExit
+    def test_execute_command_dry_run(self):
         self.epp._dry_run = True
-        with self.assertRaises(SystemExit):
-            self.epp._execute_command("test")
-        mock_exit.assert_called_once()
+        cmd = "<epp><command><clTRID>TEST-123</clTRID></command></epp>"
+        raw = self.epp._execute_command(cmd)
+        self.assertEqual(raw, cmd.encode("utf-8"))
+
+    def test_execute_dry_run_with_cltrid(self):
+        self.epp._dry_run = True
+        cmd = "<epp><command><clTRID>TEST-TRID-123</clTRID></command></epp>"
+        result = self.epp.execute(cmd)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertEqual(result.raw_response, cmd)
+        self.assertEqual(result.client_transaction_id, "TEST-TRID-123")
+        self.assertIsNone(result.server_transaction_id)
+        self.assertIsNone(result.result_data)
+
+    def test_execute_dry_run_without_cltrid(self):
+        self.epp._dry_run = True
+        cmd = "<epp><command></command></epp>"
+        result = self.epp.execute(cmd)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertEqual(result.raw_response, cmd)
+        self.assertIsNone(result.client_transaction_id)
+
+    def test_execute_dry_run_invalid_xml(self):
+        self.epp._dry_run = True
+        cmd = "invalid <xml"
+        result = self.epp.execute(cmd)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertEqual(result.raw_response, cmd)
+        self.assertIsNone(result.client_transaction_id)
+
+    @patch("pyepp.epp.BeautifulSoup", side_effect=Exception("Parsing failed"))
+    def test_execute_dry_run_bs4_exception(self, _mock_bs4):
+        self.epp._dry_run = True
+        cmd = "<epp><command></command></epp>"
+        result = self.epp.execute(cmd)
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+        self.assertIsNone(result.client_transaction_id)
+
+    def test_dry_run_hello(self):
+        self.epp._dry_run = True
+        res = self.epp.hello()
+        self.assertIn(b"<hello/>", res)
+
+    def test_dry_run_logout_without_socket(self):
+        self.epp._dry_run = True
+        self.epp._socket = None
+        result = self.epp.logout()
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.message, "Dry run")
+
+    def test_dry_run_exception(self):
+        mock_result = EppResultData(code=1000, message="Dry run", raw_response="<xml/>", result_data=None)
+        exc = EppDryRunException("<xml/>", result=mock_result)
+        self.assertEqual(exc.cmd, "<xml/>")
+        self.assertEqual(exc.result, mock_result)
+        self.assertIn("Dry run: <xml/>", str(exc))
 
     def test_read_empty_length(self):
         self.epp._ssl_socket = MagicMock()

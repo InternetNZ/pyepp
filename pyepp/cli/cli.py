@@ -66,7 +66,8 @@ class PyEppCli:
         self.epp.logout()
 
     def hello(self):
-        self.connect()
+        if not self.dry_run:
+            self.connect()
         result = self.epp.hello()
         return result
 

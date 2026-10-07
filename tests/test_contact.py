@@ -187,6 +187,34 @@ class ContactTest(unittest.TestCase):
 
         self.assertEqual(result, expected_result)
 
+    def test_check_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<contact:check/>",
+            result_data=None,
+        )
+        contact.execute = MagicMock(return_value=expected_result)
+        result = contact.check(["contact1"])
+        self.assertEqual(result, expected_result)
+
+    def test_info_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<contact:info/>",
+            result_data=None,
+        )
+        contact.execute = MagicMock(return_value=expected_result)
+        result = contact.info("contact1")
+        self.assertEqual(result, expected_result)
+
     def test_info(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
         contact = Contact(epp_communicator)

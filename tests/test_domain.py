@@ -108,6 +108,34 @@ class DomainTest(unittest.TestCase):
 
         self.assertEqual(result, expected_result)
 
+    def test_check_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<domain:check/>",
+            result_data=None,
+        )
+        domain.execute = MagicMock(return_value=expected_result)
+        result = domain.check(["internet.nz"])
+        self.assertEqual(result, expected_result)
+
+    def test_info_dry_run(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        expected_result = EppResultData(
+            code=1000,
+            message="Dry run",
+            reason=None,
+            raw_response="<domain:info/>",
+            result_data=None,
+        )
+        domain.execute = MagicMock(return_value=expected_result)
+        result = domain.info("internet.nz")
+        self.assertEqual(result, expected_result)
+
     def test_info(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
         domain = Domain(epp_communicator)

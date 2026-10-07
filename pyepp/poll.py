@@ -60,7 +60,7 @@ class Poll(BaseCommand):
             POLL_REQUEST_XML, client_transaction_id=client_transaction_id
         )
 
-        if int(result.code) != int(EppResultCode.SUCCESS_ACK_TO_DEQUEUE.value):
+        if int(result.code) != int(EppResultCode.SUCCESS_ACK_TO_DEQUEUE.value) or result.message == "Dry run":
             return result
 
         message_queue = BeautifulSoup(result.raw_response, "xml")
@@ -103,7 +103,7 @@ class Poll(BaseCommand):
             client_transaction_id=client_transaction_id,
         )
 
-        if int(result.code) != int(EppResultCode.SUCCESS.value):
+        if int(result.code) != int(EppResultCode.SUCCESS.value) or result.message == "Dry run":
             return result
 
         message_queue = BeautifulSoup(result.raw_response, "xml")
