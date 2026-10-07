@@ -4,6 +4,7 @@ PyEpp command line interface module.
 
 # pylint: skip-file
 import functools
+import logging
 import pprint
 
 import click
@@ -18,13 +19,14 @@ def login_logout(func):
         if not self.dry_run:
             self.connect()
             self.login()
-
-        result = func(self, *args, **kwargs)
-
-        if not self.dry_run:
-            self.logout()
-
-        return result
+        try:
+            return func(self, *args, **kwargs)
+        finally:
+            if not self.dry_run:
+                try:
+                    self.logout()
+                except Exception as ex:
+                    logging.debug("Logout failed during cleanup: %s", ex)
 
     return wrapper
 
