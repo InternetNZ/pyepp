@@ -414,6 +414,7 @@ class EppCommunicator:
             logging.debug("Received greeting from server :\n%s", self.greeting)
             return self.greeting
         except Exception as ex:
+            self.disconnect()
             logging.error("Could not setup a secure connection. %s", str(ex))
             raise EppCommunicatorException(
                 "Could not setup a secure connection"
@@ -572,6 +573,26 @@ class EppCommunicator:
 
         return result
 
+    def disconnect(self) -> None:
+        """
+        Close and clean up socket connections without sending EPP commands.
+        """
+        if self._ssl_socket:
+            try:
+                self._ssl_socket.close()
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logging.debug("Error closing SSL socket: %s", exc)
+            self._ssl_socket = None
+
+        if self._socket:
+            try:
+                self._socket.close()
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logging.debug("Error closing socket: %s", exc)
+            self._socket = None
+
+        self.greeting = None
+
     def logout(self) -> EppResultData:
         """
         Logout the user from EPP server.
@@ -579,13 +600,11 @@ class EppCommunicator:
         :return: Result object
         :rtype: EppResultData
         """
-
-        logout = self.execute(LOGOUT_XML)
-        # Close socket only if a connection was established (e.g. not in dry-run mode)
-        if self._socket:
-            self._socket.close()
-        logging.info(
-            "User %s logged out from %s:%s", self._user, self._server, self._port
-        )
-
-        return logout
+        try:
+            logout = self.execute(LOGOUT_XML)
+            logging.info(
+                "User %s logged out from %s:%s", self._user, self._server, self._port
+            )
+            return logout
+        finally:
+            self.disconnect()

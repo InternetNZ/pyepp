@@ -15,6 +15,7 @@ class DummyCli:
     def __init__(self, dry_run=False):
         self.dry_run = dry_run
         self.connect = MagicMock()
+        self.disconnect = MagicMock()
         self.login = MagicMock()
         self.logout = MagicMock()
 
@@ -44,6 +45,7 @@ class CliDecoratorTest(unittest.TestCase):
         cli.connect.assert_called_once()
         cli.login.assert_called_once()
         cli.logout.assert_called_once()
+        cli.disconnect.assert_not_called()
 
     def test_login_logout_func_raises_exception(self) -> None:
         """Verify logout is still invoked when the decorated function raises an exception."""
@@ -63,6 +65,7 @@ class CliDecoratorTest(unittest.TestCase):
         failing_cli.connect.assert_called_once()
         failing_cli.login.assert_called_once()
         failing_cli.logout.assert_called_once()
+        failing_cli.disconnect.assert_not_called()
 
     def test_login_logout_dry_run_success(self) -> None:
         """Verify connect, login, and logout are skipped in dry-run mode."""
@@ -74,6 +77,7 @@ class CliDecoratorTest(unittest.TestCase):
         cli.connect.assert_not_called()
         cli.login.assert_not_called()
         cli.logout.assert_not_called()
+        cli.disconnect.assert_not_called()
 
     def test_login_logout_dry_run_exception(self) -> None:
         """Verify logout is skipped in dry-run mode even when an exception is raised."""
@@ -91,6 +95,7 @@ class CliDecoratorTest(unittest.TestCase):
         failing_cli.connect.assert_not_called()
         failing_cli.login.assert_not_called()
         failing_cli.logout.assert_not_called()
+        failing_cli.disconnect.assert_not_called()
 
     def test_login_logout_cleanup_logout_exception_on_func_error(self) -> None:
         """Verify that a logout error during cleanup does not mask the original exception."""
@@ -129,7 +134,7 @@ class CliDecoratorTest(unittest.TestCase):
         )
 
     def test_login_logout_connect_fails(self) -> None:
-        """Verify that if connect fails, logout is not called and the exception propagates."""
+        """Verify that if connect fails, logout and disconnect are not called and exception propagates."""
         cli = DummyCli(dry_run=False)
         cli.connect.side_effect = EppCommunicatorException("Connection failed")
 
@@ -140,9 +145,10 @@ class CliDecoratorTest(unittest.TestCase):
         cli.connect.assert_called_once()
         cli.login.assert_not_called()
         cli.logout.assert_not_called()
+        cli.disconnect.assert_not_called()
 
     def test_login_logout_login_fails(self) -> None:
-        """Verify that if login fails, logout is not called and the exception propagates."""
+        """Verify that if login fails after connect, disconnect is called and logout is not called."""
         cli = DummyCli(dry_run=False)
         cli.login.side_effect = EppCommunicatorException("Authentication failed")
 
@@ -152,7 +158,28 @@ class CliDecoratorTest(unittest.TestCase):
         self.assertEqual(str(context.exception), "Authentication failed")
         cli.connect.assert_called_once()
         cli.login.assert_called_once()
+        cli.disconnect.assert_called_once()
         cli.logout.assert_not_called()
+
+    def test_login_logout_cleanup_disconnect_exception_on_login_fails(self) -> None:
+        """Verify that a disconnect error during cleanup does not mask the login exception."""
+        cli = DummyCli(dry_run=False)
+        cli.login.side_effect = EppCommunicatorException("Authentication failed")
+        cli.disconnect.side_effect = RuntimeError("Socket error during disconnect")
+
+        with self.assertLogs(level=logging.DEBUG) as log_capture:
+            with self.assertRaises(EppCommunicatorException) as context:
+                cli.execute_command()
+
+        self.assertEqual(str(context.exception), "Authentication failed")
+        cli.connect.assert_called_once()
+        cli.login.assert_called_once()
+        cli.disconnect.assert_called_once()
+        cli.logout.assert_not_called()
+        self.assertTrue(
+            any("Disconnect failed during cleanup: Socket error during disconnect" in msg
+                for msg in log_capture.output)
+        )
 
 
 if __name__ == "__main__":
