@@ -83,10 +83,55 @@ class PyEPPTests(unittest.TestCase):
                              'reason': None, 'raw_response': "response", 'result_data': None})
         epp.execute = MagicMock(return_value=expected_result)
         epp.connect = MagicMock(return_value=None)
-        epp._socket = MagicMock(close=MagicMock())
+        mock_socket = MagicMock(close=MagicMock())
+        epp._socket = mock_socket
 
         result = epp.logout()
         self.assertEqual(expected_result, result)
+        mock_socket.close.assert_called_once()
+        self.assertIsNone(epp._socket)
+
+    def test_disconnect(self) -> None:
+        epp = EppCommunicator(**self.epp_config)
+        mock_socket = MagicMock()
+        mock_ssl_socket = MagicMock()
+        epp._socket = mock_socket
+        epp._ssl_socket = mock_ssl_socket
+        epp.greeting = b"greeting"
+
+        epp.disconnect()
+
+        mock_socket.close.assert_called_once()
+        mock_ssl_socket.close.assert_called_once()
+        self.assertIsNone(epp._socket)
+        self.assertIsNone(epp._ssl_socket)
+        self.assertIsNone(epp.greeting)
+
+    def test_disconnect_handles_close_exception(self) -> None:
+        epp = EppCommunicator(**self.epp_config)
+        mock_socket = MagicMock()
+        mock_socket.close.side_effect = Exception("Socket close failed")
+        mock_ssl_socket = MagicMock()
+        mock_ssl_socket.close.side_effect = Exception("SSL close failed")
+        epp._socket = mock_socket
+        epp._ssl_socket = mock_ssl_socket
+
+        epp.disconnect()
+
+        self.assertIsNone(epp._socket)
+        self.assertIsNone(epp._ssl_socket)
+
+    def test_logout_closes_socket_on_execute_exception(self) -> None:
+        epp = EppCommunicator(**self.epp_config)
+        epp.execute = MagicMock(side_effect=EppCommunicatorException("Logout failed"))
+        mock_socket = MagicMock()
+        epp._socket = mock_socket
+
+        with self.assertRaises(EppCommunicatorException):
+            epp.logout()
+
+        mock_socket.close.assert_called_once()
+        self.assertIsNone(epp._socket)
 
     def test_execute_not_connected(self) -> None:
         epp = EppCommunicator(**self.epp_config)
