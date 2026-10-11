@@ -252,7 +252,9 @@ class BaseCommandTest(unittest.TestCase):
             for i in range(6):
                 get_compiled_template(f"<epp><dynamic_{i}>{{{{ val }}}}</dynamic_{i}></epp>")
 
-            # Ensure static templates were never evicted
+            # Ensure dynamic templates were evicted while static templates remain.
+            self.assertNotIn("<epp><dynamic_0>{{ val }}</dynamic_0></epp>", TEMPLATE_CACHE)
+            self.assertIn("<epp><dynamic_5>{{ val }}</dynamic_5></epp>", TEMPLATE_CACHE)
             self.assertIn("DOMAIN_CHECK", TEMPLATE_CACHE)
             self.assertIn(DOMAIN_CHECK_XML, TEMPLATE_CACHE)
 
