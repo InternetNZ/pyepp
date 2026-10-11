@@ -622,7 +622,7 @@ def get_compiled_template(cmd: str) -> Template:
         dynamic_keys = [k for k in TEMPLATE_CACHE if k not in _STATIC_CACHE_KEYS]
         if len(dynamic_keys) >= _MAX_DYNAMIC_CACHE_SIZE:
             for k in dynamic_keys[: len(dynamic_keys) // 2 + 1]:
-                del TEMPLATE_CACHE[k]
+                TEMPLATE_CACHE.pop(k, None)
 
         if cmd in TEMPLATES:
             template = template_engine.get_template(cmd)
