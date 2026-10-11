@@ -302,6 +302,43 @@ class BaseCommandTest(unittest.TestCase):
         self.assertEqual(len(result_holder), 1)
         self.assertIs(result_holder[0], expected_tmpl)
 
+    def test_concurrent_template_eviction_no_keyerror(self) -> None:
+        """Verify concurrent lookup and cache eviction does not raise KeyError."""
+        clear_template_cache()
+        errors: list[Exception] = []
+        stop_event = threading.Event()
+
+        def reader() -> None:
+            while not stop_event.is_set():
+                try:
+                    for i in range(10):
+                        tmpl = BaseCommand._get_compiled_template(f"<epp><item_{i}>{{{{ val }}}}</item_{i}></epp>")
+                        self.assertIsNotNone(tmpl)
+                except Exception as ex:  # pylint: disable=broad-except
+                    errors.append(ex)
+                    break
+
+        def writer() -> None:
+            with patch("pyepp.command_templates._MAX_DYNAMIC_CACHE_SIZE", 5):
+                for i in range(100):
+                    if stop_event.is_set():
+                        break
+                    get_compiled_template(f"<epp><churn_{i}>{{{{ val }}}}</churn_{i}></epp>")
+
+        threads = [threading.Thread(target=reader) for _ in range(4)]
+        writer_thread = threading.Thread(target=writer)
+
+        for t in threads:
+            t.start()
+        writer_thread.start()
+
+        writer_thread.join()
+        stop_event.set()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(errors, [])
+
     def test_prepare_command_benchmark(self) -> None:
         """Verify that 1,000 iterations of _prepare_command drops execution time by >80%."""
         epp_communicator = MagicMock(EppCommunicator)

@@ -610,12 +610,14 @@ def get_compiled_template(cmd: str) -> Template:
     :param cmd: Template name or raw XML template string
     :return: Compiled Jinja2 Template
     """
-    if cmd in TEMPLATE_CACHE:
-        return TEMPLATE_CACHE[cmd]
+    template = TEMPLATE_CACHE.get(cmd)
+    if template is not None:
+        return template
 
     with _CACHE_LOCK:
-        if cmd in TEMPLATE_CACHE:
-            return TEMPLATE_CACHE[cmd]
+        template = TEMPLATE_CACHE.get(cmd)
+        if template is not None:
+            return template
 
         dynamic_keys = [k for k in TEMPLATE_CACHE if k not in _STATIC_CACHE_KEYS]
         if len(dynamic_keys) >= _MAX_DYNAMIC_CACHE_SIZE:

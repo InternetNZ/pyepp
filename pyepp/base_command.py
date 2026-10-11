@@ -48,9 +48,7 @@ class BaseCommand:
         :param cmd: Template name or raw XML template string
         :return: Compiled Jinja2 Template
         """
-        if cmd not in cls._TEMPLATE_CACHE:
-            cls._TEMPLATE_CACHE[cmd] = get_compiled_template(cmd)
-        return cls._TEMPLATE_CACHE[cmd]
+        return get_compiled_template(cmd)
 
     def execute(self, xml_command: str, **kwargs) -> EppResultData:
         """This receives an EPP XML command and the arguments and send to the EPP server to be executed.
