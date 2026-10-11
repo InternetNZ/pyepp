@@ -2,7 +2,7 @@
 Base command
 """
 
-from typing import Any
+from typing import Any, Optional
 
 import uuid
 
@@ -42,13 +42,14 @@ class BaseCommand:
         self._epp_communicator = epp_communicator
 
     @classmethod
-    def _get_compiled_template(cls, cmd: str) -> Template:
+    def _get_compiled_template(cls, cmd: str, cache_key: Optional[str] = None) -> Template:
         """Get a compiled Jinja2 template from cache or compile and cache it.
 
         :param cmd: Template name or raw XML template string
+        :param cache_key: Optional safe identifier to opt-in to caching for custom templates
         :return: Compiled Jinja2 Template
         """
-        return get_compiled_template(cmd)
+        return get_compiled_template(cmd, cache_key=cache_key)
 
     def execute(self, xml_command: str, **kwargs) -> EppResultData:
         """This receives an EPP XML command and the arguments and send to the EPP server to be executed.

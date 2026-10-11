@@ -215,23 +215,33 @@ class BaseCommandTest(unittest.TestCase):
         self.assertIn("<clTRID>", xml)
 
     def test_get_compiled_template_custom_string(self) -> None:
-        """Verify custom template string is compiled, cached, and reused."""
-        custom_xml = """<epp><custom>{{ value }}</custom></epp>"""
-        tmpl1 = BaseCommand._get_compiled_template(custom_xml)
+        """Verify raw XML with credentials is not cached by default, but safe cache_key is cached."""
+        # 1. Raw XML without cache_key: rendered without storing credentials in global cache
+        cred_xml = """<epp><command><login><pw>{{ password }}</pw></login></command></epp>"""
+        tmpl_uncached = BaseCommand._get_compiled_template(cred_xml)
+        self.assertEqual(
+            tmpl_uncached.render(password="secret123"),
+            "<epp><command><login><pw>secret123</pw></login></command></epp>",
+        )
+        self.assertNotIn(cred_xml, BaseCommand._TEMPLATE_CACHE)
+
+        # 2. Custom XML with safe cache_key: cached and reused
+        safe_xml = """<epp><custom>{{ value }}</custom></epp>"""
+        tmpl1 = BaseCommand._get_compiled_template(safe_xml, cache_key="SAFE_CUSTOM")
         self.assertEqual(tmpl1.render(value="hello"), "<epp><custom>hello</custom></epp>")
-        self.assertIn(custom_xml, BaseCommand._TEMPLATE_CACHE)
-        tmpl2 = BaseCommand._get_compiled_template(custom_xml)
+        self.assertIn("SAFE_CUSTOM", BaseCommand._TEMPLATE_CACHE)
+        tmpl2 = BaseCommand._get_compiled_template(safe_xml, cache_key="SAFE_CUSTOM")
         self.assertIs(tmpl1, tmpl2)
 
     def test_get_compiled_template_cold_start_and_clear(self) -> None:
         """Verify get_compiled_template recovers when cache is cleared and re-initializes."""
         custom_xml = """<epp><test>{{ x }}</test></epp>"""
-        get_compiled_template(custom_xml)
-        self.assertIn(custom_xml, TEMPLATE_CACHE)
+        get_compiled_template(custom_xml, cache_key="CUSTOM_TEST")
+        self.assertIn("CUSTOM_TEST", TEMPLATE_CACHE)
 
         clear_template_cache()
         # Custom template should be gone
-        self.assertNotIn(custom_xml, TEMPLATE_CACHE)
+        self.assertNotIn("CUSTOM_TEST", TEMPLATE_CACHE)
         # Static templates should be re-initialized
         self.assertIn("DOMAIN_CHECK", TEMPLATE_CACHE)
         self.assertIn(DOMAIN_CHECK_XML, TEMPLATE_CACHE)
@@ -250,11 +260,14 @@ class BaseCommandTest(unittest.TestCase):
         clear_template_cache()
         with patch("pyepp.command_templates._MAX_DYNAMIC_CACHE_SIZE", 3):
             for i in range(6):
-                get_compiled_template(f"<epp><dynamic_{i}>{{{{ val }}}}</dynamic_{i}></epp>")
+                get_compiled_template(
+                    f"<epp><dynamic_{i}>{{{{ val }}}}</dynamic_{i}></epp>",
+                    cache_key=f"dyn_{i}",
+                )
 
             # Ensure dynamic templates were evicted while static templates remain.
-            self.assertNotIn("<epp><dynamic_0>{{ val }}</dynamic_0></epp>", TEMPLATE_CACHE)
-            self.assertIn("<epp><dynamic_5>{{ val }}</dynamic_5></epp>", TEMPLATE_CACHE)
+            self.assertNotIn("dyn_0", TEMPLATE_CACHE)
+            self.assertIn("dyn_5", TEMPLATE_CACHE)
             self.assertIn("DOMAIN_CHECK", TEMPLATE_CACHE)
             self.assertIn(DOMAIN_CHECK_XML, TEMPLATE_CACHE)
 
@@ -265,7 +278,10 @@ class BaseCommandTest(unittest.TestCase):
 
         def worker(idx: int) -> None:
             try:
-                tmpl = get_compiled_template(f"<epp><concurrent_{idx % 3}>{{{{ v }}}}</concurrent_{idx % 3}></epp>")
+                tmpl = get_compiled_template(
+                    f"<epp><concurrent_{idx % 3}>{{{{ v }}}}</concurrent_{idx % 3}></epp>",
+                    cache_key=f"concurrent_{idx % 3}",
+                )
                 rendered = tmpl.render(v=str(idx))
                 results.append(rendered)
             except Exception as ex:  # pylint: disable=broad-except
@@ -283,12 +299,13 @@ class BaseCommandTest(unittest.TestCase):
     def test_get_compiled_template_double_checked_lock(self) -> None:
         """Verify double-checked locking handles case where template was cached while waiting for lock."""
         custom_xml = "<epp><double_check/></epp>"
+        custom_key = "double_check_key"
         entered_lock = threading.Event()
         result_holder = []
 
         def worker() -> None:
             entered_lock.set()
-            tmpl = get_compiled_template(custom_xml)
+            tmpl = get_compiled_template(custom_xml, cache_key=custom_key)
             result_holder.append(tmpl)
 
         with _CACHE_LOCK:
@@ -298,7 +315,7 @@ class BaseCommandTest(unittest.TestCase):
             time.sleep(0.01)
             # While the lock is held, populate TEMPLATE_CACHE
             expected_tmpl = template_engine.from_string(custom_xml)
-            TEMPLATE_CACHE[custom_xml] = expected_tmpl
+            TEMPLATE_CACHE[custom_key] = expected_tmpl
 
         t.join(timeout=1.0)
         self.assertEqual(len(result_holder), 1)
@@ -314,7 +331,10 @@ class BaseCommandTest(unittest.TestCase):
             while not stop_event.is_set():
                 try:
                     for i in range(10):
-                        tmpl = BaseCommand._get_compiled_template(f"<epp><item_{i}>{{{{ val }}}}</item_{i}></epp>")
+                        tmpl = BaseCommand._get_compiled_template(
+                            f"<epp><item_{i}>{{{{ val }}}}</item_{i}></epp>",
+                            cache_key=f"item_{i}",
+                        )
                         self.assertIsNotNone(tmpl)
                 except Exception as ex:  # pylint: disable=broad-except
                     errors.append(ex)
@@ -325,7 +345,10 @@ class BaseCommandTest(unittest.TestCase):
                 for i in range(100):
                     if stop_event.is_set():
                         break
-                    get_compiled_template(f"<epp><churn_{i}>{{{{ val }}}}</churn_{i}></epp>")
+                    get_compiled_template(
+                        f"<epp><churn_{i}>{{{{ val }}}}</churn_{i}></epp>",
+                        cache_key=f"churn_{i}",
+                    )
 
         threads = [threading.Thread(target=reader) for _ in range(4)]
         writer_thread = threading.Thread(target=writer)
@@ -347,25 +370,31 @@ class BaseCommandTest(unittest.TestCase):
         base_command = BaseCommand(epp_communicator)
 
         # Warm up
-        base_command._prepare_command(DOMAIN_CHECK_XML, domain_names=["test.nz"])
+        base_command._prepare_command(
+            DOMAIN_CHECK_XML, domain_names=["test.nz"], client_transaction_id="mock-uuid"
+        )
 
         # Measure cached execution (PERF-1)
         t0 = time.perf_counter()
         for _ in range(1000):
-            base_command._prepare_command(DOMAIN_CHECK_XML, domain_names=["test.nz"])
+            base_command._prepare_command(
+                DOMAIN_CHECK_XML, domain_names=["test.nz"], client_transaction_id="mock-uuid"
+            )
         cached_duration = time.perf_counter() - t0
 
-        # Measure uncached execution (simulating old behavior: recompiling every time)
-        t0 = time.perf_counter()
-        for _ in range(1000):
-            tmpl = template_engine.from_string(DOMAIN_CHECK_XML)
-            tmpl.render(domain_names=["test.nz"], client_transaction_id="mock-uuid")
-        uncached_duration = time.perf_counter() - t0
+        # Measure uncached execution with identical workload (patching _get_compiled_template)
+        with patch.object(BaseCommand, "_get_compiled_template", side_effect=template_engine.from_string):
+            t0 = time.perf_counter()
+            for _ in range(1000):
+                base_command._prepare_command(
+                    DOMAIN_CHECK_XML, domain_names=["test.nz"], client_transaction_id="mock-uuid"
+                )
+            uncached_duration = time.perf_counter() - t0
 
         speedup_pct = (1.0 - (cached_duration / uncached_duration)) * 100.0
         # Verification requirement: execution time drops by >80%
         self.assertGreater(
             speedup_pct,
             80.0,
-            f"Expected >80% speedup, achieved {speedup_pct:.2f}% (cached: {cached_duration:.4f}s, uncached: {uncached_duration:.4f}s)"
+            f"Expected >80% speedup, achieved {speedup_pct:.2f}% (cached: {cached_duration:.4f}s, uncached: {uncached_duration:.4f}s)",
         )

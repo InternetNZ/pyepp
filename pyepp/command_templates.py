@@ -3,6 +3,7 @@ EPP XML command templates
 """
 
 import threading
+from typing import Optional
 from jinja2 import Environment, DictLoader, Template
 
 
@@ -604,33 +605,44 @@ def _init_template_cache() -> None:
 _init_template_cache()
 
 
-def get_compiled_template(cmd: str) -> Template:
-    """Retrieve a compiled Jinja2 template from cache or compile and cache it.
+def get_compiled_template(cmd: str, cache_key: Optional[str] = None) -> Template:
+    """Retrieve a compiled Jinja2 template from cache or compile it.
+
+    Predefined templates (and custom templates with an explicit safe cache_key)
+    are retrieved from or stored in TEMPLATE_CACHE.
+    Caller-provided raw XML strings without an explicit cache_key are compiled
+    on-the-fly and never cached, preventing credentials (<authInfo>, passwords)
+    from being retained in the shared cache.
 
     :param cmd: Template name or raw XML template string
+    :param cache_key: Optional safe identifier to opt-in to caching for custom templates
     :return: Compiled Jinja2 Template
     """
-    template = TEMPLATE_CACHE.get(cmd)
+    lookup_key = cache_key or cmd
+    template = TEMPLATE_CACHE.get(lookup_key)
     if template is not None:
         return template
 
-    with _CACHE_LOCK:
-        template = TEMPLATE_CACHE.get(cmd)
-        if template is not None:
+    if cache_key is not None or cmd in TEMPLATES:
+        with _CACHE_LOCK:
+            template = TEMPLATE_CACHE.get(lookup_key)
+            if template is not None:
+                return template
+
+            dynamic_keys = [k for k in TEMPLATE_CACHE if k not in _STATIC_CACHE_KEYS]
+            if len(dynamic_keys) >= _MAX_DYNAMIC_CACHE_SIZE:
+                for k in dynamic_keys[: len(dynamic_keys) // 2 + 1]:
+                    TEMPLATE_CACHE.pop(k, None)
+
+            if cmd in TEMPLATES:
+                template = template_engine.get_template(cmd)
+            else:
+                template = template_engine.from_string(cmd)
+
+            TEMPLATE_CACHE[lookup_key] = template
             return template
 
-        dynamic_keys = [k for k in TEMPLATE_CACHE if k not in _STATIC_CACHE_KEYS]
-        if len(dynamic_keys) >= _MAX_DYNAMIC_CACHE_SIZE:
-            for k in dynamic_keys[: len(dynamic_keys) // 2 + 1]:
-                TEMPLATE_CACHE.pop(k, None)
-
-        if cmd in TEMPLATES:
-            template = template_engine.get_template(cmd)
-        else:
-            template = template_engine.from_string(cmd)
-
-        TEMPLATE_CACHE[cmd] = template
-        return template
+    return template_engine.from_string(cmd)
 
 
 def clear_template_cache() -> None:
