@@ -9,8 +9,15 @@ import uuid
 from dataclasses import dataclass
 from html import escape
 
+from jinja2 import Template
+
 from pyepp.epp import EppCommunicator, EppResultData
-from pyepp.command_templates import template_engine
+from pyepp.command_templates import (
+    TEMPLATES,
+    TEMPLATE_CACHE,
+    get_compiled_template,
+)
+
 
 
 class ErrorCodeInResultException(Exception):
@@ -26,12 +33,24 @@ class BaseCommand:
     """
 
     PARAMS = ()
+    _TEMPLATE_CACHE: dict[str, Template] = TEMPLATE_CACHE
 
     def __init__(self, epp_communicator: EppCommunicator) -> None:
         """
         :param epp_communicator: EPP Communicator object
         """
         self._epp_communicator = epp_communicator
+
+    @classmethod
+    def _get_compiled_template(cls, cmd: str) -> Template:
+        """Get a compiled Jinja2 template from cache or compile and cache it.
+
+        :param cmd: Template name or raw XML template string
+        :return: Compiled Jinja2 Template
+        """
+        if cmd not in cls._TEMPLATE_CACHE:
+            cls._TEMPLATE_CACHE[cmd] = get_compiled_template(cmd)
+        return cls._TEMPLATE_CACHE[cmd]
 
     def execute(self, xml_command: str, **kwargs) -> EppResultData:
         """This receives an EPP XML command and the arguments and send to the EPP server to be executed.
@@ -54,7 +73,8 @@ class BaseCommand:
 
         :return: XML command
         """
-        if cmd.find("client_transaction_id") != -1 and not kwargs.get(
+        cmd_str = TEMPLATES.get(cmd, cmd)
+        if cmd_str.find("client_transaction_id") != -1 and not kwargs.get(
             "client_transaction_id"
         ):
             kwargs["client_transaction_id"] = str(uuid.uuid4())
@@ -63,7 +83,7 @@ class BaseCommand:
 
         new_kwargs = self.__escape_dict(kwargs)
 
-        template = template_engine.from_string(cmd)
+        template = self._get_compiled_template(cmd)
         xml = template.render(**new_kwargs)
 
         return xml
