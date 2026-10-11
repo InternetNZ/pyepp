@@ -2,11 +2,10 @@
 EPP XML command templates
 """
 
-from jinja2 import Environment, BaseLoader
+import threading
+from typing import Optional
+from jinja2 import Environment, DictLoader, Template
 
-template_engine = Environment(
-    loader=BaseLoader(), trim_blocks=True, lstrip_blocks=True, autoescape=True
-)
 
 HELLO_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <epp xmlns="urn:ietf:params:xml:ns:epp-1.0">
@@ -548,3 +547,107 @@ POLL_ACK_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
+
+TEMPLATES: dict[str, str] = {
+    "HELLO": HELLO_XML,
+    "LOGIN": LOGIN_XML,
+    "LOGOUT": LOGOUT_XML,
+    "CONTACT_CHECK": CONTACT_CHECK_XML,
+    "CONTACT_INFO": CONTACT_INFO_XML,
+    "CONTACT_CREATE": CONTACT_CREATE_XML,
+    "CONTACT_DELETE": CONTACT_DELETE_XML,
+    "CONTACT_UPDATE": CONTACT_UPDATE_XML,
+    "DOMAIN_CHECK": DOMAIN_CHECK_XML,
+    "DOMAIN_INFO": DOMAIN_INFO_XML,
+    "DOMAIN_CREATE": DOMAIN_CREATE_XML,
+    "DOMAIN_DELETE": DOMAIN_DELETE_XML,
+    "DOMAIN_RENEW": DOMAIN_RENEW_XML,
+    "TRANSFER_REQUEST": TRANSFER_REQUEST_XML,
+    "DOMAIN_UPDATE": DOMAIN_UPDATE_XML,
+    "DOMAIN_RESTORE": DOMAIN_RESTORE_XML,
+    "DOMAIN_RESTORE_REPORT": DOMAIN_RESTORE_REPORT_XML,
+    "HOST_CHECK": HOST_CHECK_XML,
+    "HOST_INFO": HOST_INFO_XML,
+    "HOST_CREATE": HOST_CREATE_XML,
+    "HOST_DELETE": HOST_DELETE_XML,
+    "HOST_UPDATE": HOST_UPDATE_XML,
+    "POLL_REQUEST": POLL_REQUEST_XML,
+    "POLL_ACK": POLL_ACK_XML,
+}
+
+# Also support keys with _XML suffix (e.g. "DOMAIN_CHECK_XML")
+for _name, _xml_content in list(TEMPLATES.items()):
+    TEMPLATES[f"{_name}_XML"] = _xml_content
+
+template_engine = Environment(
+    loader=DictLoader(TEMPLATES),
+    trim_blocks=True,
+    lstrip_blocks=True,
+    autoescape=True,
+)
+
+TEMPLATE_CACHE: dict[str, Template] = {}
+_STATIC_CACHE_KEYS: set[str] = set()
+_CACHE_LOCK = threading.Lock()
+_MAX_DYNAMIC_CACHE_SIZE = 500
+
+
+def _init_template_cache() -> None:
+    """Pre-compile all standard templates into TEMPLATE_CACHE."""
+    for name, xml_str in TEMPLATES.items():
+        compiled = template_engine.get_template(name)
+        TEMPLATE_CACHE[name] = compiled
+        TEMPLATE_CACHE[xml_str] = compiled
+        _STATIC_CACHE_KEYS.add(name)
+        _STATIC_CACHE_KEYS.add(xml_str)
+
+
+_init_template_cache()
+
+
+def get_compiled_template(cmd: str, cache_key: Optional[str] = None) -> Template:
+    """Retrieve a compiled Jinja2 template from cache or compile it.
+
+    Predefined templates (and custom templates with an explicit safe cache_key)
+    are retrieved from or stored in TEMPLATE_CACHE.
+    Caller-provided raw XML strings without an explicit cache_key are compiled
+    on-the-fly and never cached, preventing credentials (<authInfo>, passwords)
+    from being retained in the shared cache.
+
+    :param cmd: Template name or raw XML template string
+    :param cache_key: Optional safe identifier to opt-in to caching for custom templates
+    :return: Compiled Jinja2 Template
+    """
+    lookup_key = cache_key or cmd
+    template = TEMPLATE_CACHE.get(lookup_key)
+    if template is not None:
+        return template
+
+    if cache_key is not None or cmd in TEMPLATES:
+        with _CACHE_LOCK:
+            template = TEMPLATE_CACHE.get(lookup_key)
+            if template is not None:
+                return template
+
+            dynamic_keys = [k for k in TEMPLATE_CACHE if k not in _STATIC_CACHE_KEYS]
+            if len(dynamic_keys) >= _MAX_DYNAMIC_CACHE_SIZE:
+                for k in dynamic_keys[: len(dynamic_keys) // 2 + 1]:
+                    TEMPLATE_CACHE.pop(k, None)
+
+            if cmd in TEMPLATES:
+                template = template_engine.get_template(cmd)
+            else:
+                template = template_engine.from_string(cmd)
+
+            TEMPLATE_CACHE[lookup_key] = template
+            return template
+
+    return template_engine.from_string(cmd)
+
+
+def clear_template_cache() -> None:
+    """Clear the dynamic template cache and re-initialize static templates."""
+    with _CACHE_LOCK:
+        TEMPLATE_CACHE.clear()
+        _STATIC_CACHE_KEYS.clear()
+        _init_template_cache()

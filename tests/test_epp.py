@@ -7,6 +7,7 @@ import sys
 import struct
 import socket
 
+from pyepp.command_templates import LOGIN_XML
 from pyepp.epp import (
     EppCommunicator,
     EppResultData,
@@ -214,6 +215,20 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertEqual(self.epp.user, 'user')
         sent_command = mock_execute.call_args[0][0]
         self.assertNotIn('<objURI>urn:ietf:params:xml:ns:epp-1.0</objURI>', sent_command)
+
+    @patch('pyepp.epp.get_compiled_template')
+    @patch('pyepp.epp.EppCommunicator.execute')
+    def test_login_uses_cached_template(self, mock_execute, mock_get_template):
+        mock_result = MagicMock()
+        mock_result.code = 1000
+        mock_execute.return_value = mock_result
+        mock_tmpl = MagicMock()
+        mock_tmpl.render.return_value = "<mock_login/>"
+        mock_get_template.return_value = mock_tmpl
+
+        self.epp.login('user', 'pass')
+        mock_get_template.assert_called_once_with(LOGIN_XML)
+        mock_tmpl.render.assert_called_once_with(user='user', password='pass', extensions=[])
 
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_with_cert_and_key(self, mock_ssl):
