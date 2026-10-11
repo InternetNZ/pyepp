@@ -14,7 +14,12 @@ from typing import Optional, Any, Union
 
 from bs4 import BeautifulSoup
 
-from pyepp.command_templates import LOGOUT_XML, LOGIN_XML, HELLO_XML, template_engine
+from pyepp.command_templates import (
+    LOGOUT_XML,
+    LOGIN_XML,
+    HELLO_XML,
+    get_compiled_template,
+)
 
 LENGTH_FIELD_SIZE = 4
 CRLF_SIZE = 2
@@ -550,7 +555,7 @@ class EppCommunicator:
 
         self._user = user
 
-        command_template = template_engine.from_string(LOGIN_XML)
+        command_template = get_compiled_template(LOGIN_XML)
         command = command_template.render(
             user=user, password=password, extensions=extensions
         )
