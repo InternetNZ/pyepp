@@ -214,8 +214,10 @@ def _convert_dataclass_value(val: Any) -> Any:
     """
     if is_dataclass(val) and not isinstance(val, type):
         return asdict(val)
+    if isinstance(val, tuple) and hasattr(val, "_fields"):
+        return type(val)(*(_convert_dataclass_value(v) for v in val))
     if isinstance(val, (list, tuple)):
-        return [_convert_dataclass_value(v) for v in val]
+        return type(val)(_convert_dataclass_value(v) for v in val)
     if isinstance(val, dict):
         return {k: _convert_dataclass_value(v) for k, v in val.items()}
     return copy.deepcopy(val)
