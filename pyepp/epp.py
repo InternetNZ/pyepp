@@ -8,7 +8,7 @@ import struct
 import logging
 import re
 from xml.parsers import expat
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 from typing import Optional, Any, Union
 
@@ -218,6 +218,16 @@ class EppResultData:
     server_transaction_id: Optional[str] = None
     repository_object_id: Optional[str] = None
     dry_run: bool = False  # True if the command was executed offline in dry-run mode
+    parsed_xml: Optional[BeautifulSoup] = field(
+        default=None, compare=False, repr=False
+    )
+
+    def __post_init__(self):
+        if self.parsed_xml is None and self.raw_response and not self.dry_run:
+            try:
+                self.parsed_xml = BeautifulSoup(self.raw_response, "xml")
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logging.debug("Could not parse XML in EppResultData: %s", exc)
 
     def __setitem__(self, key, value):
         self.__dict__[key] = value
@@ -435,6 +445,7 @@ class EppCommunicator:
         """
         raw_response = self._execute_command(cmd).decode("utf-8")
         client_transaction_id = None
+        xml_cmd = None
         try:
             # Extract client transaction ID from the XML payload if present
             xml_cmd = BeautifulSoup(raw_response, "xml")
@@ -455,6 +466,7 @@ class EppCommunicator:
             repository_object_id=None,
             result_data=None,
             dry_run=True,
+            parsed_xml=xml_cmd,
         )
 
     def execute(self, cmd: str) -> EppResultData:
@@ -518,6 +530,7 @@ class EppCommunicator:
                 server_transaction_id=server_transaction_id,
                 repository_object_id=repository_object_id,
                 result_data=None,
+                parsed_xml=xml_response,
             )
         except EppCommunicatorException as epp_ex:
             raise epp_ex

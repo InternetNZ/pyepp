@@ -4,7 +4,7 @@ Domain unit tests
 
 import unittest
 from datetime import date, datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from pyepp.domain import (
     Domain,
@@ -144,6 +144,63 @@ class DomainTest(unittest.TestCase):
         self.assertEqual(
             result.result_data, {"test.nz": {"avail": True, "reason": None}}
         )
+
+    def test_check_uses_parsed_xml_directly(self) -> None:
+        """Verify domain.check re-uses result.parsed_xml directly."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        mock_parsed = MagicMock()
+        mock_cd = MagicMock()
+        mock_name = MagicMock()
+        mock_name.text = "test.nz"
+        mock_name.get.return_value = "1"
+        mock_cd.find.side_effect = lambda tag, *args, **kwargs: mock_name if tag == "name" else None
+        mock_parsed.find_all.return_value = [mock_cd]
+
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response="<dummy/>",
+            result_data=None,
+            dry_run=False,
+            parsed_xml=mock_parsed,
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.check(["test.nz"])
+        mock_parsed.find_all.assert_called_with("cd")
+        self.assertEqual(
+            result.result_data, {"test.nz": {"avail": True, "reason": None}}
+        )
+
+    def test_info_uses_parsed_xml_directly(self) -> None:
+        """Verify domain.info re-uses result.parsed_xml directly."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        mock_parsed = MagicMock()
+        mock_name = MagicMock(text="test.nz")
+        mock_clid = MagicMock(text="933")
+        mock_registrant = MagicMock(text="reg-1")
+        mock_parsed.find.side_effect = lambda tag, *args, **kwargs: {
+            "name": mock_name,
+            "clID": mock_clid,
+            "registrant": mock_registrant,
+        }.get(tag, None)
+        mock_parsed.find_all.return_value = []
+
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response="<dummy/>",
+            result_data=None,
+            dry_run=False,
+            parsed_xml=mock_parsed,
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.info("test.nz")
+        self.assertEqual(result.result_data.domain_name, "test.nz")
+        self.assertEqual(result.result_data.registrant, "reg-1")
 
     def test_info_dry_run(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)

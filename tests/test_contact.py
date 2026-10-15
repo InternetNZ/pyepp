@@ -3,7 +3,7 @@ Contact unit tests
 """
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from pyepp.contact import (
     ContactData,
@@ -201,6 +201,67 @@ class ContactTest(unittest.TestCase):
         contact.execute = MagicMock(return_value=expected_result)
         result = contact.check(["contact1"])
         self.assertEqual(result, expected_result)
+
+    def test_check_uses_parsed_xml_directly(self) -> None:
+        """Verify contact.check re-uses result.parsed_xml directly."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        mock_parsed = MagicMock()
+        mock_cd = MagicMock()
+        mock_id = MagicMock()
+        mock_id.text = "c1"
+        mock_id.get.return_value = "1"
+        mock_cd.find.side_effect = lambda tag, *args, **kwargs: mock_id if tag == "id" else None
+        mock_parsed.find_all.return_value = [mock_cd]
+
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response="<dummy/>",
+            result_data=None,
+            dry_run=False,
+            parsed_xml=mock_parsed,
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.check(["c1"])
+        mock_parsed.find_all.assert_called_with("cd")
+        self.assertEqual(result.result_data, {"c1": {"avail": True, "reason": None}})
+
+    def test_info_uses_parsed_xml_directly(self) -> None:
+        """Verify contact.info re-uses result.parsed_xml directly."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        mock_parsed = MagicMock()
+        mock_postal = MagicMock()
+        mock_postal.get.return_value = "loc"
+
+        mock_parsed.find.side_effect = lambda tag, *args, **kwargs: {
+            "id": MagicMock(text="sh8014"),
+            "crDate": MagicMock(text="2023-01-01T00:00:00Z"),
+            "crID": MagicMock(text="ClientY"),
+            "clID": MagicMock(text="ClientX"),
+            "postalInfo": mock_postal,
+            "name": MagicMock(text="John Doe"),
+            "city": MagicMock(text="Dulles"),
+            "cc": MagicMock(text="US"),
+            "email": MagicMock(text="jdoe@example.com"),
+        }.get(tag, None)
+        mock_parsed.find_all.return_value = []
+
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response="<dummy/>",
+            result_data=None,
+            dry_run=False,
+            parsed_xml=mock_parsed,
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("sh8014")
+        self.assertEqual(result.result_data.id, "sh8014")
+        self.assertEqual(result.result_data.email, "jdoe@example.com")
 
     def test_info_dry_run(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)

@@ -3,7 +3,7 @@ Host Name Mapping unit tests
 """
 import unittest
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from pyepp.host import Host, HostData, IPAddressData
 from pyepp.command_templates import HOST_CREATE_XML
@@ -99,6 +99,68 @@ class HostTest(unittest.TestCase):
         host.execute = MagicMock(return_value=expected_result)
         result = host.check(['test.host.nz'])
         self.assertEqual(result, expected_result)
+
+    def test_check_uses_parsed_xml_directly(self) -> None:
+        """Verify host.check re-uses result.parsed_xml directly."""
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        mock_parsed = MagicMock()
+        mock_cd = MagicMock()
+        mock_name = MagicMock()
+        mock_name.text = "ns1.example.nz"
+        mock_name.get.return_value = "1"
+        mock_cd.find.side_effect = lambda tag, *args, **kwargs: mock_name if tag == "name" else None
+        mock_parsed.find_all.return_value = [mock_cd]
+
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response="<dummy/>",
+            result_data=None,
+            dry_run=False,
+            parsed_xml=mock_parsed,
+        )
+        host.execute = MagicMock(return_value=execute_result)
+        result = host.check(["ns1.example.nz"])
+        mock_parsed.find_all.assert_called_with("cd")
+        self.assertEqual(
+            result["result_data"], {"ns1.example.nz": {"avail": True, "reason": None}}
+        )
+
+    def test_info_uses_parsed_xml_directly(self) -> None:
+        """Verify host.info re-uses result.parsed_xml directly."""
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        mock_parsed = MagicMock()
+        mock_name = MagicMock(text="ns1.example.nz")
+        mock_addr = MagicMock(text="192.0.2.1")
+        mock_addr.get.return_value = "v4"
+
+        mock_parsed.find.side_effect = lambda tag, *args, **kwargs: {
+            "name": mock_name,
+            "crDate": MagicMock(text="2023-01-01T00:00:00Z"),
+            "crID": MagicMock(text="ClientY"),
+            "addr": mock_addr,
+        }.get(tag, None)
+        mock_parsed.find_all.side_effect = lambda tag, *args, **kwargs: {
+            "status": [],
+            "addr": [mock_addr],
+        }.get(tag, [])
+
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response="<dummy/>",
+            result_data=None,
+            dry_run=False,
+            parsed_xml=mock_parsed,
+        )
+        host.execute = MagicMock(return_value=execute_result)
+        result = host.info("ns1.example.nz")
+        self.assertEqual(result.result_data.host_name, "ns1.example.nz")
+        self.assertEqual(result.result_data.address[0].address, "192.0.2.1")
 
     def test_info_dry_run(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
