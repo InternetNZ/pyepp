@@ -7,8 +7,6 @@ from enum import Enum
 from typing import Optional
 from datetime import date, datetime
 
-from bs4 import BeautifulSoup
-
 from pyepp.epp import EppResultData
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import (
@@ -145,7 +143,7 @@ class Domain(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
         domains_check_data = raw_response.find_all("cd")
 
         result_data = {}
@@ -183,7 +181,7 @@ class Domain(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
 
         result_data = {
             "domain_name": raw_response.find("name").text,

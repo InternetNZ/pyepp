@@ -5,7 +5,6 @@ Contact Mapping Module. This module is used to manage contact objects in Registr
 from enum import Enum
 from typing import Literal, Optional, Union
 from dataclasses import dataclass, asdict
-from bs4 import BeautifulSoup
 
 from pyepp import helper
 from pyepp.base_command import BaseCommand
@@ -147,7 +146,7 @@ class Contact(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
         contacts_check_data = raw_response.find_all("cd")
 
         result_data = {}
@@ -188,7 +187,7 @@ class Contact(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
 
         result_data = {
             "id": raw_response.find("id").text,

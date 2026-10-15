@@ -1,7 +1,9 @@
 """
 EPP Communicator unit tests
 """
+import json
 import unittest
+from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 import sys
 import struct
@@ -32,10 +34,206 @@ class EppResultDataTest(unittest.TestCase):
         self.assertFalse(data.dry_run)
         self.assertEqual(d['message'], 'Success')
 
+    def test_parsed_xml_equality_and_repr(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup('<root><a id="1">test</a></root>', 'xml')
+        data_with_xml = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='raw',
+            result_data=None,
+            parsed_xml=soup,
+        )
+        data_without_xml = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='',
+            result_data=None,
+        )
+
+        # compare=False ensures equality is unaffected by parsed_xml
+        # (even when raw_response differs, here we test that parsed_xml does not affect equality)
+        data_matching_fields = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='raw',
+            result_data=None,
+            parsed_xml=soup,
+        )
+        data_matching_other = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='raw',
+            result_data=None,
+        )
+        self.assertEqual(data_matching_fields, data_matching_other)
+        # repr=False ensures parsed_xml does not bloat string representations
+        self.assertNotIn("parsed_xml", repr(data_with_xml))
+        self.assertIs(data_with_xml.parsed_xml, soup)
+        self.assertIsNone(data_without_xml.parsed_xml)
+
+    def test_post_init_populates_parsed_xml(self):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<root><elem>val</elem></root>',
+            result_data=None,
+        )
+        self.assertIsNotNone(data.parsed_xml)
+        self.assertEqual(data.parsed_xml.find("elem").text, "val")
+
+    def test_post_init_skips_when_dry_run(self):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<root><elem>val</elem></root>',
+            result_data=None,
+            dry_run=True,
+        )
+        self.assertIsNone(data.parsed_xml)
+
+    def test_post_init_skips_when_empty_raw_response(self):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='',
+            result_data=None,
+        )
+        self.assertIsNone(data.parsed_xml)
+
+    def test_post_init_preserves_explicit_parsed_xml(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup('<custom/>', 'xml')
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<other/>',
+            result_data=None,
+            parsed_xml=soup,
+        )
+        self.assertIs(data.parsed_xml, soup)
+
+    @patch('pyepp.epp.BeautifulSoup', side_effect=Exception('XML parse failure'))
+    def test_post_init_exception_handling(self, _mock_bs):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<root/>',
+            result_data=None,
+        )
+        self.assertIsNone(data.parsed_xml)
+
+    def test_to_dict_excludes_parsed_xml_and_is_json_serializable(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup('<root><item>test</item></root>', 'xml')
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<root><item>test</item></root>',
+            result_data=None,
+            parsed_xml=soup,
+        )
+        d = data.to_dict()
+        self.assertNotIn('parsed_xml', d)
+        serialized = json.dumps(d)
+        deserialized = json.loads(serialized)
+        self.assertEqual(deserialized['code'], 1000)
+        self.assertEqual(deserialized['message'], 'Success')
+        self.assertNotIn('parsed_xml', deserialized)
+
+    def test_to_dict_converts_nested_dataclasses_in_result_data(self):
+        from bs4 import BeautifulSoup
+
+        @dataclass
+        class SubData:
+            tag: str
+
+        @dataclass
+        class MainData:
+            name: str
+            sub: SubData
+            sub_list: list[SubData]
+            sub_map: dict[str, SubData]
+
+        main_data = MainData(
+            name='parent',
+            sub=SubData(tag='child'),
+            sub_list=[SubData(tag='list_item')],
+            sub_map={'key': SubData(tag='map_item')},
+        )
+        soup = BeautifulSoup('<xml/>', 'xml')
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<xml/>',
+            result_data=main_data,
+            parsed_xml=soup,
+        )
+        d = data.to_dict()
+        self.assertNotIn('parsed_xml', d)
+        self.assertEqual(d['result_data']['sub'], {'tag': 'child'})
+        self.assertEqual(d['result_data']['sub_list'], [{'tag': 'list_item'}])
+        self.assertEqual(d['result_data']['sub_map'], {'key': {'tag': 'map_item'}})
+
+        serialized = json.dumps(d)
+        deserialized = json.loads(serialized)
+        self.assertEqual(deserialized['result_data']['name'], 'parent')
+
+    def test_to_dict_converts_list_and_dict_result_data(self):
+        @dataclass
+        class Item:
+            id: int
+
+        # Test with dict containing dataclasses
+        data_dict = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<xml/>',
+            result_data={'item1': Item(id=1)},
+        )
+        d_dict = data_dict.to_dict()
+        self.assertEqual(d_dict['result_data']['item1'], {'id': 1})
+        self.assertIn('"id": 1', json.dumps(d_dict))
+
+        # Test with list containing dataclasses
+        data_list = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<xml/>',
+            result_data=[Item(id=2)],
+        )
+        d_list = data_list.to_dict()
+        self.assertEqual(d_list['result_data'], [{'id': 2}])
+        self.assertIn('"id": 2', json.dumps(d_list))
+
 
 class EppCommunicatorTest(unittest.TestCase):
     def setUp(self):
         self.epp = EppCommunicator('localhost', '700', dry_run=False)
+
+    def test_execute_success_populates_parsed_xml(self):
+        self.epp.greeting = b'greeting'
+        response_xml = (
+            b'<?xml version="1.0" encoding="UTF-8"?>\n'
+            b'<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+            b'  <response>\n'
+            b'    <result code="1000">\n'
+            b'      <msg>Command completed successfully</msg>\n'
+            b'    </result>\n'
+            b'    <trID>\n'
+            b'      <clTRID>ABC-123</clTRID>\n'
+            b'      <svTRID>SRV-456</svTRID>\n'
+            b'    </trID>\n'
+            b'  </response>\n'
+            b'</epp>'
+        )
+        self.epp._execute_command = MagicMock(return_value=response_xml)
+        result = self.epp.execute("<xml/>")
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.client_transaction_id, "ABC-123")
+        self.assertEqual(result.server_transaction_id, "SRV-456")
+        self.assertIsNotNone(result.parsed_xml)
+        self.assertEqual(result.parsed_xml.find("result").get("code"), "1000")
 
     def test_execute_command_dry_run(self):
         self.epp._dry_run = True
@@ -54,6 +252,13 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertEqual(result.client_transaction_id, "TEST-TRID-123")
         self.assertIsNone(result.server_transaction_id)
         self.assertIsNone(result.result_data)
+        self.assertIsNotNone(result.parsed_xml)
+
+        # Regression check: to_dict excludes parsed_xml and is JSON-serializable
+        d = result.to_dict()
+        self.assertNotIn("parsed_xml", d)
+        serialized = json.dumps(d)
+        self.assertIn('"message": "Dry run"', serialized)
 
     def test_execute_dry_run_without_cltrid(self):
         self.epp._dry_run = True

@@ -4,7 +4,7 @@ Host Name Mapping unit tests
 
 import unittest
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from pyepp.poll import Poll, ServiceMessageQueueData, ServiceMessageData
 from pyepp.epp import EppCommunicator, EppResultData
@@ -50,6 +50,65 @@ class HostTest(unittest.TestCase):
         poll.execute = MagicMock(return_value=expected_result)
         result = poll.request()
         self.assertEqual(result, expected_result)
+
+    def test_poll_request_uses_parsed_xml_directly(self) -> None:
+        """Verify poll.request re-uses result.parsed_xml directly."""
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+        mock_parsed = MagicMock()
+        mock_msgq = MagicMock()
+        mock_msgq.get.side_effect = lambda attr: "5" if attr == "count" else "12345"
+        mock_qdate = MagicMock(text="2023-01-01T00:00:00Z")
+        mock_msg = MagicMock(text="Domain renewed")
+        mock_msg.get.return_value = "en"
+
+        mock_parsed.find.side_effect = lambda tag, *args, **kwargs: {
+            "msgQ": mock_msgq,
+            "qDate": mock_qdate,
+            "msg": mock_msg,
+        }.get(tag, None)
+        mock_parsed.find_all.side_effect = lambda tag, *args, **kwargs: {
+            "msg": [MagicMock(), mock_msg],
+        }.get(tag, [])
+
+        execute_result = EppResultData(
+            code=1301,
+            message="Command completed successfully; ack to dequeue",
+            reason=None,
+            raw_response="<dummy/>",
+            result_data=None,
+            dry_run=False,
+            parsed_xml=mock_parsed,
+        )
+        poll.execute = MagicMock(return_value=execute_result)
+        result = poll.request()
+        self.assertEqual(result.result_data.message_id, 12345)
+        self.assertEqual(result.result_data.message_count, 5)
+
+    def test_poll_ack_uses_parsed_xml_directly(self) -> None:
+        """Verify poll.acknowledge re-uses result.parsed_xml directly."""
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+        mock_parsed = MagicMock()
+        mock_msgq = MagicMock()
+        mock_msgq.get.side_effect = lambda attr: "4" if attr == "count" else "12345"
+        mock_parsed.find.side_effect = lambda tag, *args, **kwargs: {
+            "msgQ": mock_msgq,
+        }.get(tag, None)
+
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response="<dummy/>",
+            result_data=None,
+            dry_run=False,
+            parsed_xml=mock_parsed,
+        )
+        poll.execute = MagicMock(return_value=execute_result)
+        result = poll.acknowledge(12345)
+        self.assertEqual(result.result_data.message_id, 12345)
+        self.assertEqual(result.result_data.message_count, 4)
 
     def test_poll_request(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)

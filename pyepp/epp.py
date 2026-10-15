@@ -2,13 +2,14 @@
 EPP Communicator Module
 """
 
+import copy
 import ssl
 import socket
 import struct
 import logging
 import re
 from xml.parsers import expat
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field, fields, is_dataclass
 from enum import Enum
 from typing import Optional, Any, Union
 
@@ -204,6 +205,24 @@ def get_format_32() -> str:
     return ">I"
 
 
+def _convert_dataclass_value(val: Any) -> Any:
+    """
+    Recursively convert dataclass instances to dictionaries.
+
+    :param val: Value to convert
+    :return: Converted value without dataclass instances
+    """
+    if is_dataclass(val) and not isinstance(val, type):
+        return asdict(val)
+    if isinstance(val, tuple) and hasattr(val, "_fields"):
+        return type(val)(*(_convert_dataclass_value(v) for v in val))
+    if isinstance(val, (list, tuple)):
+        return type(val)(_convert_dataclass_value(v) for v in val)
+    if isinstance(val, dict):
+        return {k: _convert_dataclass_value(v) for k, v in val.items()}
+    return copy.deepcopy(val)
+
+
 # pylint: disable=too-many-instance-attributes
 @dataclass
 class EppResultData:
@@ -218,6 +237,16 @@ class EppResultData:
     server_transaction_id: Optional[str] = None
     repository_object_id: Optional[str] = None
     dry_run: bool = False  # True if the command was executed offline in dry-run mode
+    parsed_xml: Optional[BeautifulSoup] = field(
+        default=None, compare=False, repr=False
+    )
+
+    def __post_init__(self):
+        if self.parsed_xml is None and self.raw_response and not self.dry_run:
+            try:
+                self.parsed_xml = BeautifulSoup(self.raw_response, "xml")
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logging.debug("Could not parse XML in EppResultData: %s", exc)
 
     def __setitem__(self, key, value):
         self.__dict__[key] = value
@@ -230,7 +259,11 @@ class EppResultData:
 
     def to_dict(self) -> dict:
         """Convert an EppResultData object to a dictionary."""
-        return asdict(self)
+        return {
+            f.name: _convert_dataclass_value(getattr(self, f.name))
+            for f in fields(self)
+            if f.name != "parsed_xml"
+        }
 
 
 class EppDryRunException(EppCommunicatorException):
@@ -435,6 +468,7 @@ class EppCommunicator:
         """
         raw_response = self._execute_command(cmd).decode("utf-8")
         client_transaction_id = None
+        xml_cmd = None
         try:
             # Extract client transaction ID from the XML payload if present
             xml_cmd = BeautifulSoup(raw_response, "xml")
@@ -455,6 +489,7 @@ class EppCommunicator:
             repository_object_id=None,
             result_data=None,
             dry_run=True,
+            parsed_xml=xml_cmd,
         )
 
     def execute(self, cmd: str) -> EppResultData:
@@ -518,6 +553,7 @@ class EppCommunicator:
                 server_transaction_id=server_transaction_id,
                 repository_object_id=repository_object_id,
                 result_data=None,
+                parsed_xml=xml_response,
             )
         except EppCommunicatorException as epp_ex:
             raise epp_ex
