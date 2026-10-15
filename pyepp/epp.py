@@ -2,13 +2,14 @@
 EPP Communicator Module
 """
 
+import copy
 import ssl
 import socket
 import struct
 import logging
 import re
 from xml.parsers import expat
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, field, fields, is_dataclass
 from enum import Enum
 from typing import Optional, Any, Union
 
@@ -204,6 +205,22 @@ def get_format_32() -> str:
     return ">I"
 
 
+def _convert_dataclass_value(val: Any) -> Any:
+    """
+    Recursively convert dataclass instances to dictionaries.
+
+    :param val: Value to convert
+    :return: Converted value without dataclass instances
+    """
+    if is_dataclass(val) and not isinstance(val, type):
+        return asdict(val)
+    if isinstance(val, (list, tuple)):
+        return [_convert_dataclass_value(v) for v in val]
+    if isinstance(val, dict):
+        return {k: _convert_dataclass_value(v) for k, v in val.items()}
+    return copy.deepcopy(val)
+
+
 # pylint: disable=too-many-instance-attributes
 @dataclass
 class EppResultData:
@@ -240,7 +257,11 @@ class EppResultData:
 
     def to_dict(self) -> dict:
         """Convert an EppResultData object to a dictionary."""
-        return asdict(self)
+        return {
+            f.name: _convert_dataclass_value(getattr(self, f.name))
+            for f in fields(self)
+            if f.name != "parsed_xml"
+        }
 
 
 class EppDryRunException(EppCommunicatorException):
