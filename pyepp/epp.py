@@ -386,10 +386,9 @@ class EppCommunicator:
         if num_bytes == 0:
             return b""
 
-        chunks = []
-        bytes_received = 0
-        while bytes_received < num_bytes:
-            remaining = num_bytes - bytes_received
+        buffer = bytearray()
+        while len(buffer) < num_bytes:
+            remaining = num_bytes - len(buffer)
             to_read = min(remaining, SOCKET_BUFFER_CHUNK_SIZE)
             try:
                 chunk = self._read_from_socket(to_read, use_read=use_read)
@@ -409,19 +408,16 @@ class EppCommunicator:
                 ) from exc
 
             if not chunk or len(chunk) == 0:
-                if bytes_received == 0:
+                if len(buffer) == 0:
                     return None
                 raise EppCommunicatorException(
-                    f"Connection closed prematurely after {bytes_received}/{num_bytes} bytes"
+                    f"Connection closed prematurely after {len(buffer)}/{num_bytes} bytes"
                 )
 
-            chunks.append(chunk)
-            bytes_received += len(chunk)
-            logging.debug("Received %s/%s bytes", bytes_received, num_bytes)
+            buffer.extend(chunk)
+            logging.debug("Received %s/%s bytes", len(buffer), num_bytes)
 
-        if len(chunks) == 1:
-            return chunks[0]
-        return b"".join(chunks)
+        return bytes(buffer)
 
     def _read(self) -> Optional[bytes]:
         """
