@@ -448,6 +448,7 @@ class EppCommunicator:
 
         max_size = getattr(self, "_max_message_size", DEFAULT_MAX_MESSAGE_SIZE)
         if total_length > max_size:
+            self.disconnect()
             raise EppCommunicatorException(
                 f"EPP message length {total_length} exceeds maximum allowed size "
                 f"({max_size} bytes)"
