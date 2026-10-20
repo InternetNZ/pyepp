@@ -24,6 +24,8 @@ from pyepp.command_templates import (
 
 LENGTH_FIELD_SIZE = 4
 CRLF_SIZE = 2
+DEFAULT_MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MiB limit to prevent DoS via memory exhaustion
+SOCKET_BUFFER_CHUNK_SIZE = 16384  # 16 KiB - matching standard TLS maximum record size
 
 PASSWORD_TAG_FALLBACK_REGEX = re.compile(
     r"(?P<open><(?P<tag>(?:[\w.-]+:)?(?:pw|newPW))\b[^>]*>)(?:.*?(?P<close></(?P=tag)\s*>)|.*$)",
@@ -290,6 +292,7 @@ class EppCommunicator:
         client_cert: Optional[str] = None,
         client_key: Optional[str] = None,
         dry_run: Optional[bool] = False,
+        max_message_size: int = DEFAULT_MAX_MESSAGE_SIZE,
     ) -> None:
         """
         :param server: EPP server to connect to.
@@ -297,6 +300,7 @@ class EppCommunicator:
         :param client_cert: Path to client certificate
         :param client_key: Path to client key
         :param dry_run: dry run the request
+        :param max_message_size: Maximum allowed message size in bytes (DoS protection)
         """
         self._server = server
         self._port = port
@@ -305,6 +309,7 @@ class EppCommunicator:
         self._client_key = client_key
 
         self._dry_run = dry_run
+        self._max_message_size = max_message_size
 
         self._format_32 = get_format_32()
 
@@ -318,14 +323,14 @@ class EppCommunicator:
         """User property"""
         return self._user
 
-    def _unpack_data(self, data: int) -> str:
+    def _unpack_data(self, data: bytes) -> int:
         """
         Unpack data.
 
         :param bytes data: data
 
         :return: unpacked data
-        :rtype: str
+        :rtype: int
         """
         return struct.unpack(self._format_32, data)[0]
 
@@ -333,34 +338,120 @@ class EppCommunicator:
         """
         Pack the data.
 
-        :param data: data
+        :param int data: data
 
         :return: bytes
+        :rtype: bytes
         """
         return struct.pack(self._format_32, data)
 
-    def _read(self) -> bytes:
+    def _read_from_socket(self, size: int, use_read: bool = False) -> bytes:
+        """
+        Read up to size bytes from the socket.
+
+        :param int size: Maximum number of bytes to read
+        :param bool use_read: If True, prefer socket.read over socket.recv
+        :return: Bytes read from socket
+        :rtype: bytes
+        """
+        if use_read:
+            if hasattr(self._ssl_socket, "read"):
+                return self._ssl_socket.read(size)
+            if hasattr(self._ssl_socket, "recv"):
+                return self._ssl_socket.recv(size)
+        else:
+            if hasattr(self._ssl_socket, "recv"):
+                return self._ssl_socket.recv(size)
+            if hasattr(self._ssl_socket, "read"):
+                return self._ssl_socket.read(size)
+
+        raise EppCommunicatorException("Socket has neither read nor recv method.")
+
+    def _read_exact(self, num_bytes: int, use_read: bool = False) -> Optional[bytes]:
+        """
+        Read exactly num_bytes from the socket.
+
+        :param int num_bytes: Number of bytes to read
+        :param bool use_read: If True, prefer socket.read over socket.recv
+        :return: Bytes read from socket, or None if connection closed before any bytes received
+        :rtype: Optional[bytes]
+        :raises EppCommunicatorException: If connection closes prematurely or socket error occurs
+        """
+        if self._ssl_socket is None:
+            raise EppCommunicatorException("Socket connection is not established.")
+
+        if num_bytes < 0:
+            raise EppCommunicatorException(f"Invalid byte count requested: {num_bytes}")
+
+        if num_bytes == 0:
+            return b""
+
+        buffer = bytearray()
+        while len(buffer) < num_bytes:
+            remaining = num_bytes - len(buffer)
+            to_read = min(remaining, SOCKET_BUFFER_CHUNK_SIZE)
+            try:
+                chunk = self._read_from_socket(to_read, use_read=use_read)
+            except (socket.timeout, TimeoutError) as exc:
+                raise EppCommunicatorException(
+                    f"Socket timed out while receiving data: {exc}"
+                ) from exc
+            except ssl.SSLZeroReturnError:
+                chunk = b""
+            except ssl.SSLError as exc:
+                raise EppCommunicatorException(
+                    f"SSL error while receiving data: {exc}"
+                ) from exc
+            except OSError as exc:
+                raise EppCommunicatorException(
+                    f"Connection error while receiving data: {exc}"
+                ) from exc
+
+            if not chunk or len(chunk) == 0:
+                if len(buffer) == 0:
+                    return None
+                raise EppCommunicatorException(
+                    f"Connection closed prematurely after {len(buffer)}/{num_bytes} bytes"
+                )
+
+            buffer.extend(chunk)
+            logging.debug("Received %s/%s bytes", len(buffer), num_bytes)
+
+        return bytes(buffer)
+
+    def _read(self) -> Optional[bytes]:
         """
         Read the response from the socket.
 
         :return: Response
         :rtype: Optional[bytes]
+        :raises EppCommunicatorException: If socket connection is invalid, header is malformed,
+            or message size exceeds limit
         """
-        length = self._ssl_socket.read(LENGTH_FIELD_SIZE)
-        buffer = bytes()
+        if self._ssl_socket is None:
+            raise EppCommunicatorException("Socket connection is not established.")
 
-        if not length:
+        length_header = self._read_exact(LENGTH_FIELD_SIZE, use_read=True)
+        if length_header is None:
             return None
 
-        total_bytes = self._unpack_data(length) - LENGTH_FIELD_SIZE
-        while len(buffer) < total_bytes:
-            remaining = total_bytes - len(buffer)
-            chunk = self._ssl_socket.recv(remaining)
-            if not chunk:
-                return None
-            buffer += chunk
-            logging.debug("Received %s/%s bytes", len(buffer), total_bytes)
-        return buffer
+        total_length = self._unpack_data(length_header)
+        if total_length < LENGTH_FIELD_SIZE:
+            raise EppCommunicatorException(
+                f"Invalid EPP message length header: {total_length} bytes "
+                f"(minimum is {LENGTH_FIELD_SIZE} bytes)"
+            )
+
+        max_size = getattr(self, "_max_message_size", DEFAULT_MAX_MESSAGE_SIZE)
+        if total_length > max_size:
+            self.disconnect()
+            raise EppCommunicatorException(
+                f"EPP message length {total_length} exceeds maximum allowed size "
+                f"({max_size} bytes)"
+            )
+
+        total_bytes = total_length - LENGTH_FIELD_SIZE
+        return self._read_exact(total_bytes, use_read=False)
 
     def _write(self, xml: str) -> int:
         """
@@ -370,16 +461,34 @@ class EppCommunicator:
 
         :return: Number of send bytes
         :rtype: int
+        :raises EppCommunicatorException: If socket is not connected or send fails
         """
+        if self._ssl_socket is None:
+            raise EppCommunicatorException("Socket connection is not established.")
+
         # +4 for the length field itself (section 4 mandates that)
         # +2 for the CRLF at the end
         xml_bytes = xml.encode("utf-8")
         length = self._pack_data(len(xml_bytes) + LENGTH_FIELD_SIZE + CRLF_SIZE)
 
-        self._ssl_socket.sendall(length)
-        xml += "\r\n"
-        data_to_send = xml.encode("utf-8")
-        self._ssl_socket.sendall(data_to_send)
+        try:
+            self._ssl_socket.sendall(length)
+            xml += "\r\n"
+            data_to_send = xml.encode("utf-8")
+            self._ssl_socket.sendall(data_to_send)
+        except (socket.timeout, TimeoutError) as exc:
+            raise EppCommunicatorException(
+                f"Socket timed out while sending data: {exc}"
+            ) from exc
+        except ssl.SSLError as exc:
+            raise EppCommunicatorException(
+                f"SSL error while sending data: {exc}"
+            ) from exc
+        except OSError as exc:
+            raise EppCommunicatorException(
+                f"Connection error while sending data: {exc}"
+            ) from exc
+
         logging.debug("Sent %s bytes", len(data_to_send))
         return len(data_to_send)
 
