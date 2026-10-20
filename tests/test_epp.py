@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import sys
 import struct
 import socket
+import ssl
 
 from pyepp.command_templates import LOGIN_XML
 from pyepp.epp import (
@@ -499,6 +500,181 @@ class EppCommunicatorTest(unittest.TestCase):
             self.assertIn("<domain:pw>***</domain:pw>", full_log)
             self.assertNotIn("reqSecret", full_log)
             self.assertNotIn("respSecret", full_log)
+
+    def test_read_fragmented_header_and_body(self):
+        """Confirm that reading 1-byte chunks for header and body reassembles correctly."""
+        self.epp._ssl_socket = MagicMock()
+        # Message length = 12 bytes (4 bytes header + 8 bytes payload: b"<xml/>\r\n")
+        header_bytes = struct.pack(">I", 12)
+        body_bytes = b"<xml/>\r\n"
+
+        # Header delivered in 1-byte chunks
+        self.epp._ssl_socket.read.side_effect = [bytes([b]) for b in header_bytes]
+        # Body delivered in 1-byte chunks
+        self.epp._ssl_socket.recv.side_effect = [bytes([b]) for b in body_bytes]
+
+        result = self.epp._read()
+        self.assertEqual(result, body_bytes)
+
+    def test_read_multi_byte_chunks_reassembly(self):
+        """Confirm that reading irregular chunk sizes correctly reassembles the body."""
+        self.epp._ssl_socket = MagicMock()
+        payload = b"A" * 100
+        total_length = len(payload) + 4
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", total_length)
+        # Deliver payload in chunks of 30, 30, 30, 10
+        self.epp._ssl_socket.recv.side_effect = [b"A" * 30, b"A" * 30, b"A" * 30, b"A" * 10]
+
+        result = self.epp._read()
+        self.assertEqual(result, payload)
+
+    def test_read_exact_zero_bytes(self):
+        """_read_exact with 0 bytes returns b'' immediately."""
+        self.epp._ssl_socket = MagicMock()
+        self.assertEqual(self.epp._read_exact(0), b"")
+
+    def test_read_exact_negative_bytes(self):
+        """_read_exact with negative byte count raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read_exact(-5)
+        self.assertIn("Invalid byte count requested: -5", str(ctx.exception))
+
+    def test_read_empty_body(self):
+        """Message with total length equal to 4 has 0-byte body and returns b''."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 4)
+        result = self.epp._read()
+        self.assertEqual(result, b"")
+
+    def test_read_premature_close_during_header(self):
+        """Premature closure after partial header bytes raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = [b"\x00\x00", b""]
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Connection closed prematurely after 2/4 bytes", str(ctx.exception))
+
+    def test_read_premature_close_during_body(self):
+        """Premature closure after partial body bytes raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 14)  # 10 bytes body
+        self.epp._ssl_socket.recv.side_effect = [b"hello", b""]  # 5 bytes received out of 10
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Connection closed prematurely after 5/10 bytes", str(ctx.exception))
+
+    def test_read_invalid_length_header_too_small(self):
+        """Header with length < 4 bytes raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 2)
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Invalid EPP message length header: 2 bytes (minimum is 4 bytes)", str(ctx.exception))
+
+    def test_read_length_header_exceeds_max_message_size(self):
+        """Header with length exceeding max_message_size raises EppCommunicatorException (DoS protection)."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 10 * 1024 * 1024 + 1)
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("exceeds maximum allowed size", str(ctx.exception))
+
+    def test_configurable_max_message_size(self):
+        """Custom max_message_size can be configured in EppCommunicator."""
+        epp = EppCommunicator('localhost', '700', dry_run=False, max_message_size=100)
+        epp._ssl_socket = MagicMock()
+        epp._ssl_socket.read.return_value = struct.pack(">I", 101)
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp._read()
+        self.assertIn("exceeds maximum allowed size (100 bytes)", str(ctx.exception))
+
+    def test_read_socket_timeout(self):
+        """Socket timeout during read raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = socket.timeout("timed out")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Socket timed out while receiving data", str(ctx.exception))
+
+    def test_read_ssl_zero_return_error(self):
+        """Clean TLS shutdown (SSLZeroReturnError) before bytes returns None."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = ssl.SSLZeroReturnError("TLS closed")
+        result = self.epp._read()
+        self.assertIsNone(result)
+
+    def test_read_ssl_zero_return_error_after_partial(self):
+        """SSLZeroReturnError after partial bytes raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = [b"\x00\x00", ssl.SSLZeroReturnError("TLS closed")]
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Connection closed prematurely after 2/4 bytes", str(ctx.exception))
+
+    def test_read_ssl_error(self):
+        """SSLError during read raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = ssl.SSLError("bad mac")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("SSL error while receiving data", str(ctx.exception))
+
+    def test_read_os_error(self):
+        """OSError / ConnectionResetError raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = OSError("Connection reset by peer")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Connection error while receiving data", str(ctx.exception))
+
+    def test_read_socket_not_connected(self):
+        """Calling _read or _read_exact when _ssl_socket is None raises EppCommunicatorException."""
+        self.epp._ssl_socket = None
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Socket connection is not established.", str(ctx.exception))
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read_exact(4)
+        self.assertIn("Socket connection is not established.", str(ctx.exception))
+
+    def test_read_from_socket_neither_read_nor_recv(self):
+        """Calling _read_from_socket on an object without read or recv raises EppCommunicatorException."""
+        self.epp._ssl_socket = object()
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read_from_socket(4)
+        self.assertIn("Socket has neither read nor recv method.", str(ctx.exception))
+
+    def test_write_socket_not_connected(self):
+        """Calling _write when _ssl_socket is None raises EppCommunicatorException."""
+        self.epp._ssl_socket = None
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._write("<xml/>")
+        self.assertIn("Socket connection is not established.", str(ctx.exception))
+
+    def test_write_socket_timeout(self):
+        """Socket timeout during _write raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.sendall.side_effect = socket.timeout("write timed out")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._write("<xml/>")
+        self.assertIn("Socket timed out while sending data", str(ctx.exception))
+
+    def test_write_ssl_error(self):
+        """SSLError during _write raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.sendall.side_effect = ssl.SSLError("SSL write error")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._write("<xml/>")
+        self.assertIn("SSL error while sending data", str(ctx.exception))
+
+    def test_write_os_error(self):
+        """OSError during _write raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.sendall.side_effect = OSError("Broken pipe")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._write("<xml/>")
+        self.assertIn("Connection error while sending data", str(ctx.exception))
 
 
 class MaskSensitiveXmlTest(unittest.TestCase):
