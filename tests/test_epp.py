@@ -421,6 +421,8 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertEqual(self.epp.user, 'user')
         sent_command = mock_execute.call_args[0][0]
         self.assertNotIn('<objURI>urn:ietf:params:xml:ns:epp-1.0</objURI>', sent_command)
+        self.assertNotIn('urn:ietf:params:xml:ns:urn:', sent_command)
+        self.assertEqual(sent_command.count('urn:ietf:params:xml:ns:secDNS-1.1'), 1)
 
     @patch('pyepp.epp.get_compiled_template')
     @patch('pyepp.epp.EppCommunicator.execute')
@@ -590,12 +592,15 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertIn("exceeds maximum allowed size (100 bytes)", str(ctx.exception))
 
     def test_read_socket_timeout(self):
-        """Socket timeout during read raises EppCommunicatorException."""
+        """Socket timeout during read raises EppCommunicatorException and disconnects."""
         self.epp._ssl_socket = MagicMock()
+        self.epp._logged_in = True
         self.epp._ssl_socket.read.side_effect = socket.timeout("timed out")
         with self.assertRaises(EppCommunicatorException) as ctx:
             self.epp._read()
         self.assertIn("Socket timed out while receiving data", str(ctx.exception))
+        self.assertFalse(self.epp.is_connected)
+        self.assertFalse(self.epp.is_logged_in)
 
     def test_read_ssl_zero_return_error(self):
         """Clean TLS shutdown (SSLZeroReturnError) before bytes returns None."""
@@ -653,12 +658,15 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertIn("Socket connection is not established.", str(ctx.exception))
 
     def test_write_socket_timeout(self):
-        """Socket timeout during _write raises EppCommunicatorException."""
+        """Socket timeout during _write raises EppCommunicatorException and disconnects."""
         self.epp._ssl_socket = MagicMock()
+        self.epp._logged_in = True
         self.epp._ssl_socket.sendall.side_effect = socket.timeout("write timed out")
         with self.assertRaises(EppCommunicatorException) as ctx:
             self.epp._write("<xml/>")
         self.assertIn("Socket timed out while sending data", str(ctx.exception))
+        self.assertFalse(self.epp.is_connected)
+        self.assertFalse(self.epp.is_logged_in)
 
     def test_write_ssl_error(self):
         """SSLError during _write raises EppCommunicatorException."""
@@ -767,6 +775,887 @@ class MaskSensitiveXmlTest(unittest.TestCase):
         self.assertEqual(_find_tag_end(b"<pw>", 0, 4), 4)
         self.assertEqual(_find_tag_end(b"<pw roid='1'>", 0, 13), 13)
         self.assertEqual(_find_tag_end(b"<pw", 0, 3), -1)
+
+
+class EppContextManagerTest(unittest.TestCase):
+    """
+    Tests for EppCommunicator Pythonic context manager protocol (USE-1)
+    and session lifecycle / state tracking.
+    """
+
+    def test_context_manager_auto_connect_and_login_success(self):
+        """Context manager with credentials auto-connects, logs in, and logs out on exit."""
+        epp = EppCommunicator('localhost', '700', user='test_user', password='test_password')
+
+        def fake_connect():
+            epp._ssl_socket = MagicMock()
+            return b'greeting'
+
+        def fake_login(user, password, extensions=None):
+            epp._logged_in = True
+            return MagicMock(code=1000)
+
+        epp.connect = MagicMock(side_effect=fake_connect)
+        epp.login = MagicMock(side_effect=fake_login)
+        epp.logout = MagicMock(return_value=MagicMock())
+
+        with epp as client:
+            self.assertIs(client, epp)
+            epp.connect.assert_called_once()
+            epp.login.assert_called_once_with('test_user', 'test_password', [])
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+
+        epp.logout.assert_called_once()
+        self.assertFalse(epp.is_logged_in)
+
+    def test_context_manager_with_extensions(self):
+        """Context manager forwards configured extensions to login."""
+        extensions = ['urn:ietf:params:xml:ns:secDNS-1.1']
+        epp = EppCommunicator('localhost', '700', user='u', password='p', extensions=extensions)
+        self.assertEqual(epp.extensions, extensions)
+
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.login.assert_called_once_with('u', 'p', extensions)
+
+        epp.logout.assert_called_once()
+
+    def test_context_manager_no_credentials_only_connects(self):
+        """Context manager without credentials connects but does not auto-login, disconnects on exit."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock()
+        epp.logout = MagicMock()
+        epp.disconnect = MagicMock()
+
+        with epp as client:
+            self.assertIs(client, epp)
+            epp.connect.assert_called_once()
+            epp.login.assert_not_called()
+            self.assertTrue(epp.is_connected)
+            self.assertFalse(epp.is_logged_in)
+
+        epp.logout.assert_not_called()
+        epp.disconnect.assert_called_once()
+
+    def test_context_manager_manual_login_inside_block(self):
+        """Manual login inside block marks is_logged_in and triggers logout on exit."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.logout = MagicMock()
+        epp.execute = MagicMock(return_value=MagicMock(code=1000, message='OK'))
+        epp._ssl_socket = MagicMock()
+
+        with epp:
+            self.assertFalse(epp.is_logged_in)
+            epp.login('manual_user', 'manual_pass')
+            self.assertTrue(epp.is_logged_in)
+
+        epp.logout.assert_called_once()
+
+    def test_context_manager_exception_in_block_propagates_and_cleans_up(self):
+        """Exception raised within context block propagates and still triggers logout and disconnect."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp.logout = MagicMock()
+        epp._ssl_socket = MagicMock()
+        # Simulate logged in
+        epp._logged_in = True
+
+        with self.assertRaises(RuntimeError) as ctx:
+            with epp:
+                raise RuntimeError("Custom failure inside context")
+
+        self.assertEqual(str(ctx.exception), "Custom failure inside context")
+        epp.logout.assert_called_once()
+
+    def test_context_manager_logout_failure_does_not_mask_block_exception(self):
+        """Logout error during context exit cleanup is logged at debug and does not mask original error."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        logout_err = EppCommunicatorException("Logout network error")
+        epp.logout = MagicMock(side_effect=logout_err)
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        with self.assertLogs(level='DEBUG') as log:
+            with self.assertRaises(ValueError) as ctx:
+                with epp:
+                    raise ValueError("Original business error")
+
+        self.assertEqual(str(ctx.exception), "Original business error")
+        self.assertIs(epp.last_logout_error, logout_err)
+        self.assertTrue(
+            any("Error during EppCommunicator context exit cleanup while handling exception" in msg for msg in log.output)
+        )
+
+    def test_context_manager_logout_failure_normal_exit_logs_warning_and_records_state(self):
+        """Logout failure on normal context exit logs at WARNING level and records last_logout_error."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        logout_err = EppCommunicatorException("Clean logout timeout from server")
+        epp.logout = MagicMock(side_effect=logout_err)
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        with self.assertLogs(level='WARNING') as log:
+            with epp:
+                pass  # block finishes normally
+
+        self.assertIs(epp.last_logout_error, logout_err)
+        self.assertTrue(
+            any("Logout failed during context exit cleanup: Clean logout timeout from server" in msg
+                for msg in log.output)
+        )
+
+    def test_context_manager_logout_returned_error_code_logs_warning_and_records_state(self):
+        """Logout returning an unsuccessful result code (e.g. 2400) is converted to error, logged, and recorded."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        logout_result = EppResultData(
+            code=2400,
+            message="Command failed",
+            reason="Session busy",
+            raw_response="<raw/>",
+            client_transaction_id=None,
+            server_transaction_id=None,
+            repository_object_id=None,
+            result_data=None,
+        )
+        epp.logout = MagicMock(return_value=logout_result)
+
+        with self.assertLogs(level='WARNING') as log:
+            with epp:
+                pass  # block finishes normally
+
+        self.assertIsInstance(epp.last_logout_error, EppCommunicatorException)
+        self.assertIn("Logout failed with code 2400: Command failed - Session busy", str(epp.last_logout_error))
+        self.assertTrue(
+            any("Logout failed during context exit cleanup: Logout failed with code 2400" in msg
+                for msg in log.output)
+        )
+
+    def test_context_manager_logout_returned_error_code_does_not_mask_block_exception(self):
+        """Logout returning an error code during exception exit is logged at DEBUG and does not mask original error."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        logout_result = EppResultData(
+            code=2002,
+            message="Command use error",
+            reason=None,
+            raw_response="<raw/>",
+            client_transaction_id=None,
+            server_transaction_id=None,
+            repository_object_id=None,
+            result_data=None,
+        )
+        epp.logout = MagicMock(return_value=logout_result)
+
+        with self.assertLogs(level='DEBUG') as log:
+            with self.assertRaises(ValueError) as ctx:
+                with epp:
+                    raise ValueError("Original business failure")
+
+        self.assertEqual(str(ctx.exception), "Original business failure")
+        self.assertIsInstance(epp.last_logout_error, EppCommunicatorException)
+        self.assertIn("Logout failed with code 2002: Command use error", str(epp.last_logout_error))
+        self.assertTrue(
+            any("Error during EppCommunicator context exit cleanup while handling exception" in msg
+                for msg in log.output)
+        )
+
+    def test_context_manager_logout_success_codes_leave_last_error_none(self):
+        """Logout returning success codes (1500 or 1000) leaves last_logout_error as None."""
+        for success_code in (1500, 1000):
+            epp = EppCommunicator('localhost', '700', user='u', password='p')
+            epp.connect = MagicMock(return_value=b'greeting')
+            epp.login = MagicMock(return_value=MagicMock(code=1000))
+            epp._ssl_socket = MagicMock()
+            epp._logged_in = True
+
+            epp.logout = MagicMock(
+                return_value=EppResultData(
+                    code=success_code,
+                    message="Success",
+                    reason=None,
+                    raw_response="<raw/>",
+                    client_transaction_id=None,
+                    server_transaction_id=None,
+                    repository_object_id=None,
+                    result_data=None,
+                )
+            )
+
+            with epp:
+                pass
+
+            self.assertIsNone(epp.last_logout_error)
+
+    def test_last_logout_error_reset_on_enter(self):
+        """Entering a new context resets last_logout_error to None."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='u', password='p')
+        epp._last_logout_error = RuntimeError("Old error")
+        self.assertIsNotNone(epp.last_logout_error)
+        with epp:
+            self.assertIsNone(epp.last_logout_error)
+        self.assertIsNone(epp.last_logout_error)
+
+    def test_context_manager_login_failure_in_enter_disconnects_socket(self):
+        """If login fails during __enter__, socket is immediately closed to prevent descriptor leak."""
+        epp = EppCommunicator('localhost', '700', user='u', password='bad_pass')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=EppCommunicatorException("Auth error 2200"))
+        epp.disconnect = MagicMock()
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            with epp:
+                pass
+
+        self.assertIn("Auth error 2200", str(ctx.exception))
+        epp.connect.assert_called_once()
+        epp.disconnect.assert_called_once()
+
+    def test_context_manager_connect_failure_in_enter(self):
+        """If connect fails in __enter__, exception propagates cleanly."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=EppCommunicatorException("Connection refused"))
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            with epp:
+                pass
+
+        self.assertIn("Connection refused", str(ctx.exception))
+
+    def test_context_manager_already_connected_does_not_reconnect(self):
+        """If communicator is already connected, __enter__ skips reconnect."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp._ssl_socket = MagicMock()  # makes is_connected True
+        epp.connect = MagicMock()
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.connect.assert_not_called()
+            epp.login.assert_called_once()
+
+    def test_context_manager_explicit_logout_inside_block(self):
+        """Calling logout explicitly inside block resets is_logged_in and avoids double-logout on exit."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock(side_effect=lambda: setattr(epp, '_logged_in', False))
+        epp._ssl_socket = MagicMock()
+
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+            epp.logout()
+            self.assertFalse(epp.is_logged_in)
+
+        # logout called once manually, NOT a second time on exit
+        self.assertEqual(epp.logout.call_count, 1)
+
+    def test_context_manager_dry_run_full_cycle(self):
+        """Context manager with dry_run=True connects, logs in, executes, and cleans up offline."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='dry_user', password='dry_password')
+        with epp as client:
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+            res = client.execute("<xml><command><clTRID>ABC</clTRID></command></xml>")
+            self.assertTrue(res.dry_run)
+            self.assertEqual(res.code, 1000)
+
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_context_manager_reusable(self):
+        """EppCommunicator instance can be reused across multiple with statements."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='u', password='p')
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+        self.assertFalse(epp.is_logged_in)
+
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_repr_masks_password(self):
+        """__repr__ must expose server, port, user, but NEVER secret password or keys."""
+        epp = EppCommunicator(
+            'registry.example.com',
+            '700',
+            user='admin_user',
+            password='super_secret_password',
+            client_cert='cert.pem',
+            client_key='key.pem',
+            dry_run=False,
+        )
+        repr_str = repr(epp)
+        self.assertNotIn('super_secret_password', repr_str)
+        self.assertIn('registry.example.com', repr_str)
+        self.assertIn('admin_user', repr_str)
+        self.assertIn('logged_in=False', repr_str)
+        self.assertIn('dry_run=False', repr_str)
+
+    def test_login_execute_exception_resets_logged_in(self):
+        """If execute() throws an unexpected exception during login(), _logged_in remains False."""
+        epp = EppCommunicator('localhost', '700')
+        epp.execute = MagicMock(side_effect=EppCommunicatorException("Connection aborted"))
+
+        with self.assertRaises(EppCommunicatorException):
+            epp.login('user', 'pass')
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_login_failure_resets_logged_in(self):
+        """Login returning non-success result code sets _logged_in to False and raises."""
+        epp = EppCommunicator('localhost', '700')
+        mock_result = MagicMock()
+        mock_result.code = 2200
+        mock_result.message = "Authentication error"
+        mock_result.reason = "Bad credentials"
+        epp.execute = MagicMock(return_value=mock_result)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp.login('user', 'pass')
+
+        self.assertIn("Auth", str(ctx.exception))
+        self.assertFalse(epp.is_logged_in)
+
+    def test_login_parameter_range_error_resets_logged_in(self):
+        """Login returning PARAMETER_RANGE_ERROR sets _logged_in to False and raises."""
+        epp = EppCommunicator('localhost', '700')
+        mock_result = MagicMock()
+        mock_result.code = 2004
+        mock_result.message = "Parameter range error"
+        mock_result.reason = "Invalid"
+        epp.execute = MagicMock(return_value=mock_result)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp.login('user', 'pass')
+
+        self.assertIn("Incorrect user name or password", str(ctx.exception))
+        self.assertFalse(epp.is_logged_in)
+
+    def test_properties_state_flow(self):
+        """Verify user, extensions, is_connected, and is_logged_in properties."""
+        epp = EppCommunicator('localhost', '700', user='my_user')
+        self.assertEqual(epp.user, 'my_user')
+        self.assertEqual(epp.extensions, [])
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # After connecting in dry run
+        epp._dry_run = True
+        epp.connect()
+        self.assertTrue(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # After disconnecting
+        epp.disconnect()
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_context_reuse_after_switching_credentials(self):
+        """When manual login switches credentials, subsequent context entry uses the new pair."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp.execute = MagicMock(return_value=MagicMock(code=1000, message='OK'))
+        epp._ssl_socket = MagicMock()
+
+        # Switch credentials via manual login
+        epp.login('userB', 'passB')
+        self.assertEqual(epp.user, 'userB')
+        self.assertEqual(epp._password, 'passB')
+
+        # Teardown connection
+        epp.disconnect()
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Context entry should now auto-login with userB and passB
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.login.assert_called_once_with('userB', 'passB', [])
+
+    def test_login_failure_does_not_corrupt_cached_credentials(self):
+        """Failed login does not overwrite existing cached credentials."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        mock_result = MagicMock()
+        mock_result.code = 2200
+        mock_result.message = "Auth failed"
+        mock_result.reason = "Bad credentials"
+        epp.execute = MagicMock(return_value=mock_result)
+
+        with self.assertRaises(EppCommunicatorException):
+            epp.login('userC', 'badPass')
+
+        # Credentials must remain userA / passA
+        self.assertEqual(epp.user, 'userA')
+        self.assertEqual(epp._password, 'passA')
+
+    def test_enter_keyboard_interrupt_during_login_disconnects_socket(self):
+        """KeyboardInterrupt during auto-login in __enter__ closes socket and re-raises."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=KeyboardInterrupt())
+        epp.disconnect = MagicMock()
+
+        with self.assertRaises(KeyboardInterrupt):
+            with epp:
+                pass
+
+        epp.connect.assert_called_once()
+        epp.disconnect.assert_called_once()
+
+    def test_enter_system_exit_during_connect_disconnects(self):
+        """SystemExit during connect in __enter__ triggers disconnect and re-raises."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=SystemExit(1))
+        epp.disconnect = MagicMock()
+
+        with self.assertRaises(SystemExit):
+            with epp:
+                pass
+
+        epp.disconnect.assert_called_once()
+
+    def test_connect_base_exception_disconnects(self):
+        """BaseException (e.g. KeyboardInterrupt) during connect() calls disconnect() and re-raises."""
+        epp = EppCommunicator('localhost', '700')
+        with patch('pyepp.epp.socket.socket', side_effect=KeyboardInterrupt()):
+            with self.assertRaises(KeyboardInterrupt):
+                epp.connect()
+        self.assertIsNone(epp._socket)
+        self.assertIsNone(epp._ssl_socket)
+
+    def test_eof_during_execute_command_disconnects_and_allows_clean_context_entry(self):
+        """EOF during _execute_command disconnects session so subsequent context entry reconnects and re-authenticates."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Simulate EOF: write succeeds, read returns None
+        epp._write = MagicMock()
+        epp._read = MagicMock(return_value=None)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp._execute_command("<check/>")
+
+        self.assertIn("Cannot connect to server. Please re-login!", str(ctx.exception))
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Now entering with epp: must reconnect and re-authenticate instead of skipping
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp as client:
+            epp.connect.assert_called_once()
+            epp.login.assert_called_once_with('userA', 'passA', [])
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+
+    def test_execute_server_closing_connection_codes_disconnects(self):
+        """Server codes 2500, 2501, 2502 trigger disconnect to keep local state synchronized."""
+        for code in (2500, 2501, 2502):
+            epp = EppCommunicator('localhost', '700')
+            epp._ssl_socket = MagicMock()
+            epp._socket = MagicMock()
+            epp.greeting = b'greeting'
+            epp._logged_in = True
+
+            xml_resp = (
+                f'<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+                f'<response><result code="{code}"><msg>Closing</msg></result>'
+                f'<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+                f'</response></epp>'
+            )
+            epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+            res = epp.execute("<command/>")
+            self.assertEqual(res.code, code)
+            self.assertFalse(epp.is_connected)
+            self.assertFalse(epp.is_logged_in)
+
+    @patch('pyepp.epp.socket.socket')
+    @patch('pyepp.epp.ssl.create_default_context')
+    def test_connect_peer_closes_before_greeting_rejects_and_disconnects(self, mock_ssl, mock_sock):
+        """If peer closes before sending greeting, connect() rejects missing greeting and disconnects."""
+        epp = EppCommunicator('localhost', '700')
+        mock_ctx = MagicMock()
+        mock_ssl.return_value = mock_ctx
+        mock_wrapped_sock = MagicMock()
+        mock_ctx.wrap_socket.return_value = mock_wrapped_sock
+        # Peer closes connection before sending greeting
+        epp._read = MagicMock(return_value=None)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp.connect()
+
+        self.assertIn("Could not setup a secure connection", str(ctx.exception))
+        self.assertFalse(epp.is_connected)
+        self.assertIsNone(epp._ssl_socket)
+        self.assertIsNone(epp.greeting)
+
+    def test_execute_raw_logout_success_end_session_disconnects(self):
+        """Raw logout command returning code 1500 (SUCCESS_END_SESSION) triggers disconnect."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp._ssl_socket = MagicMock()
+        epp._socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1500"><msg>Command completed successfully; end of session</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute("<command><logout/></command>")
+        self.assertEqual(res.code, 1500)
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+        self.assertIsNone(epp._ssl_socket)
+
+        # Subsequent context entry must reconnect and re-authenticate instead of skipping
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp as client:
+            epp.connect.assert_called_once()
+            epp.login.assert_called_once_with('userA', 'passA', [])
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+
+    def test_reconnect_authenticated_instance_resets_auth_and_context_reauthenticates(self):
+        """Reconnecting an already authenticated instance resets _logged_in so subsequent context entry authenticates."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA', dry_run=True)
+        # Establish authenticated session
+        epp.connect()
+        epp.login('userA', 'passA')
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Fresh transport connect() must reset authentication state
+        epp.connect()
+        self.assertTrue(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Entering context now should NOT skip login
+        with epp:
+            self.assertTrue(epp.is_connected)
+            self.assertTrue(epp.is_logged_in)
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_duplicate_login_rejected_locally_and_preserves_exit_logout(self):
+        """Duplicate login on an authenticated session is rejected locally and preserves session tracking for exit logout."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.execute = MagicMock(return_value=MagicMock(code=1000, message='OK'))
+        epp.logout = MagicMock()
+
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+            # Attempt duplicate login
+            with self.assertRaises(EppCommunicatorException) as ctx:
+                epp.login('userB', 'passB')
+            self.assertIn("Already logged in to EPP server", str(ctx.exception))
+            # State must remain tracked and logged in
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'userA')
+
+        # Context exit must NOT skip logout
+        epp.logout.assert_called_once()
+
+    def test_raw_login_via_execute_synchronizes_logged_in_and_context_exit_logs_out(self):
+        """Raw <login> XML executed via execute() sets _logged_in and triggers logout on context exit."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.logout = MagicMock()
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>rawUser</clID><pw>rawPass</pw>'
+            '<options><version>1.0</version><lang>en</lang></options>'
+            '<svcs><objURI>urn:ietf:params:xml:ns:domain-1.0</objURI>'
+            '<svcExtension><extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI></svcExtension>'
+            '</svcs></login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+        epp.greeting = b'greeting'
+
+        with epp:
+            self.assertFalse(epp.is_logged_in)
+            res = epp.execute(raw_login_xml)
+            self.assertEqual(res.code, 1000)
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'rawUser')
+            self.assertEqual(epp._password, 'rawPass')
+            self.assertEqual(epp.extensions, ['urn:ietf:params:xml:ns:secDNS-1.1'])
+
+        epp.logout.assert_called_once()
+
+    def test_raw_login_with_constructor_credentials_prevents_duplicate_login_on_context_entry(self):
+        """Raw login on connected instance sets _logged_in so subsequent context entry skips duplicate login."""
+        epp = EppCommunicator('localhost', '700', user='admin', password='secret')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>admin</clID><pw>secret</pw>'
+            '</login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+
+        epp.execute(raw_login_xml)
+        self.assertTrue(epp.is_logged_in)
+
+        # Context entry should detect active login and skip calling login()
+        epp.login = MagicMock()
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.login.assert_not_called()
+
+    def test_non_login_command_returning_1000_does_not_set_logged_in(self):
+        """Non-login commands returning code 1000 do not mistakenly set _logged_in."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+        self.assertFalse(epp.is_logged_in)
+
+        domain_check_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command>'
+            '<check><domain:check xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:name>example.com</domain:name>'
+            '</domain:check></check></command></epp>'
+        )
+        check_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=check_resp_xml.encode('utf-8'))
+
+        epp.execute(domain_check_xml)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_failed_raw_login_keeps_logged_in_false(self):
+        """Failed raw login command (code 2200) does not set _logged_in to True."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>badUser</clID><pw>badPass</pw>'
+            '</login></command></epp>'
+        )
+        fail_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="2200"><msg>Authentication error</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=fail_resp_xml.encode('utf-8'))
+
+        res = epp.execute(raw_login_xml)
+        self.assertEqual(res.code, 2200)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_raw_login_dry_run_synchronizes_state(self):
+        """Raw login XML in dry_run mode synchronizes authentication state and triggers logout on exit."""
+        epp = EppCommunicator('localhost', '700', dry_run=True)
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>dryRawUser</clID><pw>dryRawPass</pw>'
+            '</login></command></epp>'
+        )
+        with epp:
+            self.assertFalse(epp.is_logged_in)
+            epp.execute(raw_login_xml)
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'dryRawUser')
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_extract_login_info_edge_cases(self):
+        """Test edge cases in _extract_login_info static method."""
+        # Not containing '<login'
+        self.assertIsNone(EppCommunicator._extract_login_info("<command><check/></command>"))
+        # Contains '<login' but no <command> tag
+        self.assertIsNone(EppCommunicator._extract_login_info("<login><clID>user</clID></login>"))
+        # Contains <command> but no direct <login> tag
+        self.assertIsNone(EppCommunicator._extract_login_info("<command><check><name><login/></name></check></command>"))
+        # With patch raising Exception in BeautifulSoup
+        with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
+            self.assertIsNone(EppCommunicator._extract_login_info("<command><login/></command>"))
+
+    def test_extract_login_info_preserves_password_whitespace(self):
+        """Verify that password leading and trailing whitespace is preserved verbatim."""
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>  spaced_user  </clID>'
+            '<pw>  secret with spaces  </pw>'
+            '</login></command></epp>'
+        )
+        login_info = EppCommunicator._extract_login_info(xml)
+        self.assertIsNotNone(login_info)
+        user, password, ext_uris = login_info
+        self.assertEqual(user, "spaced_user")
+        self.assertEqual(password, "  secret with spaces  ")
+        self.assertEqual(ext_uris, [])
+
+    def test_rendered_login_xml_prevents_duplicate_namespace_prefixes(self):
+        """Verify rendered login XML emits full URIs unchanged and prefixes suffix-style extensions."""
+        epp = EppCommunicator('localhost', '700')
+        epp.execute = MagicMock(return_value=MagicMock(code=1000))
+
+        epp.login(
+            'my_user',
+            'my_pass',
+            extensions=[
+                'urn:ietf:params:xml:ns:secDNS-1.1',
+                'urn:ietf:params:xml:ns:fee-0.10',
+                'rgp-1.0',
+                'http://custom.registry/epp/ext-1.0',
+            ],
+        )
+
+        rendered_xml = epp.execute.call_args[0][0]
+        # Never duplicate urn: prefix
+        self.assertNotIn("urn:ietf:params:xml:ns:urn:", rendered_xml)
+        # secDNS-1.1 should appear only once (not duplicated)
+        self.assertEqual(rendered_xml.count("urn:ietf:params:xml:ns:secDNS-1.1"), 1)
+        # Full URN emitted cleanly
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>", rendered_xml)
+        # Suffix-style input gets prefix prepended
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:rgp-1.0</extURI>", rendered_xml)
+        # Custom URI with scheme emitted cleanly without urn prefix
+        self.assertIn("<extURI>http://custom.registry/epp/ext-1.0</extURI>", rendered_xml)
+
+    def test_reused_communicator_after_raw_login_rendered_xml(self):
+        """Communicator with cached extensions from raw login renders clean XML without duplicate prefixes."""
+        epp = EppCommunicator('localhost', '700')
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>rawUser</clID><pw>rawPass</pw>'
+            '<svcs>'
+            '<svcExtension>'
+            '<extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI>'
+            '<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>'
+            '</svcExtension>'
+            '</svcs>'
+            '</login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+        epp.greeting = b'greeting'
+
+        # Execute raw login; populates _extensions with full URIs
+        epp.execute(raw_login_xml)
+        self.assertEqual(epp.extensions, [
+            'urn:ietf:params:xml:ns:secDNS-1.1',
+            'urn:ietf:params:xml:ns:fee-0.10',
+        ])
+
+        # Disconnect so next login is permitted
+        epp.disconnect()
+
+        # Call epp.login() which reuses self._extensions
+        epp.execute = MagicMock(return_value=MagicMock(code=1000))
+        epp.login('rawUser', 'rawPass')
+
+        rendered_xml = epp.execute.call_args[0][0]
+        self.assertNotIn("urn:ietf:params:xml:ns:urn:", rendered_xml)
+        self.assertEqual(rendered_xml.count("urn:ietf:params:xml:ns:secDNS-1.1"), 1)
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>", rendered_xml)
+
+    def test_raw_dry_run_logout_sequence_disconnects_session(self):
+        """Raw logout command through execute() in dry-run mode clears is_logged_in and is_connected."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='dryUser', password='dryPass')
+        epp.connect()
+        epp.login('dryUser', 'dryPass')
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Execute raw logout through execute() API
+        raw_logout_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<command><logout/></command>'
+            '</epp>'
+        )
+        res = epp.execute(raw_logout_xml)
+        self.assertEqual(res.code, 1000)
+        self.assertTrue(res.dry_run)
+        # Session state must be cleared
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Subsequent context entry must connect and authenticate instead of skipping
+        with epp:
+            self.assertTrue(epp.is_connected)
+            self.assertTrue(epp.is_logged_in)
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_is_logout_command_edge_cases(self):
+        """Verify _is_logout_command static method edge cases."""
+        # Not containing 'logout'
+        self.assertFalse(EppCommunicator._is_logout_command("<command><check/></command>"))
+        # Contains 'logout' but no <command> tag
+        self.assertFalse(EppCommunicator._is_logout_command("<logout/>"))
+        # Contains <command> but logout is not direct child
+        self.assertFalse(EppCommunicator._is_logout_command("<command><check><logout/></check></command>"))
+        # Exception during parsing
+        with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
+            self.assertFalse(EppCommunicator._is_logout_command("<command><logout/></command>"))
 
 
 

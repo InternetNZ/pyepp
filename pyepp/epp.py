@@ -293,6 +293,9 @@ class EppCommunicator:
         client_key: Optional[str] = None,
         dry_run: Optional[bool] = False,
         max_message_size: int = DEFAULT_MAX_MESSAGE_SIZE,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        extensions: Optional[list[str]] = None,
     ) -> None:
         """
         :param server: EPP server to connect to.
@@ -301,10 +304,15 @@ class EppCommunicator:
         :param client_key: Path to client key
         :param dry_run: dry run the request
         :param max_message_size: Maximum allowed message size in bytes (DoS protection)
+        :param user: Optional EPP username for automatic login in context manager
+        :param password: Optional EPP password for automatic login in context manager
+        :param extensions: Optional list of extension URIs for login
         """
         self._server = server
         self._port = port
-        self._user = None
+        self._user = user
+        self._password = password
+        self._extensions = extensions or []
         self._client_cert = client_cert
         self._client_key = client_key
 
@@ -317,11 +325,124 @@ class EppCommunicator:
         self._socket = None
         self._ssl_socket = None
         self.greeting = None
+        self._logged_in = False
+        self._last_logout_error: Optional[Exception] = None
+
+    def __repr__(self) -> str:
+        """
+        Safe string representation masking sensitive credentials.
+
+        :return: Class representation string.
+        :rtype: str
+        """
+        return (
+            f"<{self.__class__.__name__} "
+            f"server={self._server!r} port={self._port!r} "
+            f"user={self._user!r} logged_in={self._logged_in} "
+            f"dry_run={self._dry_run}>"
+        )
+
+    def __enter__(self) -> "EppCommunicator":
+        """
+        Enter runtime context, establishing connection and logging in if credentials exist.
+
+        :return: Connected (and optionally authenticated) EppCommunicator instance.
+        :rtype: EppCommunicator
+        :raises EppCommunicatorException: If connection or authentication fails.
+        """
+        self._last_logout_error = None
+        try:
+            if not self.is_connected:
+                self.connect()
+
+            if self._user and self._password and not self._logged_in:
+                self.login(self._user, self._password, self._extensions)
+        except BaseException:
+            self.disconnect()
+            raise
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> bool:
+        """
+        Exit runtime context, cleanly logging out and closing connection.
+
+        :param exc_type: Exception class if raised within context.
+        :param exc_val: Exception instance if raised within context.
+        :param exc_tb: Traceback object if raised within context.
+        :return: False to allow any exception raised within the context to propagate.
+        :rtype: bool
+        """
+        try:
+            if self._logged_in:
+                res = self.logout()
+                code = getattr(res, "code", None)
+                if isinstance(code, int) and code not in (
+                    EppResultCode.SUCCESS_END_SESSION.value,
+                    EppResultCode.SUCCESS.value,
+                ):
+                    reason = f" - {res.reason}" if getattr(res, "reason", None) else ""
+                    msg = getattr(res, "message", "Command failed")
+                    raise EppCommunicatorException(f"Logout failed with code {code}: {msg}{reason}")
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            self._last_logout_error = exc
+            if exc_type is None:
+                logging.warning("Logout failed during context exit cleanup: %s", exc)
+            else:
+                logging.debug(
+                    "Error during EppCommunicator context exit cleanup while handling exception: %s", exc
+                )
+        finally:
+            self.disconnect()
+
+        return False
 
     @property
-    def user(self):
+    def last_logout_error(self) -> Optional[Exception]:
+        """
+        Exception encountered during the most recent context manager logout, if any.
+
+        :return: Exception instance if logout failed during __exit__, None otherwise.
+        :rtype: Optional[Exception]
+        """
+        return self._last_logout_error
+
+    @property
+    def user(self) -> Optional[str]:
         """User property"""
         return self._user
+
+    @property
+    def extensions(self) -> list[str]:
+        """Extensions property"""
+        return list(getattr(self, "_extensions", []))
+
+    @property
+    def is_logged_in(self) -> bool:
+        """
+        Check if the client has an active authenticated session.
+
+        :return: True if authenticated and logged in, False otherwise.
+        :rtype: bool
+        """
+        return self._logged_in
+
+    @property
+    def is_connected(self) -> bool:
+        """
+        Check if the transport connection is established.
+
+        :return: True if connected, False otherwise.
+        :rtype: bool
+        """
+        if self._dry_run:
+            return self.greeting is not None
+        return self._ssl_socket is not None
 
     def _unpack_data(self, data: bytes) -> int:
         """
@@ -393,16 +514,19 @@ class EppCommunicator:
             try:
                 chunk = self._read_from_socket(to_read, use_read=use_read)
             except (socket.timeout, TimeoutError) as exc:
+                self.disconnect()
                 raise EppCommunicatorException(
                     f"Socket timed out while receiving data: {exc}"
                 ) from exc
             except ssl.SSLZeroReturnError:
                 chunk = b""
             except ssl.SSLError as exc:
+                self.disconnect()
                 raise EppCommunicatorException(
                     f"SSL error while receiving data: {exc}"
                 ) from exc
             except OSError as exc:
+                self.disconnect()
                 raise EppCommunicatorException(
                     f"Connection error while receiving data: {exc}"
                 ) from exc
@@ -410,6 +534,7 @@ class EppCommunicator:
             if not chunk or len(chunk) == 0:
                 if len(buffer) == 0:
                     return None
+                self.disconnect()
                 raise EppCommunicatorException(
                     f"Connection closed prematurely after {len(buffer)}/{num_bytes} bytes"
                 )
@@ -477,14 +602,17 @@ class EppCommunicator:
             data_to_send = xml.encode("utf-8")
             self._ssl_socket.sendall(data_to_send)
         except (socket.timeout, TimeoutError) as exc:
+            self.disconnect()
             raise EppCommunicatorException(
                 f"Socket timed out while sending data: {exc}"
             ) from exc
         except ssl.SSLError as exc:
+            self.disconnect()
             raise EppCommunicatorException(
                 f"SSL error while sending data: {exc}"
             ) from exc
         except OSError as exc:
+            self.disconnect()
             raise EppCommunicatorException(
                 f"Connection error while sending data: {exc}"
             ) from exc
@@ -515,6 +643,7 @@ class EppCommunicator:
 
         response = self._read()
         if response is None:
+            self.disconnect()
             raise EppCommunicatorException("Cannot connect to server. Please re-login!")
 
         logging.debug(
@@ -532,6 +661,10 @@ class EppCommunicator:
 
         :raises EppCommunicatorException: When there is any errors
         """
+        self._logged_in = False
+        if self.is_connected:
+            self.disconnect()
+
         # In dry-run mode, bypass socket and TLS handshake and simulate a server greeting
         if self._dry_run:
             logging.debug("Dry run - skipping network connection")
@@ -558,6 +691,10 @@ class EppCommunicator:
             )
             self._ssl_socket.connect((self._server, int(self._port)))
             self.greeting = self._read()
+            if self.greeting is None:
+                raise EppCommunicatorException(
+                    "Connection closed by server before sending EPP greeting."
+                )
             logging.debug("Received greeting from server :\n%s", self.greeting)
             return self.greeting
         except Exception as ex:
@@ -566,6 +703,67 @@ class EppCommunicator:
             raise EppCommunicatorException(
                 "Could not setup a secure connection"
             ) from ex
+        except BaseException:
+            self.disconnect()
+            raise
+
+    @staticmethod
+    def _extract_login_info(
+        cmd: str,
+    ) -> Optional[tuple[Optional[str], Optional[str], list[str]]]:
+        """Check if cmd is an EPP <login> command and extract user, password, extensions if present."""
+        if "login" not in cmd:
+            return None
+        try:
+            cmd_elem = BeautifulSoup(cmd, "xml").find("command")
+            login_elem = cmd_elem.find("login", recursive=False) if cmd_elem else None
+            if not login_elem:
+                return None
+            clid = login_elem.find("clID")
+            user = clid.text.strip() if clid and clid.text else None
+            pw_elem = login_elem.find("newPW") or login_elem.find("pw")
+            password = pw_elem.text if pw_elem and pw_elem.text is not None else None
+            ext_uris = [
+                ext.text.strip()
+                for ext in login_elem.find_all("extURI")
+                if ext.text and ext.text.strip()
+            ]
+            return user, password, ext_uris
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.debug("Could not inspect command for login: %s", exc)
+            return None
+
+    @staticmethod
+    def _is_logout_command(cmd: str) -> bool:
+        """Check if cmd is an EPP <logout> command."""
+        if "logout" not in cmd:
+            return False
+        try:
+            cmd_elem = BeautifulSoup(cmd, "xml").find("command")
+            return bool(cmd_elem and cmd_elem.find("logout", recursive=False))
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.debug("Could not inspect command for logout: %s", exc)
+            return False
+
+    def _sync_login_state(self, cmd: str, code: int) -> None:
+        """
+        Synchronize internal session state if command was an EPP login command.
+
+        :param str cmd: EPP XML command string
+        :param int code: EPP response result code
+        """
+        login_info = self._extract_login_info(cmd)
+        if login_info is None:
+            return
+
+        if code == EppResultCode.SUCCESS.value:
+            login_user, login_pass, ext_uris = login_info
+            self._logged_in = True
+            if login_user is not None:
+                self._user = login_user
+            if login_pass is not None:
+                self._password = login_pass
+            self._extensions = ext_uris
 
     def _execute_dry_run(self, cmd: str) -> EppResultData:
         """
@@ -586,6 +784,11 @@ class EppCommunicator:
                 client_transaction_id = cl_trid.text
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logging.debug("Could not parse clTRID in dry run: %s", exc)
+
+        if self._is_logout_command(cmd):
+            self.disconnect()
+        else:
+            self._sync_login_state(cmd, EppResultCode.SUCCESS.value)
 
         # Return simulated success result with dry_run flag set to True
         return EppResultData(
@@ -651,6 +854,16 @@ class EppCommunicator:
                 response.find("roid").text if response.find("roid") else None
             )
 
+            if self._is_logout_command(cmd) or code in (
+                EppResultCode.SUCCESS_END_SESSION.value,
+                EppResultCode.COMMAND_FAILED_CLOSING_CONNECTION.value,
+                EppResultCode.AUTHENTICATION_ERROR_CLOSING_CONNECTION.value,
+                EppResultCode.SESSION_LIMIT_EXCEEDED_CLOSING_CONNECTION.value,
+            ):
+                self.disconnect()
+
+            self._sync_login_state(cmd, code)
+
             logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
 
             return EppResultData(
@@ -695,27 +908,41 @@ class EppCommunicator:
 
         :raises EppCommunicatorException: When there are any errors.
         """
-        if extensions is None:
-            extensions = []
+        if self._logged_in:
+            raise EppCommunicatorException(
+                "Already logged in to EPP server. Please logout before logging in again."
+            )
 
-        self._user = user
+        active_extensions = (
+            getattr(self, "_extensions", []) if extensions is None else extensions
+        )
 
         command_template = get_compiled_template(LOGIN_XML)
         command = command_template.render(
-            user=user, password=password, extensions=extensions
+            user=user, password=password, extensions=active_extensions
         )
 
-        result = self.execute(command)
+        try:
+            result = self.execute(command)
+        except Exception:
+            self._logged_in = False
+            raise
 
         if result.code == EppResultCode.SUCCESS.value:
+            self._logged_in = True
+            self._user = user
+            self._password = password
+            self._extensions = active_extensions
             logging.info(
                 "User %s logged in to %s:%s", self._user, self._server, self._port
             )
         elif result.code == EppResultCode.PARAMETER_RANGE_ERROR.value:
+            self._logged_in = False
             raise EppCommunicatorException(
                 "Incorrect user name or password. Please try again!"
             )
         else:
+            self._logged_in = False
             raise EppCommunicatorException(
                 f"Something went wrong! Code: {result.code} - Message: "
                 f"{result.message} - Reason {result.reason}"
@@ -727,6 +954,7 @@ class EppCommunicator:
         """
         Close and clean up socket connections without sending EPP commands.
         """
+        self._logged_in = False
         if self._ssl_socket:
             try:
                 self._ssl_socket.close()
@@ -757,4 +985,5 @@ class EppCommunicator:
             )
             return logout
         finally:
+            self._logged_in = False
             self.disconnect()
