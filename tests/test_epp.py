@@ -1439,6 +1439,21 @@ class EppContextManagerTest(unittest.TestCase):
         with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
             self.assertIsNone(EppCommunicator._extract_login_info("<command><login/></command>"))
 
+    def test_extract_login_info_preserves_password_whitespace(self):
+        """Verify that password leading and trailing whitespace is preserved verbatim."""
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>  spaced_user  </clID>'
+            '<pw>  secret with spaces  </pw>'
+            '</login></command></epp>'
+        )
+        login_info = EppCommunicator._extract_login_info(xml)
+        self.assertIsNotNone(login_info)
+        user, password, ext_uris = login_info
+        self.assertEqual(user, "spaced_user")
+        self.assertEqual(password, "  secret with spaces  ")
+        self.assertEqual(ext_uris, [])
+
 
 
 
