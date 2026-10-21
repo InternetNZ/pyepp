@@ -421,6 +421,8 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertEqual(self.epp.user, 'user')
         sent_command = mock_execute.call_args[0][0]
         self.assertNotIn('<objURI>urn:ietf:params:xml:ns:epp-1.0</objURI>', sent_command)
+        self.assertNotIn('urn:ietf:params:xml:ns:urn:', sent_command)
+        self.assertEqual(sent_command.count('urn:ietf:params:xml:ns:secDNS-1.1'), 1)
 
     @patch('pyepp.epp.get_compiled_template')
     @patch('pyepp.epp.EppCommunicator.execute')
@@ -1453,6 +1455,76 @@ class EppContextManagerTest(unittest.TestCase):
         self.assertEqual(user, "spaced_user")
         self.assertEqual(password, "  secret with spaces  ")
         self.assertEqual(ext_uris, [])
+
+    def test_rendered_login_xml_prevents_duplicate_namespace_prefixes(self):
+        """Verify rendered login XML emits full URIs unchanged and prefixes suffix-style extensions."""
+        epp = EppCommunicator('localhost', '700')
+        epp.execute = MagicMock(return_value=MagicMock(code=1000))
+
+        epp.login(
+            'my_user',
+            'my_pass',
+            extensions=[
+                'urn:ietf:params:xml:ns:secDNS-1.1',
+                'urn:ietf:params:xml:ns:fee-0.10',
+                'rgp-1.0',
+                'http://custom.registry/epp/ext-1.0',
+            ],
+        )
+
+        rendered_xml = epp.execute.call_args[0][0]
+        # Never duplicate urn: prefix
+        self.assertNotIn("urn:ietf:params:xml:ns:urn:", rendered_xml)
+        # secDNS-1.1 should appear only once (not duplicated)
+        self.assertEqual(rendered_xml.count("urn:ietf:params:xml:ns:secDNS-1.1"), 1)
+        # Full URN emitted cleanly
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>", rendered_xml)
+        # Suffix-style input gets prefix prepended
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:rgp-1.0</extURI>", rendered_xml)
+        # Custom URI with scheme emitted cleanly without urn prefix
+        self.assertIn("<extURI>http://custom.registry/epp/ext-1.0</extURI>", rendered_xml)
+
+    def test_reused_communicator_after_raw_login_rendered_xml(self):
+        """Communicator with cached extensions from raw login renders clean XML without duplicate prefixes."""
+        epp = EppCommunicator('localhost', '700')
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>rawUser</clID><pw>rawPass</pw>'
+            '<svcs>'
+            '<svcExtension>'
+            '<extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI>'
+            '<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>'
+            '</svcExtension>'
+            '</svcs>'
+            '</login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+        epp.greeting = b'greeting'
+
+        # Execute raw login; populates _extensions with full URIs
+        epp.execute(raw_login_xml)
+        self.assertEqual(epp.extensions, [
+            'urn:ietf:params:xml:ns:secDNS-1.1',
+            'urn:ietf:params:xml:ns:fee-0.10',
+        ])
+
+        # Disconnect so next login is permitted
+        epp.disconnect()
+
+        # Call epp.login() which reuses self._extensions
+        epp.execute = MagicMock(return_value=MagicMock(code=1000))
+        epp.login('rawUser', 'rawPass')
+
+        rendered_xml = epp.execute.call_args[0][0]
+        self.assertNotIn("urn:ietf:params:xml:ns:urn:", rendered_xml)
+        self.assertEqual(rendered_xml.count("urn:ietf:params:xml:ns:secDNS-1.1"), 1)
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>", rendered_xml)
 
 
 

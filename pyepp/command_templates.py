@@ -29,7 +29,13 @@ LOGIN_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         <svcExtension>
           <extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI>
           {% for extension in extensions %}
+          {% if extension != 'secDNS-1.1' and extension != 'urn:ietf:params:xml:ns:secDNS-1.1' %}
+          {% if extension.startswith('urn:') or '://' in extension %}
+          <extURI>{{ extension }}</extURI>
+          {% else %}
           <extURI>urn:ietf:params:xml:ns:{{ extension }}</extURI>
+          {% endif %}
+          {% endif %}
           {% endfor %}
         </svcExtension>
       </svcs>
