@@ -761,8 +761,6 @@ class EppCommunicator:
             if login_pass is not None:
                 self._password = login_pass
             self._extensions = ext_uris
-        else:
-            self._logged_in = False
 
     def _execute_dry_run(self, cmd: str) -> EppResultData:
         """
