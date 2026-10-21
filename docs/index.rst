@@ -39,6 +39,13 @@ Usage example
        "client_key": "/PATH/TO/YOUR/CLIENT_KEY.pem"
    }
 
+   # Using the Pythonic context manager (recommended):
+   with EppCommunicator(**config, user="user_name", password="password") as epp:
+       hello = epp.hello()
+       contact = Contact(epp)
+       contact_check = contact.check(['contact-1', 'contact-2'])
+
+   # Or using manual sequence management:
    epp = EppCommunicator(**config)
 
    connect = epp.connect()

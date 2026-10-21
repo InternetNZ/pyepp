@@ -293,6 +293,9 @@ class EppCommunicator:
         client_key: Optional[str] = None,
         dry_run: Optional[bool] = False,
         max_message_size: int = DEFAULT_MAX_MESSAGE_SIZE,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        extensions: Optional[list[str]] = None,
     ) -> None:
         """
         :param server: EPP server to connect to.
@@ -301,10 +304,15 @@ class EppCommunicator:
         :param client_key: Path to client key
         :param dry_run: dry run the request
         :param max_message_size: Maximum allowed message size in bytes (DoS protection)
+        :param user: Optional EPP username for automatic login in context manager
+        :param password: Optional EPP password for automatic login in context manager
+        :param extensions: Optional list of extension URIs for login
         """
         self._server = server
         self._port = port
-        self._user = None
+        self._user = user
+        self._password = password
+        self._extensions = extensions or []
         self._client_cert = client_cert
         self._client_key = client_key
 
@@ -317,11 +325,98 @@ class EppCommunicator:
         self._socket = None
         self._ssl_socket = None
         self.greeting = None
+        self._logged_in = False
+
+    def __repr__(self) -> str:
+        """
+        Safe string representation masking sensitive credentials.
+
+        :return: Class representation string.
+        :rtype: str
+        """
+        return (
+            f"<{self.__class__.__name__} "
+            f"server={self._server!r} port={self._port!r} "
+            f"user={self._user!r} logged_in={self._logged_in} "
+            f"dry_run={self._dry_run}>"
+        )
+
+    def __enter__(self) -> "EppCommunicator":
+        """
+        Enter runtime context, establishing connection and logging in if credentials exist.
+
+        :return: Connected (and optionally authenticated) EppCommunicator instance.
+        :rtype: EppCommunicator
+        :raises EppCommunicatorException: If connection or authentication fails.
+        """
+        if not self.is_connected:
+            self.connect()
+
+        if self._user and self._password and not self._logged_in:
+            try:
+                self.login(self._user, self._password, self._extensions)
+            except Exception:
+                self.disconnect()
+                raise
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> bool:
+        """
+        Exit runtime context, cleanly logging out and closing connection.
+
+        :param exc_type: Exception class if raised within context.
+        :param exc_val: Exception instance if raised within context.
+        :param exc_tb: Traceback object if raised within context.
+        :return: False to allow any exception raised within the context to propagate.
+        :rtype: bool
+        """
+        try:
+            if self._logged_in:
+                self.logout()
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.debug("Error during EppCommunicator context exit cleanup: %s", exc)
+        finally:
+            self.disconnect()
+
+        return False
 
     @property
-    def user(self):
+    def user(self) -> Optional[str]:
         """User property"""
         return self._user
+
+    @property
+    def extensions(self) -> list[str]:
+        """Extensions property"""
+        return list(getattr(self, "_extensions", []))
+
+    @property
+    def is_logged_in(self) -> bool:
+        """
+        Check if the client has an active authenticated session.
+
+        :return: True if authenticated and logged in, False otherwise.
+        :rtype: bool
+        """
+        return self._logged_in
+
+    @property
+    def is_connected(self) -> bool:
+        """
+        Check if the transport connection is established.
+
+        :return: True if connected, False otherwise.
+        :rtype: bool
+        """
+        if self._dry_run:
+            return self.greeting is not None
+        return self._ssl_socket is not None
 
     def _unpack_data(self, data: bytes) -> int:
         """
@@ -696,7 +791,9 @@ class EppCommunicator:
         :raises EppCommunicatorException: When there are any errors.
         """
         if extensions is None:
-            extensions = []
+            extensions = getattr(self, "_extensions", [])
+        else:
+            self._extensions = extensions
 
         self._user = user
 
@@ -705,17 +802,24 @@ class EppCommunicator:
             user=user, password=password, extensions=extensions
         )
 
-        result = self.execute(command)
+        try:
+            result = self.execute(command)
+        except Exception:
+            self._logged_in = False
+            raise
 
         if result.code == EppResultCode.SUCCESS.value:
+            self._logged_in = True
             logging.info(
                 "User %s logged in to %s:%s", self._user, self._server, self._port
             )
         elif result.code == EppResultCode.PARAMETER_RANGE_ERROR.value:
+            self._logged_in = False
             raise EppCommunicatorException(
                 "Incorrect user name or password. Please try again!"
             )
         else:
+            self._logged_in = False
             raise EppCommunicatorException(
                 f"Something went wrong! Code: {result.code} - Message: "
                 f"{result.message} - Reason {result.reason}"
@@ -727,6 +831,7 @@ class EppCommunicator:
         """
         Close and clean up socket connections without sending EPP commands.
         """
+        self._logged_in = False
         if self._ssl_socket:
             try:
                 self._ssl_socket.close()
@@ -757,4 +862,5 @@ class EppCommunicator:
             )
             return logout
         finally:
+            self._logged_in = False
             self.disconnect()
