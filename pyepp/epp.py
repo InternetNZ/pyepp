@@ -326,6 +326,7 @@ class EppCommunicator:
         self._ssl_socket = None
         self.greeting = None
         self._logged_in = False
+        self._last_logout_error: Optional[Exception] = None
 
     def __repr__(self) -> str:
         """
@@ -349,6 +350,7 @@ class EppCommunicator:
         :rtype: EppCommunicator
         :raises EppCommunicatorException: If connection or authentication fails.
         """
+        self._last_logout_error = None
         if not self.is_connected:
             self.connect()
 
@@ -380,11 +382,30 @@ class EppCommunicator:
             if self._logged_in:
                 self.logout()
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logging.debug("Error during EppCommunicator context exit cleanup: %s", exc)
+            self._last_logout_error = exc
+            if exc_type is None:
+                logging.warning(
+                    "Logout failed during context exit cleanup: %s", exc
+                )
+            else:
+                logging.debug(
+                    "Error during EppCommunicator context exit cleanup while handling exception: %s",
+                    exc,
+                )
         finally:
             self.disconnect()
 
         return False
+
+    @property
+    def last_logout_error(self) -> Optional[Exception]:
+        """
+        Exception encountered during the most recent context manager logout, if any.
+
+        :return: Exception instance if logout failed during __exit__, None otherwise.
+        :rtype: Optional[Exception]
+        """
+        return self._last_logout_error
 
     @property
     def user(self) -> Optional[str]:

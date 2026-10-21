@@ -871,7 +871,8 @@ class EppContextManagerTest(unittest.TestCase):
         epp = EppCommunicator('localhost', '700', user='u', password='p')
         epp.connect = MagicMock(return_value=b'greeting')
         epp.login = MagicMock(return_value=MagicMock(code=1000))
-        epp.logout = MagicMock(side_effect=EppCommunicatorException("Logout network error"))
+        logout_err = EppCommunicatorException("Logout network error")
+        epp.logout = MagicMock(side_effect=logout_err)
         epp._ssl_socket = MagicMock()
         epp._logged_in = True
 
@@ -881,9 +882,39 @@ class EppContextManagerTest(unittest.TestCase):
                     raise ValueError("Original business error")
 
         self.assertEqual(str(ctx.exception), "Original business error")
+        self.assertIs(epp.last_logout_error, logout_err)
         self.assertTrue(
-            any("Error during EppCommunicator context exit cleanup" in msg for msg in log.output)
+            any("Error during EppCommunicator context exit cleanup while handling exception" in msg for msg in log.output)
         )
+
+    def test_context_manager_logout_failure_normal_exit_logs_warning_and_records_state(self):
+        """Logout failure on normal context exit logs at WARNING level and records last_logout_error."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        logout_err = EppCommunicatorException("Clean logout timeout from server")
+        epp.logout = MagicMock(side_effect=logout_err)
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        with self.assertLogs(level='WARNING') as log:
+            with epp:
+                pass  # block finishes normally
+
+        self.assertIs(epp.last_logout_error, logout_err)
+        self.assertTrue(
+            any("Logout failed during context exit cleanup: Clean logout timeout from server" in msg
+                for msg in log.output)
+        )
+
+    def test_last_logout_error_reset_on_enter(self):
+        """Entering a new context resets last_logout_error to None."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='u', password='p')
+        epp._last_logout_error = RuntimeError("Old error")
+        self.assertIsNotNone(epp.last_logout_error)
+        with epp:
+            self.assertIsNone(epp.last_logout_error)
+        self.assertIsNone(epp.last_logout_error)
 
     def test_context_manager_login_failure_in_enter_disconnects_socket(self):
         """If login fails during __enter__, socket is immediately closed to prevent descriptor leak."""
