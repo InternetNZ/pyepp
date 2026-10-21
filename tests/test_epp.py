@@ -1260,6 +1260,47 @@ class EppContextManagerTest(unittest.TestCase):
             self.assertTrue(client.is_connected)
             self.assertTrue(client.is_logged_in)
 
+    def test_reconnect_authenticated_instance_resets_auth_and_context_reauthenticates(self):
+        """Reconnecting an already authenticated instance resets _logged_in so subsequent context entry authenticates."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA', dry_run=True)
+        # Establish authenticated session
+        epp.connect()
+        epp.login('userA', 'passA')
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Fresh transport connect() must reset authentication state
+        epp.connect()
+        self.assertTrue(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Entering context now should NOT skip login
+        with epp:
+            self.assertTrue(epp.is_connected)
+            self.assertTrue(epp.is_logged_in)
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_duplicate_login_rejected_locally_and_preserves_exit_logout(self):
+        """Duplicate login on an authenticated session is rejected locally and preserves session tracking for exit logout."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.execute = MagicMock(return_value=MagicMock(code=1000, message='OK'))
+        epp.logout = MagicMock()
+
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+            # Attempt duplicate login
+            with self.assertRaises(EppCommunicatorException) as ctx:
+                epp.login('userB', 'passB')
+            self.assertIn("Already logged in to EPP server", str(ctx.exception))
+            # State must remain tracked and logged in
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'userA')
+
+        # Context exit must NOT skip logout
+        epp.logout.assert_called_once()
+
 
 
 

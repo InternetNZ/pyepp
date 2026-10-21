@@ -656,6 +656,10 @@ class EppCommunicator:
 
         :raises EppCommunicatorException: When there is any errors
         """
+        self._logged_in = False
+        if self.is_connected:
+            self.disconnect()
+
         # In dry-run mode, bypass socket and TLS handshake and simulate a server greeting
         if self._dry_run:
             logging.debug("Dry run - skipping network connection")
@@ -834,6 +838,11 @@ class EppCommunicator:
 
         :raises EppCommunicatorException: When there are any errors.
         """
+        if self._logged_in:
+            raise EppCommunicatorException(
+                "Already logged in to EPP server. Please logout before logging in again."
+            )
+
         active_extensions = (
             getattr(self, "_extensions", []) if extensions is None else extensions
         )
