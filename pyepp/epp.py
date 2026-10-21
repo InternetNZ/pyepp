@@ -712,7 +712,7 @@ class EppCommunicator:
         :param str cmd: EPP XML command string
         :return: (user, password, extensions) tuple if login command, None otherwise.
         """
-        if "<login" not in cmd:
+        if "login" not in cmd:
             return None
 
         try:
