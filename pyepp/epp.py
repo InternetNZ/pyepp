@@ -380,17 +380,22 @@ class EppCommunicator:
         """
         try:
             if self._logged_in:
-                self.logout()
+                res = self.logout()
+                code = getattr(res, "code", None)
+                if isinstance(code, int) and code not in (
+                    EppResultCode.SUCCESS_END_SESSION.value,
+                    EppResultCode.SUCCESS.value,
+                ):
+                    reason = f" - {res.reason}" if getattr(res, "reason", None) else ""
+                    msg = getattr(res, "message", "Command failed")
+                    raise EppCommunicatorException(f"Logout failed with code {code}: {msg}{reason}")
         except Exception as exc:  # pylint: disable=broad-exception-caught
             self._last_logout_error = exc
             if exc_type is None:
-                logging.warning(
-                    "Logout failed during context exit cleanup: %s", exc
-                )
+                logging.warning("Logout failed during context exit cleanup: %s", exc)
             else:
                 logging.debug(
-                    "Error during EppCommunicator context exit cleanup while handling exception: %s",
-                    exc,
+                    "Error during EppCommunicator context exit cleanup while handling exception: %s", exc
                 )
         finally:
             self.disconnect()

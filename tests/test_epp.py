@@ -915,6 +915,97 @@ class EppContextManagerTest(unittest.TestCase):
                 for msg in log.output)
         )
 
+    def test_context_manager_logout_returned_error_code_logs_warning_and_records_state(self):
+        """Logout returning an unsuccessful result code (e.g. 2400) is converted to error, logged, and recorded."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        logout_result = EppResultData(
+            code=2400,
+            message="Command failed",
+            reason="Session busy",
+            raw_response="<raw/>",
+            client_transaction_id=None,
+            server_transaction_id=None,
+            repository_object_id=None,
+            result_data=None,
+        )
+        epp.logout = MagicMock(return_value=logout_result)
+
+        with self.assertLogs(level='WARNING') as log:
+            with epp:
+                pass  # block finishes normally
+
+        self.assertIsInstance(epp.last_logout_error, EppCommunicatorException)
+        self.assertIn("Logout failed with code 2400: Command failed - Session busy", str(epp.last_logout_error))
+        self.assertTrue(
+            any("Logout failed during context exit cleanup: Logout failed with code 2400" in msg
+                for msg in log.output)
+        )
+
+    def test_context_manager_logout_returned_error_code_does_not_mask_block_exception(self):
+        """Logout returning an error code during exception exit is logged at DEBUG and does not mask original error."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        logout_result = EppResultData(
+            code=2002,
+            message="Command use error",
+            reason=None,
+            raw_response="<raw/>",
+            client_transaction_id=None,
+            server_transaction_id=None,
+            repository_object_id=None,
+            result_data=None,
+        )
+        epp.logout = MagicMock(return_value=logout_result)
+
+        with self.assertLogs(level='DEBUG') as log:
+            with self.assertRaises(ValueError) as ctx:
+                with epp:
+                    raise ValueError("Original business failure")
+
+        self.assertEqual(str(ctx.exception), "Original business failure")
+        self.assertIsInstance(epp.last_logout_error, EppCommunicatorException)
+        self.assertIn("Logout failed with code 2002: Command use error", str(epp.last_logout_error))
+        self.assertTrue(
+            any("Error during EppCommunicator context exit cleanup while handling exception" in msg
+                for msg in log.output)
+        )
+
+    def test_context_manager_logout_success_codes_leave_last_error_none(self):
+        """Logout returning success codes (1500 or 1000) leaves last_logout_error as None."""
+        for success_code in (1500, 1000):
+            epp = EppCommunicator('localhost', '700', user='u', password='p')
+            epp.connect = MagicMock(return_value=b'greeting')
+            epp.login = MagicMock(return_value=MagicMock(code=1000))
+            epp._ssl_socket = MagicMock()
+            epp._logged_in = True
+
+            epp.logout = MagicMock(
+                return_value=EppResultData(
+                    code=success_code,
+                    message="Success",
+                    reason=None,
+                    raw_response="<raw/>",
+                    client_transaction_id=None,
+                    server_transaction_id=None,
+                    repository_object_id=None,
+                    result_data=None,
+                )
+            )
+
+            with epp:
+                pass
+
+            self.assertIsNone(epp.last_logout_error)
+
     def test_last_logout_error_reset_on_enter(self):
         """Entering a new context resets last_logout_error to None."""
         epp = EppCommunicator('localhost', '700', dry_run=True, user='u', password='p')
