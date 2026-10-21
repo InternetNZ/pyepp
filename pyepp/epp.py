@@ -682,6 +682,10 @@ class EppCommunicator:
             )
             self._ssl_socket.connect((self._server, int(self._port)))
             self.greeting = self._read()
+            if self.greeting is None:
+                raise EppCommunicatorException(
+                    "Connection closed by server before sending EPP greeting."
+                )
             logging.debug("Received greeting from server :\n%s", self.greeting)
             return self.greeting
         except Exception as ex:
@@ -779,6 +783,7 @@ class EppCommunicator:
             )
 
             if code in (
+                EppResultCode.SUCCESS_END_SESSION.value,
                 EppResultCode.COMMAND_FAILED_CLOSING_CONNECTION.value,
                 EppResultCode.AUTHENTICATION_ERROR_CLOSING_CONNECTION.value,
                 EppResultCode.SESSION_LIMIT_EXCEEDED_CLOSING_CONNECTION.value,
