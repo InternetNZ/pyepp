@@ -727,7 +727,9 @@ class EppCommunicator:
             clid_elem = login_elem.find("clID")
             user = clid_elem.text.strip() if clid_elem and clid_elem.text else None
 
-            pw_elem = login_elem.find("pw")
+            pw_elem = login_elem.find("newPW")
+            if pw_elem is None:
+                pw_elem = login_elem.find("pw")
             password = pw_elem.text if pw_elem and pw_elem.text is not None else None
 
             ext_uris = [
