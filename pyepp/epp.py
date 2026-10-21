@@ -702,6 +702,66 @@ class EppCommunicator:
             self.disconnect()
             raise
 
+    @staticmethod
+    def _extract_login_info(
+        cmd: str,
+    ) -> Optional[tuple[Optional[str], Optional[str], list[str]]]:
+        """
+        Check if cmd is an EPP <login> command and extract user, password, extensions if present.
+
+        :param str cmd: EPP XML command string
+        :return: (user, password, extensions) tuple if login command, None otherwise.
+        """
+        if "<login" not in cmd:
+            return None
+
+        try:
+            soup = BeautifulSoup(cmd, "xml")
+            cmd_elem = soup.find("command")
+            if not cmd_elem:
+                return None
+            login_elem = cmd_elem.find("login", recursive=False)
+            if not login_elem:
+                return None
+
+            clid_elem = login_elem.find("clID")
+            user = clid_elem.text.strip() if clid_elem and clid_elem.text else None
+
+            pw_elem = login_elem.find("pw")
+            password = pw_elem.text.strip() if pw_elem and pw_elem.text else None
+
+            ext_uris = [
+                ext.text.strip()
+                for ext in login_elem.find_all("extURI")
+                if ext.text and ext.text.strip()
+            ]
+            return user, password, ext_uris
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.debug("Could not inspect command for login: %s", exc)
+            return None
+
+    def _sync_login_state(self, cmd: str, code: int) -> None:
+        """
+        Synchronize internal session state if command was an EPP login command.
+
+        :param str cmd: EPP XML command string
+        :param int code: EPP response result code
+        """
+        login_info = self._extract_login_info(cmd)
+        if login_info is None:
+            return
+
+        if code == EppResultCode.SUCCESS.value:
+            login_user, login_pass, ext_uris = login_info
+            self._logged_in = True
+            if login_user is not None:
+                self._user = login_user
+            if login_pass is not None:
+                self._password = login_pass
+            self._extensions = ext_uris
+        else:
+            self._logged_in = False
+
     def _execute_dry_run(self, cmd: str) -> EppResultData:
         """
         Execute command in dry-run mode without sending to server.
@@ -721,6 +781,8 @@ class EppCommunicator:
                 client_transaction_id = cl_trid.text
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logging.debug("Could not parse clTRID in dry run: %s", exc)
+
+        self._sync_login_state(cmd, EppResultCode.SUCCESS.value)
 
         # Return simulated success result with dry_run flag set to True
         return EppResultData(
@@ -793,6 +855,8 @@ class EppCommunicator:
                 EppResultCode.SESSION_LIMIT_EXCEEDED_CLOSING_CONNECTION.value,
             ):
                 self.disconnect()
+
+            self._sync_login_state(cmd, code)
 
             logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
 

@@ -1301,6 +1301,144 @@ class EppContextManagerTest(unittest.TestCase):
         # Context exit must NOT skip logout
         epp.logout.assert_called_once()
 
+    def test_raw_login_via_execute_synchronizes_logged_in_and_context_exit_logs_out(self):
+        """Raw <login> XML executed via execute() sets _logged_in and triggers logout on context exit."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.logout = MagicMock()
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>rawUser</clID><pw>rawPass</pw>'
+            '<options><version>1.0</version><lang>en</lang></options>'
+            '<svcs><objURI>urn:ietf:params:xml:ns:domain-1.0</objURI>'
+            '<svcExtension><extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI></svcExtension>'
+            '</svcs></login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+        epp.greeting = b'greeting'
+
+        with epp:
+            self.assertFalse(epp.is_logged_in)
+            res = epp.execute(raw_login_xml)
+            self.assertEqual(res.code, 1000)
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'rawUser')
+            self.assertEqual(epp._password, 'rawPass')
+            self.assertEqual(epp.extensions, ['urn:ietf:params:xml:ns:secDNS-1.1'])
+
+        epp.logout.assert_called_once()
+
+    def test_raw_login_with_constructor_credentials_prevents_duplicate_login_on_context_entry(self):
+        """Raw login on connected instance sets _logged_in so subsequent context entry skips duplicate login."""
+        epp = EppCommunicator('localhost', '700', user='admin', password='secret')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>admin</clID><pw>secret</pw>'
+            '</login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+
+        epp.execute(raw_login_xml)
+        self.assertTrue(epp.is_logged_in)
+
+        # Context entry should detect active login and skip calling login()
+        epp.login = MagicMock()
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.login.assert_not_called()
+
+    def test_non_login_command_returning_1000_does_not_set_logged_in(self):
+        """Non-login commands returning code 1000 do not mistakenly set _logged_in."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+        self.assertFalse(epp.is_logged_in)
+
+        domain_check_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command>'
+            '<check><domain:check xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:name>example.com</domain:name>'
+            '</domain:check></check></command></epp>'
+        )
+        check_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=check_resp_xml.encode('utf-8'))
+
+        epp.execute(domain_check_xml)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_failed_raw_login_keeps_logged_in_false(self):
+        """Failed raw login command (code 2200) does not set _logged_in to True."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>badUser</clID><pw>badPass</pw>'
+            '</login></command></epp>'
+        )
+        fail_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="2200"><msg>Authentication error</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=fail_resp_xml.encode('utf-8'))
+
+        res = epp.execute(raw_login_xml)
+        self.assertEqual(res.code, 2200)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_raw_login_dry_run_synchronizes_state(self):
+        """Raw login XML in dry_run mode synchronizes authentication state and triggers logout on exit."""
+        epp = EppCommunicator('localhost', '700', dry_run=True)
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>dryRawUser</clID><pw>dryRawPass</pw>'
+            '</login></command></epp>'
+        )
+        with epp:
+            self.assertFalse(epp.is_logged_in)
+            epp.execute(raw_login_xml)
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'dryRawUser')
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_extract_login_info_edge_cases(self):
+        """Test edge cases in _extract_login_info static method."""
+        # Not containing '<login'
+        self.assertIsNone(EppCommunicator._extract_login_info("<command><check/></command>"))
+        # Contains '<login' but no <command> tag
+        self.assertIsNone(EppCommunicator._extract_login_info("<login><clID>user</clID></login>"))
+        # Contains <command> but no direct <login> tag
+        self.assertIsNone(EppCommunicator._extract_login_info("<command><check><name><login/></name></check></command>"))
+        # With patch raising Exception in BeautifulSoup
+        with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
+            self.assertIsNone(EppCommunicator._extract_login_info("<command><login/></command>"))
+
 
 
 
