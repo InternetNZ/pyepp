@@ -706,32 +706,18 @@ class EppCommunicator:
     def _extract_login_info(
         cmd: str,
     ) -> Optional[tuple[Optional[str], Optional[str], list[str]]]:
-        """
-        Check if cmd is an EPP <login> command and extract user, password, extensions if present.
-
-        :param str cmd: EPP XML command string
-        :return: (user, password, extensions) tuple if login command, None otherwise.
-        """
+        """Check if cmd is an EPP <login> command and extract user, password, extensions if present."""
         if "login" not in cmd:
             return None
-
         try:
-            soup = BeautifulSoup(cmd, "xml")
-            cmd_elem = soup.find("command")
-            if not cmd_elem:
-                return None
-            login_elem = cmd_elem.find("login", recursive=False)
+            cmd_elem = BeautifulSoup(cmd, "xml").find("command")
+            login_elem = cmd_elem.find("login", recursive=False) if cmd_elem else None
             if not login_elem:
                 return None
-
-            clid_elem = login_elem.find("clID")
-            user = clid_elem.text.strip() if clid_elem and clid_elem.text else None
-
-            pw_elem = login_elem.find("newPW")
-            if pw_elem is None:
-                pw_elem = login_elem.find("pw")
+            clid = login_elem.find("clID")
+            user = clid.text.strip() if clid and clid.text else None
+            pw_elem = login_elem.find("newPW") or login_elem.find("pw")
             password = pw_elem.text if pw_elem and pw_elem.text is not None else None
-
             ext_uris = [
                 ext.text.strip()
                 for ext in login_elem.find_all("extURI")
@@ -741,6 +727,18 @@ class EppCommunicator:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logging.debug("Could not inspect command for login: %s", exc)
             return None
+
+    @staticmethod
+    def _is_logout_command(cmd: str) -> bool:
+        """Check if cmd is an EPP <logout> command."""
+        if "logout" not in cmd:
+            return False
+        try:
+            cmd_elem = BeautifulSoup(cmd, "xml").find("command")
+            return bool(cmd_elem and cmd_elem.find("logout", recursive=False))
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.debug("Could not inspect command for logout: %s", exc)
+            return False
 
     def _sync_login_state(self, cmd: str, code: int) -> None:
         """
@@ -782,7 +780,10 @@ class EppCommunicator:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logging.debug("Could not parse clTRID in dry run: %s", exc)
 
-        self._sync_login_state(cmd, EppResultCode.SUCCESS.value)
+        if self._is_logout_command(cmd):
+            self.disconnect()
+        else:
+            self._sync_login_state(cmd, EppResultCode.SUCCESS.value)
 
         # Return simulated success result with dry_run flag set to True
         return EppResultData(
@@ -848,7 +849,7 @@ class EppCommunicator:
                 response.find("roid").text if response.find("roid") else None
             )
 
-            if code in (
+            if self._is_logout_command(cmd) or code in (
                 EppResultCode.SUCCESS_END_SESSION.value,
                 EppResultCode.COMMAND_FAILED_CLOSING_CONNECTION.value,
                 EppResultCode.AUTHENTICATION_ERROR_CLOSING_CONNECTION.value,

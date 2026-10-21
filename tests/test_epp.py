@@ -1526,6 +1526,46 @@ class EppContextManagerTest(unittest.TestCase):
         self.assertEqual(rendered_xml.count("urn:ietf:params:xml:ns:secDNS-1.1"), 1)
         self.assertIn("<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>", rendered_xml)
 
+    def test_raw_dry_run_logout_sequence_disconnects_session(self):
+        """Raw logout command through execute() in dry-run mode clears is_logged_in and is_connected."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='dryUser', password='dryPass')
+        epp.connect()
+        epp.login('dryUser', 'dryPass')
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Execute raw logout through execute() API
+        raw_logout_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<command><logout/></command>'
+            '</epp>'
+        )
+        res = epp.execute(raw_logout_xml)
+        self.assertEqual(res.code, 1000)
+        self.assertTrue(res.dry_run)
+        # Session state must be cleared
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Subsequent context entry must connect and authenticate instead of skipping
+        with epp:
+            self.assertTrue(epp.is_connected)
+            self.assertTrue(epp.is_logged_in)
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_is_logout_command_edge_cases(self):
+        """Verify _is_logout_command static method edge cases."""
+        # Not containing 'logout'
+        self.assertFalse(EppCommunicator._is_logout_command("<command><check/></command>"))
+        # Contains 'logout' but no <command> tag
+        self.assertFalse(EppCommunicator._is_logout_command("<logout/>"))
+        # Contains <command> but logout is not direct child
+        self.assertFalse(EppCommunicator._is_logout_command("<command><check><logout/></check></command>"))
+        # Exception during parsing
+        with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
+            self.assertFalse(EppCommunicator._is_logout_command("<command><logout/></command>"))
+
 
 
 
