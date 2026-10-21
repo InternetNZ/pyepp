@@ -351,15 +351,15 @@ class EppCommunicator:
         :raises EppCommunicatorException: If connection or authentication fails.
         """
         self._last_logout_error = None
-        if not self.is_connected:
-            self.connect()
+        try:
+            if not self.is_connected:
+                self.connect()
 
-        if self._user and self._password and not self._logged_in:
-            try:
+            if self._user and self._password and not self._logged_in:
                 self.login(self._user, self._password, self._extensions)
-            except Exception:
-                self.disconnect()
-                raise
+        except BaseException:
+            self.disconnect()
+            raise
 
         return self
 
@@ -509,16 +509,19 @@ class EppCommunicator:
             try:
                 chunk = self._read_from_socket(to_read, use_read=use_read)
             except (socket.timeout, TimeoutError) as exc:
+                self.disconnect()
                 raise EppCommunicatorException(
                     f"Socket timed out while receiving data: {exc}"
                 ) from exc
             except ssl.SSLZeroReturnError:
                 chunk = b""
             except ssl.SSLError as exc:
+                self.disconnect()
                 raise EppCommunicatorException(
                     f"SSL error while receiving data: {exc}"
                 ) from exc
             except OSError as exc:
+                self.disconnect()
                 raise EppCommunicatorException(
                     f"Connection error while receiving data: {exc}"
                 ) from exc
@@ -526,6 +529,7 @@ class EppCommunicator:
             if not chunk or len(chunk) == 0:
                 if len(buffer) == 0:
                     return None
+                self.disconnect()
                 raise EppCommunicatorException(
                     f"Connection closed prematurely after {len(buffer)}/{num_bytes} bytes"
                 )
@@ -593,14 +597,17 @@ class EppCommunicator:
             data_to_send = xml.encode("utf-8")
             self._ssl_socket.sendall(data_to_send)
         except (socket.timeout, TimeoutError) as exc:
+            self.disconnect()
             raise EppCommunicatorException(
                 f"Socket timed out while sending data: {exc}"
             ) from exc
         except ssl.SSLError as exc:
+            self.disconnect()
             raise EppCommunicatorException(
                 f"SSL error while sending data: {exc}"
             ) from exc
         except OSError as exc:
+            self.disconnect()
             raise EppCommunicatorException(
                 f"Connection error while sending data: {exc}"
             ) from exc
@@ -631,6 +638,7 @@ class EppCommunicator:
 
         response = self._read()
         if response is None:
+            self.disconnect()
             raise EppCommunicatorException("Cannot connect to server. Please re-login!")
 
         logging.debug(
@@ -682,6 +690,9 @@ class EppCommunicator:
             raise EppCommunicatorException(
                 "Could not setup a secure connection"
             ) from ex
+        except BaseException:
+            self.disconnect()
+            raise
 
     def _execute_dry_run(self, cmd: str) -> EppResultData:
         """
@@ -767,6 +778,13 @@ class EppCommunicator:
                 response.find("roid").text if response.find("roid") else None
             )
 
+            if code in (
+                EppResultCode.COMMAND_FAILED_CLOSING_CONNECTION.value,
+                EppResultCode.AUTHENTICATION_ERROR_CLOSING_CONNECTION.value,
+                EppResultCode.SESSION_LIMIT_EXCEEDED_CLOSING_CONNECTION.value,
+            ):
+                self.disconnect()
+
             logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
 
             return EppResultData(
@@ -811,16 +829,13 @@ class EppCommunicator:
 
         :raises EppCommunicatorException: When there are any errors.
         """
-        if extensions is None:
-            extensions = getattr(self, "_extensions", [])
-        else:
-            self._extensions = extensions
-
-        self._user = user
+        active_extensions = (
+            getattr(self, "_extensions", []) if extensions is None else extensions
+        )
 
         command_template = get_compiled_template(LOGIN_XML)
         command = command_template.render(
-            user=user, password=password, extensions=extensions
+            user=user, password=password, extensions=active_extensions
         )
 
         try:
@@ -831,6 +846,9 @@ class EppCommunicator:
 
         if result.code == EppResultCode.SUCCESS.value:
             self._logged_in = True
+            self._user = user
+            self._password = password
+            self._extensions = active_extensions
             logging.info(
                 "User %s logged in to %s:%s", self._user, self._server, self._port
             )

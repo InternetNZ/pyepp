@@ -590,12 +590,15 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertIn("exceeds maximum allowed size (100 bytes)", str(ctx.exception))
 
     def test_read_socket_timeout(self):
-        """Socket timeout during read raises EppCommunicatorException."""
+        """Socket timeout during read raises EppCommunicatorException and disconnects."""
         self.epp._ssl_socket = MagicMock()
+        self.epp._logged_in = True
         self.epp._ssl_socket.read.side_effect = socket.timeout("timed out")
         with self.assertRaises(EppCommunicatorException) as ctx:
             self.epp._read()
         self.assertIn("Socket timed out while receiving data", str(ctx.exception))
+        self.assertFalse(self.epp.is_connected)
+        self.assertFalse(self.epp.is_logged_in)
 
     def test_read_ssl_zero_return_error(self):
         """Clean TLS shutdown (SSLZeroReturnError) before bytes returns None."""
@@ -653,12 +656,15 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertIn("Socket connection is not established.", str(ctx.exception))
 
     def test_write_socket_timeout(self):
-        """Socket timeout during _write raises EppCommunicatorException."""
+        """Socket timeout during _write raises EppCommunicatorException and disconnects."""
         self.epp._ssl_socket = MagicMock()
+        self.epp._logged_in = True
         self.epp._ssl_socket.sendall.side_effect = socket.timeout("write timed out")
         with self.assertRaises(EppCommunicatorException) as ctx:
             self.epp._write("<xml/>")
         self.assertIn("Socket timed out while sending data", str(ctx.exception))
+        self.assertFalse(self.epp.is_connected)
+        self.assertFalse(self.epp.is_logged_in)
 
     def test_write_ssl_error(self):
         """SSLError during _write raises EppCommunicatorException."""
@@ -1070,6 +1076,134 @@ class EppContextManagerTest(unittest.TestCase):
         epp.disconnect()
         self.assertFalse(epp.is_connected)
         self.assertFalse(epp.is_logged_in)
+
+    def test_context_reuse_after_switching_credentials(self):
+        """When manual login switches credentials, subsequent context entry uses the new pair."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp.execute = MagicMock(return_value=MagicMock(code=1000, message='OK'))
+        epp._ssl_socket = MagicMock()
+
+        # Switch credentials via manual login
+        epp.login('userB', 'passB')
+        self.assertEqual(epp.user, 'userB')
+        self.assertEqual(epp._password, 'passB')
+
+        # Teardown connection
+        epp.disconnect()
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Context entry should now auto-login with userB and passB
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.login.assert_called_once_with('userB', 'passB', [])
+
+    def test_login_failure_does_not_corrupt_cached_credentials(self):
+        """Failed login does not overwrite existing cached credentials."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        mock_result = MagicMock()
+        mock_result.code = 2200
+        mock_result.message = "Auth failed"
+        mock_result.reason = "Bad credentials"
+        epp.execute = MagicMock(return_value=mock_result)
+
+        with self.assertRaises(EppCommunicatorException):
+            epp.login('userC', 'badPass')
+
+        # Credentials must remain userA / passA
+        self.assertEqual(epp.user, 'userA')
+        self.assertEqual(epp._password, 'passA')
+
+    def test_enter_keyboard_interrupt_during_login_disconnects_socket(self):
+        """KeyboardInterrupt during auto-login in __enter__ closes socket and re-raises."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=KeyboardInterrupt())
+        epp.disconnect = MagicMock()
+
+        with self.assertRaises(KeyboardInterrupt):
+            with epp:
+                pass
+
+        epp.connect.assert_called_once()
+        epp.disconnect.assert_called_once()
+
+    def test_enter_system_exit_during_connect_disconnects(self):
+        """SystemExit during connect in __enter__ triggers disconnect and re-raises."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=SystemExit(1))
+        epp.disconnect = MagicMock()
+
+        with self.assertRaises(SystemExit):
+            with epp:
+                pass
+
+        epp.disconnect.assert_called_once()
+
+    def test_connect_base_exception_disconnects(self):
+        """BaseException (e.g. KeyboardInterrupt) during connect() calls disconnect() and re-raises."""
+        epp = EppCommunicator('localhost', '700')
+        with patch('pyepp.epp.socket.socket', side_effect=KeyboardInterrupt()):
+            with self.assertRaises(KeyboardInterrupt):
+                epp.connect()
+        self.assertIsNone(epp._socket)
+        self.assertIsNone(epp._ssl_socket)
+
+    def test_eof_during_execute_command_disconnects_and_allows_clean_context_entry(self):
+        """EOF during _execute_command disconnects session so subsequent context entry reconnects and re-authenticates."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Simulate EOF: write succeeds, read returns None
+        epp._write = MagicMock()
+        epp._read = MagicMock(return_value=None)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp._execute_command("<check/>")
+
+        self.assertIn("Cannot connect to server. Please re-login!", str(ctx.exception))
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Now entering with epp: must reconnect and re-authenticate instead of skipping
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp as client:
+            epp.connect.assert_called_once()
+            epp.login.assert_called_once_with('userA', 'passA', [])
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+
+    def test_execute_server_closing_connection_codes_disconnects(self):
+        """Server codes 2500, 2501, 2502 trigger disconnect to keep local state synchronized."""
+        for code in (2500, 2501, 2502):
+            epp = EppCommunicator('localhost', '700')
+            epp._ssl_socket = MagicMock()
+            epp._socket = MagicMock()
+            epp.greeting = b'greeting'
+            epp._logged_in = True
+
+            xml_resp = (
+                f'<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+                f'<response><result code="{code}"><msg>Closing</msg></result>'
+                f'<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+                f'</response></epp>'
+            )
+            epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+            res = epp.execute("<command/>")
+            self.assertEqual(res.code, code)
+            self.assertFalse(epp.is_connected)
+            self.assertFalse(epp.is_logged_in)
 
 
 
