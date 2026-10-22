@@ -32,6 +32,7 @@ TRID_TAG_REGEX = re.compile(r"(?:^|:)trID$")
 CLTRID_TAG_REGEX = re.compile(r"(?:^|:)clTRID$")
 SVTRID_TAG_REGEX = re.compile(r"(?:^|:)svTRID$")
 ROID_TAG_REGEX = re.compile(r"(?:^|:)roid$")
+XML_WHITESPACE_REGEX = re.compile(r"[ \t\n\r]+")
 
 PASSWORD_TAG_FALLBACK_REGEX = re.compile(
     r"(?P<open><(?P<tag>(?:[\w.-]+:)?(?:pw|newPW))\b[^>]*>)(?:.*?(?P<close></(?P=tag)\s*>)|.*$)",
@@ -53,11 +54,14 @@ def _is_sensitive_tag(name: str) -> bool:
 
 
 def _tag_text(elem: Optional[Any], tag_regex: re.Pattern) -> Optional[str]:
-    """Extract stripped text from child tag matching regex if present."""
+    """Extract and normalize XML token text from child tag matching regex."""
     if elem is None:
         return None
     found = elem.find(tag_regex)
-    return (found.text.strip() or None) if found and found.text else None
+    if not found or not found.text:
+        return None
+    trimmed = found.text.strip(" \t\n\r")
+    return XML_WHITESPACE_REGEX.sub(" ", trimmed) if trimmed else None
 
 
 def _find_tag_end(data: bytes, start_idx: int, max_idx: int) -> int:
@@ -281,9 +285,7 @@ class EppResultData:
 
 
 class EppDryRunException(EppCommunicatorException):
-    """
-    Exception raised or used to represent dry-run execution.
-    """
+    """Exception raised or used to represent dry-run execution."""
 
     def __init__(self, cmd: str, result: Optional[EppResultData] = None) -> None:
         self.cmd = cmd
@@ -292,9 +294,7 @@ class EppDryRunException(EppCommunicatorException):
 
 
 class EppTransactionMismatchException(EppCommunicatorException):
-    """
-    Exception raised when response client transaction ID does not match request transaction ID.
-    """
+    """Exception raised when response client transaction ID does not match request transaction ID."""
 
     def __init__(
         self,

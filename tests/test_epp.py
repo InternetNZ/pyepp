@@ -1937,6 +1937,60 @@ class EppClientTransactionIdTest(unittest.TestCase):
         self.assertEqual(res.client_transaction_id, "CL-TEST-1")
         self.assertEqual(res.server_transaction_id, "REGISTRY-PREFIXED-SVTRID")
 
+    def test_xml_schema_token_repeated_spaces_collapsed(self):
+        """Collapse multiple XML spaces, tabs, and newlines per XML Schema token rules."""
+        xml = '<epp><command><clTRID>  REQ \t\n  123   ABC  </clTRID></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "REQ 123 ABC")
+
+    def test_xml_schema_token_non_xml_whitespace_u00a0_preserved(self):
+        """Preserve non-XML whitespace characters such as U+00A0 per XML Schema token rules."""
+        xml = '<epp><command><clTRID>\u00a0REQ-123\u00a0</clTRID></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "\u00a0REQ-123\u00a0")
+
+    def test_execute_repeated_spaces_in_request_match_collapsed_response(self):
+        """Request with repeated spaces matches response echoing collapsed single space."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>  REQ    123  </clTRID></command></epp>'
+        # Server echoes collapsed token
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>REQ 123</clTRID><svTRID>SRV-COLLAPSE</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "REQ 123")
+
+    def test_execute_non_xml_whitespace_u00a0_distinguishes_ids(self):
+        """Distinct IDs with U+00A0 vs stripped are not falsely matched."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp._socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+
+        cmd = '<epp><command><check/><clTRID>\u00a0REQ-123\u00a0</clTRID></command></epp>'
+        # Server response lacks U+00A0
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>REQ-123</clTRID><svTRID>SRV-U00A0</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        with self.assertRaises(EppTransactionMismatchException) as ctx:
+            epp.execute(cmd)
+
+        self.assertEqual(ctx.exception.expected_transaction_id, "\u00a0REQ-123\u00a0")
+        self.assertEqual(ctx.exception.received_transaction_id, "REQ-123")
+
 
 
 
