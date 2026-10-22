@@ -799,6 +799,30 @@ class ContactTest(unittest.TestCase):
         contact.create(int_contact)
         int_xml = epp_communicator.execute.call_args[0][0]
         self.assertIn('<contact:postalInfo type="int">', int_xml)
+        self.assertNotIn('<contact:street>', loc_xml)
+        self.assertNotIn('<contact:street>', int_xml)
+
+    def test_create_xml_with_street_rendered(self) -> None:
+        """Verify CONTACT_CREATE_XML renders street_1 when provided."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        contact_data = ContactData(
+            id="test-street-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Street Contact",
+                address=AddressData(
+                    street_1="100 Customhouse Quay",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.create(contact_data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street>100 Customhouse Quay</contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 1)
 
     def test_update_xml_rendering_loc_and_int(self) -> None:
         """Verify CONTACT_UPDATE_XML renders correct postalInfo type attribute."""
