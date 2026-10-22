@@ -28,6 +28,8 @@ DEFAULT_MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MiB limit to prevent DoS via m
 SOCKET_BUFFER_CHUNK_SIZE = 16384  # 16 KiB - matching standard TLS maximum record size
 
 COMMAND_TAG_REGEX = re.compile(r"(?:^|:)command$")
+RESPONSE_TAG_REGEX = re.compile(r"(?:^|:)response$")
+RESULT_TAG_REGEX = re.compile(r"(?:^|:)result$")
 TRID_TAG_REGEX = re.compile(r"(?:^|:)trID$")
 CLTRID_TAG_REGEX = re.compile(r"(?:^|:)clTRID$")
 SVTRID_TAG_REGEX = re.compile(r"(?:^|:)svTRID$")
@@ -58,7 +60,7 @@ def _tag_text(elem: Optional[Any], tag_regex: re.Pattern, recursive: bool = True
     if elem is None:
         return None
     found = elem.find(tag_regex, recursive=recursive)
-    if not found or not found.text:
+    if not found or not hasattr(found, "text") or not isinstance(found.text, str):
         return None
     trimmed = found.text.strip(" \t\n\r")
     return XML_WHITESPACE_REGEX.sub(" ", trimmed) if trimmed else None
@@ -828,21 +830,18 @@ class EppCommunicator:
     ) -> EppResultData:
         """Parse raw XML server response into EppResultData and validate clTRID."""
         xml_response = BeautifulSoup(raw_response, "xml")
-        response = xml_response.find("response")
-        result = xml_response.find("result")
-        message = result.find("msg").string
+        response = xml_response.find("response") or xml_response.find(RESPONSE_TAG_REGEX)
+        result = xml_response.find("result") or xml_response.find(RESULT_TAG_REGEX)
+        message = result.find("msg").string if result and result.find("msg") else None
 
         try:
             code = int(result.get("code"))
-        except AttributeError as exc:
+        except (AttributeError, TypeError) as exc:
             raise EppCommunicatorException("Could not get result code.") from exc
 
         reason = None
-        if code not in (
-            EppResultCode.SUCCESS.value,
-            EppResultCode.SUCCESS_END_SESSION.value,
-        ):
-            reason = result.find("reason").string if result.find("reason") else None
+        if code not in (EppResultCode.SUCCESS.value, EppResultCode.SUCCESS_END_SESSION.value):
+            reason = result.find("reason").string if result and result.find("reason") else None
 
         scope = response.find(TRID_TAG_REGEX, recursive=False) if response else None
         client_transaction_id = _tag_text(scope, CLTRID_TAG_REGEX, recursive=False)

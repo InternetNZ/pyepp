@@ -2099,6 +2099,24 @@ class EppClientTransactionIdTest(unittest.TestCase):
         self.assertEqual(res.client_transaction_id, "TOP-LEVEL-REQ-TRID")
         self.assertEqual(res.server_transaction_id, "TOP-LEVEL-SERVER-TRID")
 
+    def test_execute_missing_result_code_raises_communicator_exception(self):
+        """Raise EppCommunicatorException when response lacks a valid result code."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>TEST-NO-CODE</clTRID></command></epp>'
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><trID><clTRID>TEST-NO-CODE</clTRID><svTRID>SRV-1</svTRID></trID></response>'
+            '</epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp.execute(cmd)
+        self.assertIn("Could not get result code", str(ctx.exception))
+
 
 
 
