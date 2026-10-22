@@ -57,7 +57,7 @@ def _tag_text(elem: Optional[Any], tag_regex: re.Pattern) -> Optional[str]:
     if elem is None:
         return None
     found = elem.find(tag_regex)
-    return found.text.strip() if found and found.text else None
+    return (found.text.strip() or None) if found and found.text else None
 
 
 def _find_tag_end(data: bytes, start_idx: int, max_idx: int) -> int:

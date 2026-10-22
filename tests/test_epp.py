@@ -1683,9 +1683,15 @@ class EppClientTransactionIdTest(unittest.TestCase):
         self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "TRID-SPACES")
 
     def test_extract_client_transaction_id_empty_and_missing(self):
-        """Return None when clTRID tag is empty or absent."""
+        """Return None when clTRID tag is empty, whitespace-only, or absent."""
         self.assertIsNone(
             EppCommunicator._extract_client_transaction_id("<epp><command><clTRID></clTRID></command></epp>")
+        )
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><command><clTRID>   </clTRID></command></epp>")
+        )
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><command><clTRID>\n\t  \n</clTRID></command></epp>")
         )
         self.assertIsNone(
             EppCommunicator._extract_client_transaction_id("<epp><command><login/></command></epp>")
