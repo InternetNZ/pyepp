@@ -237,6 +237,14 @@ contact
                       server_transaction_id='CIRA-000232306101-0000000002',
                       repository_object_id=None)
 
+.. code-block:: text
+
+    # Standard contact update (omitted streets are not sent):
+    sh> pyepp contact update sh8014 --street-1 "123 Main St" --city Dulles --country-code US
+
+    # Explicitly clearing secondary street lines in registries requiring empty tags (e.g. CentralNic):
+    sh> pyepp contact update sh8014 --street-1 "123 Main St" --street-2 "" --street-3 "" --city Dulles --country-code US
+
 domain
 ^^^^^^^^^^^
 

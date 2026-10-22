@@ -102,7 +102,8 @@ def contact_update(
     CONTACT_ID: Contact id
     """
     has_address_fields = any(
-        [
+        x is not None
+        for x in [
             street_1,
             street_2,
             street_3,

@@ -185,6 +185,55 @@ class CliContactTest(unittest.TestCase):
         self.assertIsNone(contact_arg.postal_info)
         self.assertEqual(contact_arg.phone, "+64.12345678")
 
+    def test_contact_update_address_with_omitted_and_empty_streets(self) -> None:
+        """Verify contact update CLI sets street fields appropriately when omitted or empty."""
+        mock_obj = MagicMock()
+        mock_obj.update.return_value = "Success"
+
+        # Case 1: omitted street-2 and street-3
+        result = self.runner.invoke(
+            contact_update,
+            [
+                "test-contact-1",
+                "--street-1",
+                "123 Main St",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertEqual(result.exit_code, 0)
+        contact_arg = mock_obj.update.call_args[0][0]
+        self.assertEqual(contact_arg.postal_info.address.street_1, "123 Main St")
+        self.assertIsNone(contact_arg.postal_info.address.street_2)
+        self.assertIsNone(contact_arg.postal_info.address.street_3)
+
+        mock_obj.reset_mock()
+
+        # Case 2: explicitly empty street-2 to clear secondary line
+        result = self.runner.invoke(
+            contact_update,
+            [
+                "test-contact-1",
+                "--street-1",
+                "123 Main St",
+                "--street-2",
+                "",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertEqual(result.exit_code, 0)
+        contact_arg = mock_obj.update.call_args[0][0]
+        self.assertEqual(contact_arg.postal_info.address.street_1, "123 Main St")
+        self.assertEqual(contact_arg.postal_info.address.street_2, "")
+        self.assertIsNone(contact_arg.postal_info.address.street_3)
+
 
 if __name__ == "__main__":
     unittest.main()

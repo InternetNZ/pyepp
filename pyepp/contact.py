@@ -27,13 +27,20 @@ class PostalInfoTypeEnum(str, Enum):
 
 @dataclass
 class AddressData:
-    """Contact address data class."""
+    """Contact address data class.
 
-    street_1: Optional[str] = ""
+    Street fields (`street_1`, `street_2`, `street_3`) default to `None`, meaning they
+    are omitted from the update XML payload (standard RFC 5733 replacement behavior).
+    Passing an empty string `""` explicitly renders an empty `<contact:street></contact:street>`
+    element in `<contact:update>`, which clears secondary street lines in registries that
+    require explicit blank tags (such as CentralNic).
+    """
+
+    street_1: Optional[str] = None
     city: Optional[str] = ""
     country_code: Optional[str] = ""
-    street_2: Optional[str] = ""
-    street_3: Optional[str] = ""
+    street_2: Optional[str] = None
+    street_3: Optional[str] = None
     province: Optional[str] = ""
     postal_code: Optional[str] = ""
 

@@ -842,6 +842,78 @@ class ContactTest(unittest.TestCase):
         self.assertIn('<contact:city>Tokyo</contact:city>', int_xml)
         self.assertIn('<contact:cc>JP</contact:cc>', int_xml)
 
+    def test_update_xml_omitted_secondary_streets_not_rendered(self) -> None:
+        """Verify update with only street_1 does not render street_2 or street_3 tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        update_contact = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=AddressData(
+                    street_1="123 Main St",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.update(update_contact)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street>123 Main St</contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 1)
+
+    def test_update_xml_empty_secondary_streets_rendered_for_registry_clearing(
+        self,
+    ) -> None:
+        """Verify update with empty strings for street_2/3 renders empty tags to clear values (e.g. CentralNic)."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        update_contact = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=AddressData(
+                    street_1="123 Main St",
+                    street_2="",
+                    street_3="",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.update(update_contact)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street>123 Main St</contact:street>", xml)
+        self.assertIn("<contact:street></contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 3)
+
+    def test_update_xml_partial_empty_street_rendered(self) -> None:
+        """Verify update with street_2 populated and street_3 empty renders both appropriately."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        update_contact = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=AddressData(
+                    street_1="123 Main St",
+                    street_2="Suite 400",
+                    street_3="",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.update(update_contact)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street>123 Main St</contact:street>", xml)
+        self.assertIn("<contact:street>Suite 400</contact:street>", xml)
+        self.assertIn("<contact:street></contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 3)
+
     def test_info_with_int_type(self) -> None:
         """contact.info() must parse type='int' from <contact:postalInfo> node."""
         epp_communicator = MagicMock(EppCommunicator)
