@@ -16,6 +16,7 @@ from pyepp.epp import (
     EppResultData,
     EppCommunicatorException,
     EppDryRunException,
+    EppTransactionMismatchException,
     mask_sensitive_xml,
     _find_tag_end,
 )
@@ -1656,6 +1657,182 @@ class EppContextManagerTest(unittest.TestCase):
         # Exception during parsing
         with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
             self.assertFalse(EppCommunicator._is_logout_command("<command><logout/></command>"))
+
+
+class EppClientTransactionIdTest(unittest.TestCase):
+    """Unit tests for client transaction ID validation and extraction (RFC 5730)."""
+
+    def test_extract_client_transaction_id_standard(self):
+        """Extract clTRID from standard EPP XML."""
+        xml = "<epp><command><clTRID>UUID-1234</clTRID></command></epp>"
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "UUID-1234")
+
+    def test_extract_client_transaction_id_prefixed(self):
+        """Extract clTRID with XML namespace prefix."""
+        xml = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:command><epp:clTRID>PREFIX-5678</epp:clTRID></epp:command></epp:epp>'
+        )
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "PREFIX-5678")
+
+    def test_extract_client_transaction_id_whitespace_normalized(self):
+        """Ensure whitespace is stripped from clTRID."""
+        xml = "<epp><command><clTRID>   TRID-SPACES   </clTRID></command></epp>"
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "TRID-SPACES")
+
+    def test_extract_client_transaction_id_empty_and_missing(self):
+        """Return None when clTRID tag is empty or absent."""
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><command><clTRID></clTRID></command></epp>")
+        )
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><command><login/></command></epp>")
+        )
+        self.assertIsNone(EppCommunicator._extract_client_transaction_id(""))
+        self.assertIsNone(EppCommunicator._extract_client_transaction_id(None))
+
+    def test_extract_client_transaction_id_bytes_input(self):
+        """Support bytes input for clTRID extraction."""
+        xml_bytes = b"<epp><command><clTRID>BYTES-TRID-99</clTRID></command></epp>"
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml_bytes), "BYTES-TRID-99")
+
+    def test_extract_client_transaction_id_undecodable_bytes(self):
+        """Handle undecodable bytes gracefully without raising exception."""
+        invalid_bytes = b"\xff\xfe\xfd clTRID invalid"
+        self.assertIsNone(EppCommunicator._extract_client_transaction_id(invalid_bytes))
+
+    def test_extract_client_transaction_id_unclosed_tag(self):
+        """Handle unclosed or malformed clTRID tags gracefully."""
+        self.assertIsNone(EppCommunicator._extract_client_transaction_id("<clTRID>unclosed"))
+
+    def test_mismatch_exception_attributes_and_inheritance(self):
+        """Verify EppTransactionMismatchException fields and inheritance."""
+        exc = EppTransactionMismatchException(
+            "Mismatch",
+            expected_transaction_id="EXP",
+            received_transaction_id="RCV",
+        )
+        self.assertIsInstance(exc, EppCommunicatorException)
+        self.assertEqual(exc.expected_transaction_id, "EXP")
+        self.assertEqual(exc.received_transaction_id, "RCV")
+        self.assertEqual(str(exc), "Mismatch")
+
+    def test_execute_matching_client_transaction_id(self):
+        """Execute command successfully when request and response clTRID match."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>MATCH-100</clTRID></command></epp>'
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>MATCH-100</clTRID><svTRID>SRV-1</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "MATCH-100")
+
+    def test_execute_mismatched_client_transaction_id_raises_and_disconnects(self):
+        """Execute command raises EppTransactionMismatchException and disconnects on clTRID mismatch."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp._socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+
+        cmd = '<epp><command><domain:info/><clTRID>DOMAIN-INFO-REQ</clTRID></command></epp>'
+        # Server returns response with a different transaction ID (e.g., buffered contact:create response)
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>OLD-CONTACT-CREATE</clTRID><svTRID>SRV-2</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        with self.assertRaises(EppTransactionMismatchException) as ctx:
+            epp.execute(cmd)
+
+        self.assertEqual(ctx.exception.expected_transaction_id, "DOMAIN-INFO-REQ")
+        self.assertEqual(ctx.exception.received_transaction_id, "OLD-CONTACT-CREATE")
+        self.assertIn("DOMAIN-INFO-REQ", str(ctx.exception))
+        self.assertIn("OLD-CONTACT-CREATE", str(ctx.exception))
+        # Connection must be cleanly disconnected to prevent pipeline corruption
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_execute_missing_response_client_transaction_id_raises_and_disconnects(self):
+        """Execute command raises EppTransactionMismatchException when server omits expected clTRID."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp._socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+
+        cmd = '<epp><command><host:info/><clTRID>HOST-INFO-REQ</clTRID></command></epp>'
+        # Server response lacks <clTRID>
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><svTRID>SRV-3</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        with self.assertRaises(EppTransactionMismatchException) as ctx:
+            epp.execute(cmd)
+
+        self.assertEqual(ctx.exception.expected_transaction_id, "HOST-INFO-REQ")
+        self.assertIsNone(ctx.exception.received_transaction_id)
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_execute_no_cltrid_in_request_bypasses_validation(self):
+        """Commands without clTRID (e.g. login, logout, raw XML) do not enforce clTRID validation."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><logout/></command></epp>'
+        # Server response has clTRID ABC
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1500"><msg>Command completed successfully; end of session</msg></result>'
+            '<trID><clTRID>SERVER-ECHO-ABC</clTRID><svTRID>SRV-4</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1500)
+        self.assertEqual(res.client_transaction_id, "SERVER-ECHO-ABC")
+
+    def test_execute_prefixed_namespace_cltrid_matching(self):
+        """Matching clTRID with XML prefixes in request and response succeeds."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:command><epp:check/><epp:clTRID>PREFIX-UUID</epp:clTRID></epp:command></epp:epp>'
+        )
+        xml_resp = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:response><epp:result code="1000"><epp:msg>OK</epp:msg></epp:result>'
+            '<epp:trID><epp:clTRID>PREFIX-UUID</epp:clTRID><epp:svTRID>SRV-5</epp:svTRID></epp:trID>'
+            '</epp:response></epp:epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "PREFIX-UUID")
+
 
 
 
