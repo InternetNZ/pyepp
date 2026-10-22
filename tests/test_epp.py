@@ -19,6 +19,8 @@ from pyepp.epp import (
     EppTransactionMismatchException,
     mask_sensitive_xml,
     _find_tag_end,
+    _tag_text,
+    CLTRID_TAG_REGEX,
 )
 
 class EppResultDataTest(unittest.TestCase):
@@ -1690,6 +1692,7 @@ class EppClientTransactionIdTest(unittest.TestCase):
         )
         self.assertIsNone(EppCommunicator._extract_client_transaction_id(""))
         self.assertIsNone(EppCommunicator._extract_client_transaction_id(None))
+        self.assertIsNone(_tag_text(None, CLTRID_TAG_REGEX))
 
     def test_extract_client_transaction_id_bytes_input(self):
         """Support bytes input for clTRID extraction."""
@@ -1701,9 +1704,10 @@ class EppClientTransactionIdTest(unittest.TestCase):
         invalid_bytes = b"\xff\xfe\xfd clTRID invalid"
         self.assertIsNone(EppCommunicator._extract_client_transaction_id(invalid_bytes))
 
-    def test_extract_client_transaction_id_unclosed_tag(self):
-        """Handle unclosed or malformed clTRID tags gracefully."""
-        self.assertIsNone(EppCommunicator._extract_client_transaction_id("<clTRID>unclosed"))
+    def test_extract_client_transaction_id_parsing_exception(self):
+        """Handle parsing exceptions gracefully."""
+        with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
+            self.assertIsNone(EppCommunicator._extract_client_transaction_id("<clTRID>ERR</clTRID>"))
 
     def test_mismatch_exception_attributes_and_inheritance(self):
         """Verify EppTransactionMismatchException fields and inheritance."""
@@ -1832,6 +1836,100 @@ class EppClientTransactionIdTest(unittest.TestCase):
         res = epp.execute(cmd)
         self.assertEqual(res.code, 1000)
         self.assertEqual(res.client_transaction_id, "PREFIX-UUID")
+
+    def test_extract_client_transaction_id_escaped_entities(self):
+        """Extract clTRID with escaped XML entities (e.g. &amp;) and ensure decoded text matches."""
+        xml = '<epp><command><clTRID>REQ&amp;123&lt;456&gt;</clTRID></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "REQ&123<456>")
+
+    def test_extract_client_transaction_id_cdata(self):
+        """Extract clTRID wrapped in CDATA section."""
+        xml = '<epp><command><clTRID><![CDATA[REQ-CDATA-999]]></clTRID></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "REQ-CDATA-999")
+
+    def test_extract_client_transaction_id_space_in_closing_tag(self):
+        """Extract clTRID when closing tag has whitespace (e.g. </clTRID >)."""
+        xml = '<epp><command><clTRID >REQ-SPACE-TAG</clTRID ></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "REQ-SPACE-TAG")
+
+    def test_execute_escaped_entities_match_decoded_response(self):
+        """Execute command where request contains escaped entity and response echoes escaped entity."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>REQ&amp;123</clTRID></command></epp>'
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>REQ&amp;123</clTRID><svTRID>SRV-ESC</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "REQ&123")
+        self.assertEqual(res.server_transaction_id, "SRV-ESC")
+
+    def test_execute_poll_response_with_historical_patrid_cltrid(self):
+        """Scope clTRID extraction to trID block, ignoring preceding historical clTRID in poll resData."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><poll op="req"/><clTRID>CURRENT-POLL-REQ-777</clTRID></command></epp>'
+        # Response contains resData with an earlier command's historical paTRID/clTRID before trID/clTRID
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response>'
+            '  <result code="1301"><msg>Command completed successfully; ack to dequeue</msg></result>'
+            '  <msgQ count="5" id="12345"/>'
+            '  <resData>'
+            '    <domain:panData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '      <domain:name>example.com</domain:name>'
+            '      <domain:paTRID>'
+            '        <clTRID>HISTORICAL-REQ-111</clTRID>'
+            '        <svTRID>HISTORICAL-SRV-222</svTRID>'
+            '      </domain:paTRID>'
+            '    </domain:panData>'
+            '  </resData>'
+            '  <trID>'
+            '    <clTRID>CURRENT-POLL-REQ-777</clTRID>'
+            '    <svTRID>CURRENT-SRV-888</svTRID>'
+            '  </trID>'
+            '</response>'
+            '</epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1301)
+        self.assertEqual(res.client_transaction_id, "CURRENT-POLL-REQ-777")
+        self.assertEqual(res.server_transaction_id, "CURRENT-SRV-888")
+
+    def test_execute_namespace_prefixed_svtrid(self):
+        """Extract server_transaction_id when server uses namespace-prefixed epp:svTRID."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:command><epp:check/><epp:clTRID>CL-TEST-1</epp:clTRID></epp:command></epp:epp>'
+        )
+        xml_resp = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:response><epp:result code="1000"><epp:msg>OK</epp:msg></epp:result>'
+            '<epp:trID><epp:clTRID>CL-TEST-1</epp:clTRID><epp:svTRID>REGISTRY-PREFIXED-SVTRID</epp:svTRID></epp:trID>'
+            '</epp:response></epp:epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "CL-TEST-1")
+        self.assertEqual(res.server_transaction_id, "REGISTRY-PREFIXED-SVTRID")
 
 
 

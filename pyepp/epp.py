@@ -27,10 +27,11 @@ CRLF_SIZE = 2
 DEFAULT_MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MiB limit to prevent DoS via memory exhaustion
 SOCKET_BUFFER_CHUNK_SIZE = 16384  # 16 KiB - matching standard TLS maximum record size
 
+COMMAND_TAG_REGEX = re.compile(r"(?:^|:)command$")
+TRID_TAG_REGEX = re.compile(r"(?:^|:)trID$")
 CLTRID_TAG_REGEX = re.compile(r"(?:^|:)clTRID$")
-CLTRID_ELEMENT_REGEX = re.compile(
-    r"<(?:[\w.-]+:)?clTRID\b[^>]*>(.*?)</(?:[\w.-]+:)?clTRID>", re.DOTALL | re.IGNORECASE
-)
+SVTRID_TAG_REGEX = re.compile(r"(?:^|:)svTRID$")
+ROID_TAG_REGEX = re.compile(r"(?:^|:)roid$")
 
 PASSWORD_TAG_FALLBACK_REGEX = re.compile(
     r"(?P<open><(?P<tag>(?:[\w.-]+:)?(?:pw|newPW))\b[^>]*>)(?:.*?(?P<close></(?P=tag)\s*>)|.*$)",
@@ -49,6 +50,14 @@ def _is_sensitive_tag(name: str) -> bool:
     """
     local_name = name.split(":")[-1]
     return local_name.lower() in ("pw", "newpw")
+
+
+def _tag_text(elem: Optional[Any], tag_regex: re.Pattern) -> Optional[str]:
+    """Extract stripped text from child tag matching regex if present."""
+    if elem is None:
+        return None
+    found = elem.find(tag_regex)
+    return found.text.strip() if found and found.text else None
 
 
 def _find_tag_end(data: bytes, start_idx: int, max_idx: int) -> int:
@@ -769,10 +778,13 @@ class EppCommunicator:
                 return None
         if "clTRID" not in cmd:
             return None
-        match = CLTRID_ELEMENT_REGEX.search(cmd)
-        if match:
-            val = match.group(1).strip()
-            return val if val else None
+        try:
+            xml_cmd = BeautifulSoup(cmd, "xml")
+            command_elem = xml_cmd.find(COMMAND_TAG_REGEX)
+            target = command_elem if command_elem else xml_cmd
+            return _tag_text(target, CLTRID_TAG_REGEX)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.debug("Could not parse clTRID from command: %s", exc)
         return None
 
     def _execute_dry_run(self, cmd: str) -> EppResultData:
@@ -787,7 +799,6 @@ class EppCommunicator:
         client_transaction_id = self._extract_client_transaction_id(raw_response)
         xml_cmd = None
         try:
-            # Extract client transaction ID from the XML payload if present
             xml_cmd = BeautifulSoup(raw_response, "xml")
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logging.debug("Could not parse clTRID in dry run: %s", exc)
@@ -832,22 +843,10 @@ class EppCommunicator:
         ):
             reason = result.find("reason").string if result.find("reason") else None
 
-        cl_trid_elem = response.find(CLTRID_TAG_REGEX) if response else None
-        client_transaction_id = (
-            cl_trid_elem.text.strip()
-            if cl_trid_elem and cl_trid_elem.text
-            else None
-        )
-        server_transaction_id = (
-            response.find("svTRID").text
-            if response and response.find("svTRID")
-            else None
-        )
-        repository_object_id = (
-            response.find("roid").text
-            if response and response.find("roid")
-            else None
-        )
+        scope = response.find(TRID_TAG_REGEX) if response else response
+        client_transaction_id = _tag_text(scope, CLTRID_TAG_REGEX)
+        server_transaction_id = _tag_text(scope, SVTRID_TAG_REGEX)
+        repository_object_id = _tag_text(response, ROID_TAG_REGEX)
 
         if expected_trid is not None and client_transaction_id != expected_trid:
             self.disconnect()
