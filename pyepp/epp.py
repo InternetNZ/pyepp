@@ -844,7 +844,7 @@ class EppCommunicator:
         ):
             reason = result.find("reason").string if result.find("reason") else None
 
-        scope = response.find(TRID_TAG_REGEX) if response else response
+        scope = response.find(TRID_TAG_REGEX, recursive=False) if response else None
         client_transaction_id = _tag_text(scope, CLTRID_TAG_REGEX, recursive=False)
         server_transaction_id = _tag_text(scope, SVTRID_TAG_REGEX, recursive=False)
         repository_object_id = _tag_text(response, ROID_TAG_REGEX)

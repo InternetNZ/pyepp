@@ -2065,6 +2065,40 @@ class EppClientTransactionIdTest(unittest.TestCase):
         self.assertEqual(res.code, 1000)
         self.assertEqual(res.client_transaction_id, "COMMAND-LEVEL-TRID")
 
+    def test_execute_response_with_nested_payload_trid_in_extension(self):
+        """Restrict trID lookup to direct child of <response>, ignoring nested payload trID blocks."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>TOP-LEVEL-REQ-TRID</clTRID></command></epp>'
+        # Response has an extension containing a nested trID block before the top-level response/trID
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response>'
+            '  <result code="1000"><msg>OK</msg></result>'
+            '  <extension>'
+            '    <customExt:ext xmlns:customExt="urn:custom">'
+            '      <customExt:trID>'
+            '        <customExt:clTRID>NESTED-PAYLOAD-TRID-IGNORE</customExt:clTRID>'
+            '        <customExt:svTRID>NESTED-PAYLOAD-SVTRID-IGNORE</customExt:svTRID>'
+            '      </customExt:trID>'
+            '    </customExt:ext>'
+            '  </extension>'
+            '  <trID>'
+            '    <clTRID>TOP-LEVEL-REQ-TRID</clTRID>'
+            '    <svTRID>TOP-LEVEL-SERVER-TRID</svTRID>'
+            '  </trID>'
+            '</response>'
+            '</epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "TOP-LEVEL-REQ-TRID")
+        self.assertEqual(res.server_transaction_id, "TOP-LEVEL-SERVER-TRID")
+
 
 
 
