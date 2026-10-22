@@ -27,6 +27,15 @@ CRLF_SIZE = 2
 DEFAULT_MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MiB limit to prevent DoS via memory exhaustion
 SOCKET_BUFFER_CHUNK_SIZE = 16384  # 16 KiB - matching standard TLS maximum record size
 
+COMMAND_TAG_REGEX = re.compile(r"(?:^|:)command$")
+RESPONSE_TAG_REGEX = re.compile(r"(?:^|:)response$")
+RESULT_TAG_REGEX = re.compile(r"(?:^|:)result$")
+TRID_TAG_REGEX = re.compile(r"(?:^|:)trID$")
+CLTRID_TAG_REGEX = re.compile(r"(?:^|:)clTRID$")
+SVTRID_TAG_REGEX = re.compile(r"(?:^|:)svTRID$")
+ROID_TAG_REGEX = re.compile(r"(?:^|:)roid$")
+XML_WHITESPACE_REGEX = re.compile(r"[ \t\n\r]+")
+
 PASSWORD_TAG_FALLBACK_REGEX = re.compile(
     r"(?P<open><(?P<tag>(?:[\w.-]+:)?(?:pw|newPW))\b[^>]*>)(?:.*?(?P<close></(?P=tag)\s*>)|.*$)",
     re.IGNORECASE | re.DOTALL,
@@ -44,6 +53,17 @@ def _is_sensitive_tag(name: str) -> bool:
     """
     local_name = name.split(":")[-1]
     return local_name.lower() in ("pw", "newpw")
+
+
+def _tag_text(elem: Optional[Any], tag_regex: re.Pattern, recursive: bool = True) -> Optional[str]:
+    """Extract and normalize XML token text from child tag matching regex."""
+    if elem is None:
+        return None
+    found = elem.find(tag_regex, recursive=recursive)
+    if not found or not hasattr(found, "text") or not isinstance(found.text, str):
+        return None
+    trimmed = found.text.strip(" \t\n\r")
+    return XML_WHITESPACE_REGEX.sub(" ", trimmed) if trimmed else None
 
 
 def _find_tag_end(data: bytes, start_idx: int, max_idx: int) -> int:
@@ -239,9 +259,7 @@ class EppResultData:
     server_transaction_id: Optional[str] = None
     repository_object_id: Optional[str] = None
     dry_run: bool = False  # True if the command was executed offline in dry-run mode
-    parsed_xml: Optional[BeautifulSoup] = field(
-        default=None, compare=False, repr=False
-    )
+    parsed_xml: Optional[BeautifulSoup] = field(default=None, compare=False, repr=False)
 
     def __post_init__(self):
         if self.parsed_xml is None and self.raw_response and not self.dry_run:
@@ -269,14 +287,26 @@ class EppResultData:
 
 
 class EppDryRunException(EppCommunicatorException):
-    """
-    Exception raised or used to represent dry-run execution.
-    """
+    """Exception raised or used to represent dry-run execution."""
 
     def __init__(self, cmd: str, result: Optional[EppResultData] = None) -> None:
         self.cmd = cmd
         self.result = result
         super().__init__(f"Dry run: {cmd}")
+
+
+class EppTransactionMismatchException(EppCommunicatorException):
+    """Exception raised when response client transaction ID does not match request transaction ID."""
+
+    def __init__(
+        self,
+        message: str,
+        expected_transaction_id: Optional[str] = None,
+        received_transaction_id: Optional[str] = None,
+    ) -> None:
+        super().__init__(message)
+        self.expected_transaction_id = expected_transaction_id
+        self.received_transaction_id = received_transaction_id
 
 
 class EppCommunicator:
@@ -329,12 +359,7 @@ class EppCommunicator:
         self._last_logout_error: Optional[Exception] = None
 
     def __repr__(self) -> str:
-        """
-        Safe string representation masking sensitive credentials.
-
-        :return: Class representation string.
-        :rtype: str
-        """
+        """Safe string representation masking sensitive credentials."""
         return (
             f"<{self.__class__.__name__} "
             f"server={self._server!r} port={self._port!r} "
@@ -404,66 +429,37 @@ class EppCommunicator:
 
     @property
     def last_logout_error(self) -> Optional[Exception]:
-        """
-        Exception encountered during the most recent context manager logout, if any.
-
-        :return: Exception instance if logout failed during __exit__, None otherwise.
-        :rtype: Optional[Exception]
-        """
+        """Exception encountered during the most recent context manager logout, if any."""
         return self._last_logout_error
 
     @property
     def user(self) -> Optional[str]:
-        """User property"""
+        """User property."""
         return self._user
 
     @property
     def extensions(self) -> list[str]:
-        """Extensions property"""
+        """Extensions property."""
         return list(getattr(self, "_extensions", []))
 
     @property
     def is_logged_in(self) -> bool:
-        """
-        Check if the client has an active authenticated session.
-
-        :return: True if authenticated and logged in, False otherwise.
-        :rtype: bool
-        """
+        """Check if the client has an active authenticated session."""
         return self._logged_in
 
     @property
     def is_connected(self) -> bool:
-        """
-        Check if the transport connection is established.
-
-        :return: True if connected, False otherwise.
-        :rtype: bool
-        """
+        """Check if the transport connection is established."""
         if self._dry_run:
             return self.greeting is not None
         return self._ssl_socket is not None
 
     def _unpack_data(self, data: bytes) -> int:
-        """
-        Unpack data.
-
-        :param bytes data: data
-
-        :return: unpacked data
-        :rtype: int
-        """
+        """Unpack 32-bit unsigned integer data from bytes."""
         return struct.unpack(self._format_32, data)[0]
 
     def _pack_data(self, data: int) -> bytes:
-        """
-        Pack the data.
-
-        :param int data: data
-
-        :return: bytes
-        :rtype: bytes
-        """
+        """Pack 32-bit unsigned integer data into bytes."""
         return struct.pack(self._format_32, data)
 
     def _read_from_socket(self, size: int, use_read: bool = False) -> bytes:
@@ -765,6 +761,35 @@ class EppCommunicator:
                 self._password = login_pass
             self._extensions = ext_uris
 
+    @staticmethod
+    def _extract_client_transaction_id(cmd: Union[str, bytes]) -> Optional[str]:
+        """
+        Extract client transaction ID (clTRID) from an EPP command XML if present.
+
+        :param cmd: EPP XML command string or bytes
+        :return: Client transaction ID string, or None if not present
+        :rtype: Optional[str]
+        """
+        if not cmd:
+            return None
+        if isinstance(cmd, bytes):
+            try:
+                cmd = cmd.decode("utf-8")
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                logging.debug("Could not decode command bytes: %s", exc)
+                return None
+        if "clTRID" not in cmd:
+            return None
+        try:
+            xml_cmd = BeautifulSoup(cmd, "xml")
+            command_elem = xml_cmd.find(COMMAND_TAG_REGEX)
+            if not command_elem:
+                return None
+            return _tag_text(command_elem, CLTRID_TAG_REGEX, recursive=False)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            logging.debug("Could not parse clTRID from command: %s", exc)
+        return None
+
     def _execute_dry_run(self, cmd: str) -> EppResultData:
         """
         Execute command in dry-run mode without sending to server.
@@ -774,14 +799,10 @@ class EppCommunicator:
         :rtype: EppResultData
         """
         raw_response = self._execute_command(cmd).decode("utf-8")
-        client_transaction_id = None
+        client_transaction_id = self._extract_client_transaction_id(raw_response)
         xml_cmd = None
         try:
-            # Extract client transaction ID from the XML payload if present
             xml_cmd = BeautifulSoup(raw_response, "xml")
-            cl_trid = xml_cmd.find("clTRID")
-            if cl_trid:
-                client_transaction_id = cl_trid.text
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logging.debug("Could not parse clTRID in dry run: %s", exc)
 
@@ -804,15 +825,68 @@ class EppCommunicator:
             parsed_xml=xml_cmd,
         )
 
+    def _parse_response(
+        self, raw_response: bytes, expected_trid: Optional[str], cmd: str
+    ) -> EppResultData:
+        """Parse raw XML server response into EppResultData and validate clTRID."""
+        xml_response = BeautifulSoup(raw_response, "xml")
+        response = xml_response.find("response") or xml_response.find(RESPONSE_TAG_REGEX)
+        result = xml_response.find("result") or xml_response.find(RESULT_TAG_REGEX)
+        message = result.find("msg").string if result and result.find("msg") else None
+
+        try:
+            code = int(result.get("code"))
+        except (AttributeError, TypeError) as exc:
+            raise EppCommunicatorException("Could not get result code.") from exc
+
+        reason = None
+        if code not in (EppResultCode.SUCCESS.value, EppResultCode.SUCCESS_END_SESSION.value):
+            reason = result.find("reason").string if result and result.find("reason") else None
+
+        scope = response.find(TRID_TAG_REGEX, recursive=False) if response else None
+        client_transaction_id = _tag_text(scope, CLTRID_TAG_REGEX, recursive=False)
+        server_transaction_id = _tag_text(scope, SVTRID_TAG_REGEX, recursive=False)
+        repository_object_id = _tag_text(response, ROID_TAG_REGEX)
+
+        if expected_trid is not None and client_transaction_id != expected_trid:
+            self.disconnect()
+            raise EppTransactionMismatchException(
+                f"Client transaction ID mismatch: expected '{expected_trid}', "
+                f"received '{client_transaction_id}'",
+                expected_transaction_id=expected_trid,
+                received_transaction_id=client_transaction_id,
+            )
+
+        if self._is_logout_command(cmd) or code in (
+            EppResultCode.SUCCESS_END_SESSION.value,
+            EppResultCode.COMMAND_FAILED_CLOSING_CONNECTION.value,
+            EppResultCode.AUTHENTICATION_ERROR_CLOSING_CONNECTION.value,
+            EppResultCode.SESSION_LIMIT_EXCEEDED_CLOSING_CONNECTION.value,
+        ):
+            self.disconnect()
+
+        self._sync_login_state(cmd, code)
+        logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
+
+        return EppResultData(
+            code=code,
+            message=message,
+            reason=reason,
+            raw_response=raw_response,
+            client_transaction_id=client_transaction_id,
+            server_transaction_id=server_transaction_id,
+            repository_object_id=repository_object_id,
+            result_data=None,
+            parsed_xml=xml_response,
+        )
+
     def execute(self, cmd: str) -> EppResultData:
         """
         Execute the command. Sending the request to the server and receive the response.
 
         :param str cmd: XML Command
-
         :return: Result object
         :rtype: EppResultData
-
         :raises EppCommunicatorException: When there is any errors.
         """
         try:
@@ -821,77 +895,21 @@ class EppCommunicator:
                     "The connection to the server has not been established yet!"
                 )
 
-            # Route dry-run commands to offline execution handler
             if self._dry_run:
                 return self._execute_dry_run(cmd)
 
+            expected_trid = self._extract_client_transaction_id(cmd)
             raw_response = self._execute_command(cmd)
-            xml_response = BeautifulSoup(raw_response, "xml")
-
-            response = xml_response.find("response")
-            result = xml_response.find("result")
-            message = result.find("msg").string
-
-            try:
-                code = int(result.get("code"))
-            except AttributeError as exc:
-                raise EppCommunicatorException("Could not get result code.") from exc
-
-            reason = None
-            if code not in (
-                EppResultCode.SUCCESS.value,
-                EppResultCode.SUCCESS_END_SESSION.value,
-            ):
-                reason = result.find("reason").string if result.find("reason") else None
-
-            client_transaction_id = (
-                response.find("clTRID").text if response.find("clTRID") else None
-            )
-            server_transaction_id = (
-                response.find("svTRID").text if response.find("svTRID") else None
-            )
-            repository_object_id = (
-                response.find("roid").text if response.find("roid") else None
-            )
-
-            if self._is_logout_command(cmd) or code in (
-                EppResultCode.SUCCESS_END_SESSION.value,
-                EppResultCode.COMMAND_FAILED_CLOSING_CONNECTION.value,
-                EppResultCode.AUTHENTICATION_ERROR_CLOSING_CONNECTION.value,
-                EppResultCode.SESSION_LIMIT_EXCEEDED_CLOSING_CONNECTION.value,
-            ):
-                self.disconnect()
-
-            self._sync_login_state(cmd, code)
-
-            logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
-
-            return EppResultData(
-                code=code,
-                message=message,
-                reason=reason,
-                raw_response=raw_response,
-                client_transaction_id=client_transaction_id,
-                server_transaction_id=server_transaction_id,
-                repository_object_id=repository_object_id,
-                result_data=None,
-                parsed_xml=xml_response,
-            )
+            return self._parse_response(raw_response, expected_trid, cmd)
         except EppCommunicatorException as epp_ex:
             raise epp_ex
         except Exception as ex:
             raise EppCommunicatorException(ex) from ex
 
     def hello(self) -> bytes:
-        """
-        Send Hello command the server.
-
-        :return: Greeting response
-        :rtype: bytes
-        """
+        """Send Hello command to the server and return greeting response."""
         logging.debug("Send Hello command to the server!")
-        greeting = self._execute_command(HELLO_XML)
-        return greeting
+        return self._execute_command(HELLO_XML)
 
     def login(
         self, user: str, password: str, extensions: Optional[list[str]] = None
@@ -951,9 +969,7 @@ class EppCommunicator:
         return result
 
     def disconnect(self) -> None:
-        """
-        Close and clean up socket connections without sending EPP commands.
-        """
+        """Close and clean up socket connections without sending EPP commands."""
         self._logged_in = False
         if self._ssl_socket:
             try:
@@ -972,17 +988,10 @@ class EppCommunicator:
         self.greeting = None
 
     def logout(self) -> EppResultData:
-        """
-        Logout the user from EPP server.
-
-        :return: Result object
-        :rtype: EppResultData
-        """
+        """Logout the user from EPP server."""
         try:
             logout = self.execute(LOGOUT_XML)
-            logging.info(
-                "User %s logged out from %s:%s", self._user, self._server, self._port
-            )
+            logging.info("User %s logged out from %s:%s", self._user, self._server, self._port)
             return logout
         finally:
             self._logged_in = False

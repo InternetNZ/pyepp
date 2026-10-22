@@ -9,6 +9,7 @@ from pyepp.epp import (
     EppResultCode,
     EppCommunicatorException,
     EppDryRunException,
+    EppTransactionMismatchException,
     EppResultData,
 )
 from pyepp.contact import (
