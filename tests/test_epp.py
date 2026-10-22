@@ -1696,6 +1696,9 @@ class EppClientTransactionIdTest(unittest.TestCase):
         self.assertIsNone(
             EppCommunicator._extract_client_transaction_id("<epp><command><login/></command></epp>")
         )
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><clTRID>NO-CMD</clTRID></epp>")
+        )
         self.assertIsNone(EppCommunicator._extract_client_transaction_id(""))
         self.assertIsNone(EppCommunicator._extract_client_transaction_id(None))
         self.assertIsNone(_tag_text(None, CLTRID_TAG_REGEX))
@@ -1990,6 +1993,77 @@ class EppClientTransactionIdTest(unittest.TestCase):
 
         self.assertEqual(ctx.exception.expected_transaction_id, "\u00a0REQ-123\u00a0")
         self.assertEqual(ctx.exception.received_transaction_id, "REQ-123")
+
+    def test_extract_client_transaction_id_extension_preceding_actual_request_id(self):
+        """Select direct child of <command>, ignoring preceding extension clTRID elements."""
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '  <command>'
+            '    <check/>'
+            '    <extension>'
+            '      <customExt:ext xmlns:customExt="urn:custom">'
+            '        <customExt:clTRID>EXTENSION-TRID-IGNORE</customExt:clTRID>'
+            '      </customExt:ext>'
+            '    </extension>'
+            '    <clTRID>ACTUAL-REQUEST-TRID-OK</clTRID>'
+            '  </command>'
+            '</epp>'
+        )
+        self.assertEqual(
+            EppCommunicator._extract_client_transaction_id(xml),
+            "ACTUAL-REQUEST-TRID-OK"
+        )
+
+    def test_extract_client_transaction_id_empty_extension_cltrid_preceding_command_cltrid(self):
+        """Ensure empty extension clTRID preceding command clTRID does not disable validation."""
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '  <command>'
+            '    <check/>'
+            '    <extension>'
+            '      <customExt:ext xmlns:customExt="urn:custom">'
+            '        <customExt:clTRID></customExt:clTRID>'
+            '      </customExt:ext>'
+            '    </extension>'
+            '    <clTRID>COMMAND-LEVEL-TRID-2</clTRID>'
+            '  </command>'
+            '</epp>'
+        )
+        self.assertEqual(
+            EppCommunicator._extract_client_transaction_id(xml),
+            "COMMAND-LEVEL-TRID-2"
+        )
+
+    def test_execute_extension_cltrid_preceding_command_cltrid_succeeds(self):
+        """Execute command where extension contains a clTRID before command clTRID."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '  <command>'
+            '    <check/>'
+            '    <extension>'
+            '      <customExt:ext xmlns:customExt="urn:custom">'
+            '        <customExt:clTRID>EXTENSION-TRID-DIFFERENT</customExt:clTRID>'
+            '      </customExt:ext>'
+            '    </extension>'
+            '    <clTRID>COMMAND-LEVEL-TRID</clTRID>'
+            '  </command>'
+            '</epp>'
+        )
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>COMMAND-LEVEL-TRID</clTRID><svTRID>SRV-EXT-CHECK</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "COMMAND-LEVEL-TRID")
 
 
 

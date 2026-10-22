@@ -53,11 +53,11 @@ def _is_sensitive_tag(name: str) -> bool:
     return local_name.lower() in ("pw", "newpw")
 
 
-def _tag_text(elem: Optional[Any], tag_regex: re.Pattern) -> Optional[str]:
+def _tag_text(elem: Optional[Any], tag_regex: re.Pattern, recursive: bool = True) -> Optional[str]:
     """Extract and normalize XML token text from child tag matching regex."""
     if elem is None:
         return None
-    found = elem.find(tag_regex)
+    found = elem.find(tag_regex, recursive=recursive)
     if not found or not found.text:
         return None
     trimmed = found.text.strip(" \t\n\r")
@@ -781,8 +781,9 @@ class EppCommunicator:
         try:
             xml_cmd = BeautifulSoup(cmd, "xml")
             command_elem = xml_cmd.find(COMMAND_TAG_REGEX)
-            target = command_elem if command_elem else xml_cmd
-            return _tag_text(target, CLTRID_TAG_REGEX)
+            if not command_elem:
+                return None
+            return _tag_text(command_elem, CLTRID_TAG_REGEX, recursive=False)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             logging.debug("Could not parse clTRID from command: %s", exc)
         return None
@@ -844,8 +845,8 @@ class EppCommunicator:
             reason = result.find("reason").string if result.find("reason") else None
 
         scope = response.find(TRID_TAG_REGEX) if response else response
-        client_transaction_id = _tag_text(scope, CLTRID_TAG_REGEX)
-        server_transaction_id = _tag_text(scope, SVTRID_TAG_REGEX)
+        client_transaction_id = _tag_text(scope, CLTRID_TAG_REGEX, recursive=False)
+        server_transaction_id = _tag_text(scope, SVTRID_TAG_REGEX, recursive=False)
         repository_object_id = _tag_text(response, ROID_TAG_REGEX)
 
         if expected_trid is not None and client_transaction_id != expected_trid:
