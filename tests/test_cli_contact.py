@@ -234,6 +234,52 @@ class CliContactTest(unittest.TestCase):
         self.assertEqual(contact_arg.postal_info.address.street_2, "")
         self.assertIsNone(contact_arg.postal_info.address.street_3)
 
+    def test_contact_update_address_sparse_streets_raises_usage_error(self) -> None:
+        """Verify contact update CLI rejects sparse street arguments with UsageError."""
+        mock_obj = MagicMock()
+
+        # Omitted street-1 but provided street-2
+        result = self.runner.invoke(
+            contact_update,
+            [
+                "test-contact-1",
+                "--street-2",
+                "Suite 2",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(
+            "Cannot specify --street-2 or --street-3 when preceding street lines are omitted.",
+            result.output,
+        )
+
+        # Gap: street-1 and street-3 but omitted street-2
+        result = self.runner.invoke(
+            contact_update,
+            [
+                "test-contact-1",
+                "--street-1",
+                "123 Main St",
+                "--street-3",
+                "",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(
+            "Cannot specify --street-3 when --street-2 is omitted.",
+            result.output,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

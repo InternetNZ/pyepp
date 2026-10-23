@@ -34,6 +34,10 @@ class AddressData:
     Passing an empty string `""` explicitly renders an empty `<contact:street></contact:street>`
     element in `<contact:update>`, which clears secondary street lines in registries that
     require explicit blank tags (such as CentralNic).
+
+    Street lines in EPP are strictly positional. Sparse updates containing gaps
+    (e.g., specifying `street_2` or `street_3` when preceding lines are `None`) are rejected
+    with a `ValueError` to prevent unintended positional shifting and registry data corruption.
     """
 
     street_1: Optional[str] = None
@@ -43,6 +47,19 @@ class AddressData:
     street_3: Optional[str] = None
     province: Optional[str] = ""
     postal_code: Optional[str] = ""
+
+    def __post_init__(self) -> None:
+        """Validate street lines do not have gaps."""
+        if self.street_1 is None and (
+            self.street_2 is not None or self.street_3 is not None
+        ):
+            raise ValueError(
+                "Cannot specify 'street_2' or 'street_3' when preceding street lines are omitted."
+            )
+        if self.street_2 is None and self.street_3 is not None:
+            raise ValueError(
+                "Cannot specify 'street_3' when 'street_2' is omitted."
+            )
 
 
 @dataclass

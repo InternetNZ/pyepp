@@ -938,6 +938,62 @@ class ContactTest(unittest.TestCase):
         self.assertIn("<contact:street></contact:street>", xml)
         self.assertEqual(xml.count("<contact:street>"), 3)
 
+    def test_address_data_sparse_streets_raises_value_error(self) -> None:
+        """Verify AddressData rejects sparse street updates that skip preceding lines."""
+        # Case 1: street_2 provided when street_1 is omitted
+        with self.assertRaises(ValueError) as ctx:
+            AddressData(
+                street_1=None,
+                street_2="Suite 2",
+                city="Wellington",
+                country_code="NZ",
+            )
+        self.assertIn(
+            "Cannot specify 'street_2' or 'street_3' when preceding street lines are omitted",
+            str(ctx.exception),
+        )
+
+        # Case 2: street_3 provided when street_1 is omitted
+        with self.assertRaises(ValueError) as ctx:
+            AddressData(
+                street_1=None,
+                street_3="Building B",
+                city="Wellington",
+                country_code="NZ",
+            )
+        self.assertIn(
+            "Cannot specify 'street_2' or 'street_3' when preceding street lines are omitted",
+            str(ctx.exception),
+        )
+
+        # Case 3: street_3 provided when street_2 is omitted (gap in middle)
+        with self.assertRaises(ValueError) as ctx:
+            AddressData(
+                street_1="123 Main St",
+                street_2=None,
+                street_3="Building B",
+                city="Wellington",
+                country_code="NZ",
+            )
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is omitted",
+            str(ctx.exception),
+        )
+
+        # Case 4: street_3 set to empty string when street_2 is omitted
+        with self.assertRaises(ValueError) as ctx:
+            AddressData(
+                street_1="123 Main St",
+                street_2=None,
+                street_3="",
+                city="Wellington",
+                country_code="NZ",
+            )
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is omitted",
+            str(ctx.exception),
+        )
+
     def test_info_with_int_type(self) -> None:
         """contact.info() must parse type='int' from <contact:postalInfo> node."""
         epp_communicator = MagicMock(EppCommunicator)

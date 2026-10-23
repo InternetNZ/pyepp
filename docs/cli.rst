@@ -245,6 +245,11 @@ contact
     # Explicitly clearing secondary street lines in registries requiring empty tags (e.g. CentralNic):
     sh> pyepp contact update sh8014 --street-1 "123 Main St" --street-2 "" --street-3 "" --city Dulles --country-code US
 
+.. note::
+   Street options in CLI are strictly positional. You cannot pass ``--street-2`` or ``--street-3``
+   if the preceding street lines are omitted. To modify or clear a later line, always supply
+   the preceding lines as well.
+
 domain
 ^^^^^^^^^^^
 
