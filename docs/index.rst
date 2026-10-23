@@ -81,6 +81,47 @@ Usage example
    # Get contact details
    contact_info = contact.info('contact-1')
 
+   # Update contact details (standard update: omitted streets are not sent)
+   contact_update_params = ContactData(
+       id='contact-1',
+       postal_info=PostalInfoData(
+           name='Registrar 1',
+           address=AddressData(
+               street_1='20 Updated Street',
+               city='Auckland',
+               country_code='NZ',
+           ),
+       ),
+   )
+   contact_update = contact.update(contact_update_params)
+
+   # To explicitly clear secondary street lines in registries requiring empty tags (e.g., CentralNic):
+   contact_clear_streets = ContactData(
+       id='contact-1',
+       postal_info=PostalInfoData(
+           name='Registrar 1',
+           address=AddressData(
+               street_1='20 Updated Street',
+               street_2='',  # renders <contact:street></contact:street> to clear Line 2
+               street_3='',  # renders <contact:street></contact:street> to clear Line 3
+               city='Auckland',
+               country_code='NZ',
+           ),
+       ),
+   )
+   contact.update(contact_clear_streets)
+
+.. note::
+   Street lines in EPP (RFC 5733) are strictly positional and sequential (Line 1, Line 2, Line 3).
+   PyEPP rejects sparse street updates containing gaps (raising ``ValueError``):
+
+   * If you provide ``street_2``, ``street_1`` must also be provided.
+   * If you provide ``street_3``, ``street_2`` (and ``street_1``) must also be provided.
+
+   To update or clear a later line, always resend the preceding lines to preserve positional integrity.
+
+.. code:: python
+
    domain = Domain(epp)
    # Check domains availability
    domain_check = domain.check(['domain1.nz', 'domain2.nz'])

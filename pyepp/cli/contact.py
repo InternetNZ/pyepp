@@ -102,7 +102,8 @@ def contact_update(
     CONTACT_ID: Contact id
     """
     has_address_fields = any(
-        [
+        x is not None
+        for x in [
             street_1,
             street_2,
             street_3,
@@ -129,6 +130,14 @@ def contact_update(
 
         address = None
         if has_address_fields or postal_type == "int":
+            if street_1 is None and (street_2 is not None or street_3 is not None):
+                raise click.UsageError(
+                    "Cannot specify --street-2 or --street-3 when preceding street lines are omitted."
+                )
+            if street_2 is None and street_3 is not None:
+                raise click.UsageError(
+                    "Cannot specify --street-3 when --street-2 is omitted."
+                )
             address = AddressData(
                 street_1=street_1,
                 street_2=street_2,
@@ -210,6 +219,15 @@ def contact_create(
 
     CONTACT_ID: A unique contact id
     """
+    if street_1 is None and (street_2 is not None or street_3 is not None):
+        raise click.UsageError(
+            "Cannot specify --street-2 or --street-3 when preceding street lines are omitted."
+        )
+    if street_2 is None and street_3 is not None:
+        raise click.UsageError(
+            "Cannot specify --street-3 when --street-2 is omitted."
+        )
+
     contact_to_create = ContactData(
         id=contact_id,
         email=email,

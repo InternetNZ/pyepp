@@ -799,6 +799,56 @@ class ContactTest(unittest.TestCase):
         contact.create(int_contact)
         int_xml = epp_communicator.execute.call_args[0][0]
         self.assertIn('<contact:postalInfo type="int">', int_xml)
+        self.assertNotIn('<contact:street>', loc_xml)
+        self.assertNotIn('<contact:street>', int_xml)
+
+    def test_create_xml_with_street_rendered(self) -> None:
+        """Verify CONTACT_CREATE_XML renders street_1 when provided."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        contact_data = ContactData(
+            id="test-street-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Street Contact",
+                address=AddressData(
+                    street_1="100 Customhouse Quay",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.create(contact_data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street>100 Customhouse Quay</contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 1)
+
+    def test_create_xml_with_empty_first_street_and_populated_second_street(
+        self,
+    ) -> None:
+        """Verify CONTACT_CREATE_XML preserves positional integrity with empty first street."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        contact_data = ContactData(
+            id="test-street-contact-2",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Street Contact",
+                address=AddressData(
+                    street_1="",
+                    street_2="Suite 2",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.create(contact_data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street></contact:street>", xml)
+        self.assertIn("<contact:street>Suite 2</contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 2)
 
     def test_update_xml_rendering_loc_and_int(self) -> None:
         """Verify CONTACT_UPDATE_XML renders correct postalInfo type attribute."""
@@ -841,6 +891,174 @@ class ContactTest(unittest.TestCase):
         self.assertIn('<contact:name>International Contact</contact:name>', int_xml)
         self.assertIn('<contact:city>Tokyo</contact:city>', int_xml)
         self.assertIn('<contact:cc>JP</contact:cc>', int_xml)
+
+    def test_update_xml_omitted_secondary_streets_not_rendered(self) -> None:
+        """Verify update with only street_1 does not render street_2 or street_3 tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        update_contact = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=AddressData(
+                    street_1="123 Main St",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.update(update_contact)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street>123 Main St</contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 1)
+
+    def test_update_xml_empty_secondary_streets_rendered_for_registry_clearing(
+        self,
+    ) -> None:
+        """Verify update with empty strings for street_2/3 renders empty tags to clear values (e.g. CentralNic)."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        update_contact = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=AddressData(
+                    street_1="123 Main St",
+                    street_2="",
+                    street_3="",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.update(update_contact)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street>123 Main St</contact:street>", xml)
+        self.assertIn("<contact:street></contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 3)
+
+    def test_update_xml_partial_empty_street_rendered(self) -> None:
+        """Verify update with street_2 populated and street_3 empty renders both appropriately."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        update_contact = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=AddressData(
+                    street_1="123 Main St",
+                    street_2="Suite 400",
+                    street_3="",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.update(update_contact)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street>123 Main St</contact:street>", xml)
+        self.assertIn("<contact:street>Suite 400</contact:street>", xml)
+        self.assertIn("<contact:street></contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 3)
+
+    def test_address_data_sparse_streets_raises_value_error(self) -> None:
+        """Verify AddressData rejects sparse street updates that skip preceding lines."""
+        # Case 1: street_2 provided when street_1 is omitted
+        with self.assertRaises(ValueError) as ctx:
+            AddressData(
+                street_1=None,
+                street_2="Suite 2",
+                city="Wellington",
+                country_code="NZ",
+            )
+        self.assertIn(
+            "Cannot specify 'street_2' or 'street_3' when preceding street lines are omitted",
+            str(ctx.exception),
+        )
+
+        # Case 2: street_3 provided when street_1 is omitted
+        with self.assertRaises(ValueError) as ctx:
+            AddressData(
+                street_1=None,
+                street_3="Building B",
+                city="Wellington",
+                country_code="NZ",
+            )
+        self.assertIn(
+            "Cannot specify 'street_2' or 'street_3' when preceding street lines are omitted",
+            str(ctx.exception),
+        )
+
+        # Case 3: street_3 provided when street_2 is omitted (gap in middle)
+        with self.assertRaises(ValueError) as ctx:
+            AddressData(
+                street_1="123 Main St",
+                street_2=None,
+                street_3="Building B",
+                city="Wellington",
+                country_code="NZ",
+            )
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is omitted",
+            str(ctx.exception),
+        )
+
+        # Case 4: street_3 set to empty string when street_2 is omitted
+        with self.assertRaises(ValueError) as ctx:
+            AddressData(
+                street_1="123 Main St",
+                street_2=None,
+                street_3="",
+                city="Wellington",
+                country_code="NZ",
+            )
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is omitted",
+            str(ctx.exception),
+        )
+
+    def test_address_data_mutated_after_construction_raises_value_error(
+        self,
+    ) -> None:
+        """Verify mutating AddressData after construction to introduce gaps is caught during serialization."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        # Construct a valid 3-line address
+        addr = AddressData(
+            street_1="123 Main St",
+            street_2="Suite 2",
+            street_3="Building B",
+            city="Wellington",
+            country_code="NZ",
+        )
+        # Mutate to create a gap (street_2=None while street_3 is present)
+        addr.street_2 = None
+
+        contact_data = ContactData(
+            id="test-mutated-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=addr,
+            ),
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            contact.update(contact_data)
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is omitted",
+            str(ctx.exception),
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            contact.create(contact_data)
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is omitted",
+            str(ctx.exception),
+        )
 
     def test_info_with_int_type(self) -> None:
         """contact.info() must parse type='int' from <contact:postalInfo> node."""
