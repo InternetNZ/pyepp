@@ -570,12 +570,15 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertIn("Connection closed prematurely after 5/10 bytes", str(ctx.exception))
 
     def test_read_invalid_length_header_too_small(self):
-        """Header with length < 4 bytes raises EppCommunicatorException."""
+        """Header with length < 4 bytes disconnects and raises EppCommunicatorException."""
         self.epp._ssl_socket = MagicMock()
+        self.epp._logged_in = True
         self.epp._ssl_socket.read.return_value = struct.pack(">I", 2)
         with self.assertRaises(EppCommunicatorException) as ctx:
             self.epp._read()
         self.assertIn("Invalid EPP message length header: 2 bytes (minimum is 4 bytes)", str(ctx.exception))
+        self.assertFalse(self.epp.is_connected)
+        self.assertFalse(self.epp.is_logged_in)
 
     def test_read_length_header_exceeds_max_message_size(self):
         """Header with length exceeding max_message_size raises EppCommunicatorException (DoS protection)."""
