@@ -5,7 +5,6 @@ Contact Mapping Module. This module is used to manage contact objects in Registr
 from enum import Enum
 from typing import Literal, Optional, Union
 from dataclasses import dataclass, asdict
-from bs4 import BeautifulSoup
 
 from pyepp import helper
 from pyepp.base_command import BaseCommand
@@ -28,15 +27,48 @@ class PostalInfoTypeEnum(str, Enum):
 
 @dataclass
 class AddressData:
-    """Contact address data class."""
+    """Contact address data class.
 
-    street_1: Optional[str] = ""
+    Street fields (`street_1`, `street_2`, `street_3`) default to `None`, meaning they
+    are omitted from the update XML payload (standard RFC 5733 replacement behavior).
+    Passing an empty string `""` explicitly renders an empty `<contact:street></contact:street>`
+    element in `<contact:update>`, which clears secondary street lines in registries that
+    require explicit blank tags (such as CentralNic).
+
+    Street lines in EPP are strictly positional. Sparse updates containing gaps
+    (e.g., specifying `street_2` or `street_3` when preceding lines are `None`) are rejected
+    with a `ValueError` to prevent unintended positional shifting and registry data corruption.
+    """
+
+    street_1: Optional[str] = None
     city: Optional[str] = ""
     country_code: Optional[str] = ""
-    street_2: Optional[str] = ""
-    street_3: Optional[str] = ""
+    street_2: Optional[str] = None
+    street_3: Optional[str] = None
     province: Optional[str] = ""
     postal_code: Optional[str] = ""
+
+    @staticmethod
+    def validate_street_continuity(
+        street_1: Optional[str],
+        street_2: Optional[str],
+        street_3: Optional[str],
+    ) -> None:
+        """Validate street lines do not have gaps."""
+        if street_1 is None and (street_2 is not None or street_3 is not None):
+            raise ValueError(
+                "Cannot specify 'street_2' or 'street_3' when preceding street lines are omitted."
+            )
+        if street_2 is None and street_3 is not None:
+            raise ValueError(
+                "Cannot specify 'street_3' when 'street_2' is omitted."
+            )
+
+    def __post_init__(self) -> None:
+        """Validate street lines do not have gaps."""
+        self.validate_street_continuity(
+            self.street_1, self.street_2, self.street_3
+        )
 
 
 @dataclass
@@ -106,6 +138,11 @@ class Contact(BaseCommand):
         address = postal_info.pop("address", {}) if postal_info is not None else {}
 
         if address:
+            AddressData.validate_street_continuity(
+                address.get("street_1"),
+                address.get("street_2"),
+                address.get("street_3"),
+            )
             data_dict.update(address)
         if postal_info:
             data_dict.update(postal_info)
@@ -147,7 +184,7 @@ class Contact(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
         contacts_check_data = raw_response.find_all("cd")
 
         result_data = {}
@@ -188,7 +225,7 @@ class Contact(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
 
         result_data = {
             "id": raw_response.find("id").text,
