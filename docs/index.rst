@@ -120,6 +120,8 @@ Usage example
 
    To update or clear a later line, always resend the preceding lines to preserve positional integrity.
 
+.. code:: python
+
    domain = Domain(epp)
    # Check domains availability
    domain_check = domain.check(['domain1.nz', 'domain2.nz'])
