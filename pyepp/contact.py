@@ -48,18 +48,27 @@ class AddressData:
     province: Optional[str] = ""
     postal_code: Optional[str] = ""
 
-    def __post_init__(self) -> None:
+    @staticmethod
+    def validate_street_continuity(
+        street_1: Optional[str],
+        street_2: Optional[str],
+        street_3: Optional[str],
+    ) -> None:
         """Validate street lines do not have gaps."""
-        if self.street_1 is None and (
-            self.street_2 is not None or self.street_3 is not None
-        ):
+        if street_1 is None and (street_2 is not None or street_3 is not None):
             raise ValueError(
                 "Cannot specify 'street_2' or 'street_3' when preceding street lines are omitted."
             )
-        if self.street_2 is None and self.street_3 is not None:
+        if street_2 is None and street_3 is not None:
             raise ValueError(
                 "Cannot specify 'street_3' when 'street_2' is omitted."
             )
+
+    def __post_init__(self) -> None:
+        """Validate street lines do not have gaps."""
+        self.validate_street_continuity(
+            self.street_1, self.street_2, self.street_3
+        )
 
 
 @dataclass
@@ -129,6 +138,11 @@ class Contact(BaseCommand):
         address = postal_info.pop("address", {}) if postal_info is not None else {}
 
         if address:
+            AddressData.validate_street_continuity(
+                address.get("street_1"),
+                address.get("street_2"),
+                address.get("street_3"),
+            )
             data_dict.update(address)
         if postal_info:
             data_dict.update(postal_info)

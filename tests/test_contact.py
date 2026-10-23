@@ -1020,6 +1020,46 @@ class ContactTest(unittest.TestCase):
             str(ctx.exception),
         )
 
+    def test_address_data_mutated_after_construction_raises_value_error(
+        self,
+    ) -> None:
+        """Verify mutating AddressData after construction to introduce gaps is caught during serialization."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        # Construct a valid 3-line address
+        addr = AddressData(
+            street_1="123 Main St",
+            street_2="Suite 2",
+            street_3="Building B",
+            city="Wellington",
+            country_code="NZ",
+        )
+        # Mutate to create a gap (street_2=None while street_3 is present)
+        addr.street_2 = None
+
+        contact_data = ContactData(
+            id="test-mutated-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=addr,
+            ),
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            contact.update(contact_data)
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is omitted",
+            str(ctx.exception),
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            contact.create(contact_data)
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is omitted",
+            str(ctx.exception),
+        )
+
     def test_info_with_int_type(self) -> None:
         """contact.info() must parse type='int' from <contact:postalInfo> node."""
         epp_communicator = MagicMock(EppCommunicator)
