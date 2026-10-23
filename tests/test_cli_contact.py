@@ -280,6 +280,37 @@ class CliContactTest(unittest.TestCase):
             result.output,
         )
 
+    def test_contact_create_address_empty_street_preceding_populated_raises_usage_error(
+        self,
+    ) -> None:
+        """Verify contact create CLI rejects empty street options preceding populated ones."""
+        mock_obj = MagicMock()
+
+        result = self.runner.invoke(
+            contact_create,
+            [
+                "test-contact-1",
+                "--name",
+                "Test",
+                "--email",
+                "test@example.com",
+                "--street-1",
+                "",
+                "--street-2",
+                "Suite 2",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(
+            "Cannot specify --street-2 or --street-3 when --street-1 is empty.",
+            result.output,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
