@@ -558,6 +558,7 @@ class EppCommunicator:
 
         total_length = self._unpack_data(length_header)
         if total_length < LENGTH_FIELD_SIZE:
+            self.disconnect()
             raise EppCommunicatorException(
                 f"Invalid EPP message length header: {total_length} bytes "
                 f"(minimum is {LENGTH_FIELD_SIZE} bytes)"
