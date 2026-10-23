@@ -824,10 +824,10 @@ class ContactTest(unittest.TestCase):
         self.assertIn("<contact:street>100 Customhouse Quay</contact:street>", xml)
         self.assertEqual(xml.count("<contact:street>"), 1)
 
-    def test_create_xml_with_empty_first_street_and_populated_second_street(
+    def test_create_with_empty_first_street_and_populated_second_street_raises_error(
         self,
     ) -> None:
-        """Verify CONTACT_CREATE_XML preserves positional integrity with empty first street."""
+        """Verify contact.create rejects empty street line preceding populated street line."""
         epp_communicator = MagicMock(EppCommunicator)
         contact = Contact(epp_communicator)
 
@@ -844,11 +844,65 @@ class ContactTest(unittest.TestCase):
                 ),
             ),
         )
+        with self.assertRaises(ValueError) as ctx:
+            contact.create(contact_data)
+        self.assertIn(
+            "Cannot specify 'street_2' or 'street_3' when 'street_1' is empty",
+            str(ctx.exception),
+        )
+
+    def test_create_with_populated_first_street_and_empty_second_before_third_raises_error(
+        self,
+    ) -> None:
+        """Verify contact.create rejects empty street_2 when street_3 is populated."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        contact_data = ContactData(
+            id="test-street-contact-3",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Street Contact",
+                address=AddressData(
+                    street_1="100 Customhouse Quay",
+                    street_2="",
+                    street_3="Building B",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        with self.assertRaises(ValueError) as ctx:
+            contact.create(contact_data)
+        self.assertIn(
+            "Cannot specify 'street_3' when 'street_2' is empty",
+            str(ctx.exception),
+        )
+
+    def test_create_xml_trailing_empty_streets_omitted(self) -> None:
+        """Verify contact.create omits trailing empty street elements rather than emitting empty tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        contact_data = ContactData(
+            id="test-street-trailing-empty",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Street Contact",
+                address=AddressData(
+                    street_1="100 Customhouse Quay",
+                    street_2="",
+                    street_3="",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
         contact.create(contact_data)
         xml = epp_communicator.execute.call_args[0][0]
-        self.assertIn("<contact:street></contact:street>", xml)
-        self.assertIn("<contact:street>Suite 2</contact:street>", xml)
-        self.assertEqual(xml.count("<contact:street>"), 2)
+        self.assertIn("<contact:street>100 Customhouse Quay</contact:street>", xml)
+        self.assertNotIn("<contact:street></contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 1)
 
     def test_update_xml_rendering_loc_and_int(self) -> None:
         """Verify CONTACT_UPDATE_XML renders correct postalInfo type attribute."""
