@@ -824,6 +824,32 @@ class ContactTest(unittest.TestCase):
         self.assertIn("<contact:street>100 Customhouse Quay</contact:street>", xml)
         self.assertEqual(xml.count("<contact:street>"), 1)
 
+    def test_create_xml_with_empty_first_street_and_populated_second_street(
+        self,
+    ) -> None:
+        """Verify CONTACT_CREATE_XML preserves positional integrity with empty first street."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        contact_data = ContactData(
+            id="test-street-contact-2",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Street Contact",
+                address=AddressData(
+                    street_1="",
+                    street_2="Suite 2",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.create(contact_data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:street></contact:street>", xml)
+        self.assertIn("<contact:street>Suite 2</contact:street>", xml)
+        self.assertEqual(xml.count("<contact:street>"), 2)
+
     def test_update_xml_rendering_loc_and_int(self) -> None:
         """Verify CONTACT_UPDATE_XML renders correct postalInfo type attribute."""
         epp_communicator = MagicMock(EppCommunicator)

@@ -88,9 +88,9 @@ CONTACT_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
             <contact:name>{{ name }}</contact:name>
             {% if organization %} <contact:org>{{ organization }}</contact:org> {% endif %}
             <contact:addr>
-              {% if street_1 %} <contact:street>{{ street_1 }}</contact:street> {% endif %}
-              {% if street_2 %} <contact:street>{{ street_2 }}</contact:street> {% endif %}
-              {% if street_3 %} <contact:street>{{ street_3 }}</contact:street> {% endif %}
+              {% if street_1 is defined and street_1 is not none %} <contact:street>{{ street_1 }}</contact:street> {% endif %}
+              {% if street_2 is defined and street_2 is not none %} <contact:street>{{ street_2 }}</contact:street> {% endif %}
+              {% if street_3 is defined and street_3 is not none %} <contact:street>{{ street_3 }}</contact:street> {% endif %}
               <contact:city>{{ city }}</contact:city>
               {% if province %} <contact:sp>{{ province }}</contact:sp> {% endif %}
               {% if postal_code %} <contact:pc>{{ postal_code }}</contact:pc> {% endif %}
