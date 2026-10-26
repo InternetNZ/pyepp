@@ -136,12 +136,12 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         <contact:id>{{ id }}</contact:id>
         {% if add_status %}
         <contact:add>
-            <contact:status s={{ add_status }}/>
+            <contact:status s="{{ add_status }}"/>
         </contact:add>
         {% endif %}
         {% if remove_status %}
         <contact:rem>
-            <contact:status s={{ remove_status }}/>
+            <contact:status s="{{ remove_status }}"/>
         </contact:rem>
         {% endif %}
         <contact:chg>
