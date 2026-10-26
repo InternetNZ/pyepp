@@ -227,6 +227,14 @@ def contact_create(
         raise click.UsageError(
             "Cannot specify --street-3 when --street-2 is omitted."
         )
+    if street_1 == "" and (street_2 or street_3):
+        raise click.UsageError(
+            "Cannot specify --street-2 or --street-3 when --street-1 is empty."
+        )
+    if street_2 == "" and street_3:
+        raise click.UsageError(
+            "Cannot specify --street-3 when --street-2 is empty."
+        )
 
     contact_to_create = ContactData(
         id=contact_id,

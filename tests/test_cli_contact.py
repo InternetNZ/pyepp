@@ -280,6 +280,126 @@ class CliContactTest(unittest.TestCase):
             result.output,
         )
 
+    def test_contact_create_address_empty_street_preceding_populated_raises_usage_error(
+        self,
+    ) -> None:
+        """Verify contact create CLI rejects empty street options preceding populated ones."""
+        mock_obj = MagicMock()
+
+        result = self.runner.invoke(
+            contact_create,
+            [
+                "test-contact-1",
+                "--name",
+                "Test",
+                "--email",
+                "test@example.com",
+                "--street-1",
+                "",
+                "--street-2",
+                "Suite 2",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(
+            "Cannot specify --street-2 or --street-3 when --street-1 is empty.",
+            result.output,
+        )
+
+    def test_contact_create_address_sparse_streets_raises_usage_error(
+        self,
+    ) -> None:
+        """Verify contact create CLI rejects sparse street arguments with UsageError."""
+        mock_obj = MagicMock()
+
+        # Omitted street-1 but provided street-2
+        result = self.runner.invoke(
+            contact_create,
+            [
+                "test-contact-1",
+                "--name",
+                "Test",
+                "--email",
+                "test@example.com",
+                "--street-2",
+                "Suite 2",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(
+            "Cannot specify --street-2 or --street-3 when preceding street lines are omitted.",
+            result.output,
+        )
+
+        # Gap: street-1 and street-3 but omitted street-2
+        result = self.runner.invoke(
+            contact_create,
+            [
+                "test-contact-1",
+                "--name",
+                "Test",
+                "--email",
+                "test@example.com",
+                "--street-1",
+                "123 Main St",
+                "--street-3",
+                "Suite 3",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(
+            "Cannot specify --street-3 when --street-2 is omitted.",
+            result.output,
+        )
+
+    def test_contact_create_address_empty_street_2_preceding_populated_street_3_raises_usage_error(
+        self,
+    ) -> None:
+        """Verify contact create CLI rejects empty street_2 option preceding populated street_3."""
+        mock_obj = MagicMock()
+
+        result = self.runner.invoke(
+            contact_create,
+            [
+                "test-contact-1",
+                "--name",
+                "Test",
+                "--email",
+                "test@example.com",
+                "--street-1",
+                "123 Main St",
+                "--street-2",
+                "",
+                "--street-3",
+                "Building B",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+            ],
+            obj=mock_obj,
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn(
+            "Cannot specify --street-3 when --street-2 is empty.",
+            result.output,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

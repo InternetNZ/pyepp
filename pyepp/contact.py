@@ -326,6 +326,16 @@ class Contact(BaseCommand):
                 "Contact creation requires postal info address with 'city' and 'country_code'."
             )
 
+        addr = contact.postal_info.address
+        if addr.street_1 == "" and (addr.street_2 or addr.street_3):
+            raise ValueError(
+                "Cannot specify 'street_2' or 'street_3' when 'street_1' is empty."
+            )
+        if addr.street_2 == "" and addr.street_3:
+            raise ValueError(
+                "Cannot specify 'street_3' when 'street_2' is empty."
+            )
+
         params = self._data_to_dict(contact)
         params["client_transaction_id"] = client_transaction_id
 
