@@ -4,6 +4,7 @@ Contact unit tests
 
 import unittest
 from unittest.mock import MagicMock, patch
+import xml.etree.ElementTree as ET
 
 from pyepp.contact import (
     ContactData,
@@ -1017,6 +1018,32 @@ class ContactTest(unittest.TestCase):
         self.assertIn("<contact:street>Suite 400</contact:street>", xml)
         self.assertIn("<contact:street></contact:street>", xml)
         self.assertEqual(xml.count("<contact:street>"), 3)
+
+    def test_update_xml_status_attributes_are_quoted(self) -> None:
+        """Verify CONTACT_UPDATE_XML renders quotes around add_status and remove_status attribute values."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        update_contact = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(
+                name="Test Contact",
+                address=AddressData(
+                    street_1="123 Main St",
+                    city="Wellington",
+                    country_code="NZ",
+                ),
+            ),
+        )
+        contact.update(
+            update_contact,
+            add_status="clientHold",
+            remove_status="clientDeleteProhibited",
+        )
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:status s="clientHold"/>', xml)
+        self.assertIn('<contact:status s="clientDeleteProhibited"/>', xml)
+        ET.fromstring(xml)
 
     def test_address_data_sparse_streets_raises_value_error(self) -> None:
         """Verify AddressData rejects sparse street updates that skip preceding lines."""
