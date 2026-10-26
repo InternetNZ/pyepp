@@ -144,6 +144,7 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
             <contact:status s="{{ remove_status }}"/>
         </contact:rem>
         {% endif %}
+        {% if postalinfo_change or phone or fax or email or password or privacy %}
         <contact:chg>
          {% if postalinfo_change %}
           <contact:postalInfo type="{{ type or 'loc' }}">
@@ -178,6 +179,7 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
          </contact:disclose>
          {% endif %}
         </contact:chg>
+        {% endif %}
        </contact:update>
     </update>
     <clTRID>{{ client_transaction_id }}</clTRID>

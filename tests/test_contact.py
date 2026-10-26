@@ -1045,6 +1045,27 @@ class ContactTest(unittest.TestCase):
         self.assertIn('<contact:status s="clientDeleteProhibited"/>', xml)
         ET.fromstring(xml)
 
+    def test_update_status_only_does_not_render_empty_chg(self) -> None:
+        """Verify CONTACT_UPDATE_XML does not emit an empty <contact:chg> element for status-only updates."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        # Status only: no <contact:chg>
+        update_contact = ContactData(id="test-contact")
+        contact.update(update_contact, add_status="clientHold")
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:status s="clientHold"/>', xml)
+        self.assertNotIn("<contact:chg>", xml)
+        ET.fromstring(xml)
+
+        # With change: <contact:chg> must be present
+        update_contact_with_email = ContactData(id="test-contact", email="test@example.com")
+        contact.update(update_contact_with_email)
+        xml_with_chg = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:chg>", xml_with_chg)
+        self.assertIn("<contact:email>test@example.com</contact:email>", xml_with_chg)
+        ET.fromstring(xml_with_chg)
+
     def test_address_data_sparse_streets_raises_value_error(self) -> None:
         """Verify AddressData rejects sparse street updates that skip preceding lines."""
         # Case 1: street_2 provided when street_1 is omitted
