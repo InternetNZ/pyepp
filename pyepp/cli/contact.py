@@ -219,6 +219,14 @@ def contact_create(
 
     CONTACT_ID: A unique contact id
     """
+    if street_1 is None and (street_2 is not None or street_3 is not None):
+        raise click.UsageError(
+            "Cannot specify --street-2 or --street-3 when preceding street lines are omitted."
+        )
+    if street_2 is None and street_3 is not None:
+        raise click.UsageError(
+            "Cannot specify --street-3 when --street-2 is omitted."
+        )
     if street_1 == "" and (street_2 or street_3):
         raise click.UsageError(
             "Cannot specify --street-2 or --street-3 when --street-1 is empty."
