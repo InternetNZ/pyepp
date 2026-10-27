@@ -474,6 +474,29 @@ class CliContactTest(unittest.TestCase):
         self.assertIn("fax", result.output)
         self.assertIn("email", result.output)
 
+    def test_contact_update_privacy_with_type(self) -> None:
+        """Verify contact update with --privacy and --type carries postal_type in postal_info."""
+        mock_obj = MagicMock()
+        mock_obj.update.return_value = "Success"
+
+        result = self.runner.invoke(
+            contact_update,
+            [
+                "test-contact-1",
+                "--privacy",
+                "name",
+                "--type",
+                "int",
+            ],
+            obj=mock_obj,
+        )
+        self.assertEqual(result.exit_code, 0)
+        mock_obj.update.assert_called_once()
+        contact_arg = mock_obj.update.call_args[0][0]
+        self.assertEqual(contact_arg.privacy, ["name"])
+        self.assertIsNotNone(contact_arg.postal_info)
+        self.assertEqual(contact_arg.postal_info.type, "int")
+
 
 if __name__ == "__main__":
     unittest.main()

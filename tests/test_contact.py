@@ -1555,3 +1555,159 @@ class ContactTest(unittest.TestCase):
         contact.execute = MagicMock(return_value=execute_result)
         result = contact.info("inz-contact-1")
         self.assertIsNone(result.result_data.privacy)
+
+    def test_create_contact_with_postal_privacy_renders_type_attribute(self) -> None:
+        """contact.create() renders required type='loc' on name, org, addr disclosure tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                organization="Test Org",
+                address=AddressData(city="Wellington", country_code="NZ"),
+                type="loc",
+            ),
+            privacy=["name", "org", "addr", "voice"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="loc"/>', xml)
+        self.assertIn('<contact:org type="loc"/>', xml)
+        self.assertIn('<contact:addr type="loc"/>', xml)
+        self.assertIn("<contact:voice/>", xml)
+        ET.fromstring(xml)
+
+    def test_create_contact_with_int_postal_privacy_renders_int_type(self) -> None:
+        """contact.create() with type='int' renders required type='int' on postal disclosure tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                address=AddressData(city="Wellington", country_code="NZ"),
+                type="int",
+            ),
+            privacy=["name", "addr"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="int"/>', xml)
+        self.assertIn('<contact:addr type="int"/>', xml)
+        ET.fromstring(xml)
+
+    def test_update_contact_privacy_only_renders_type_loc_by_default(self) -> None:
+        """Privacy-only contact.update() renders type='loc' on postal disclosure tags without postalInfo."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            privacy=["name", "org", "addr", "voice"],
+        )
+        contact.update(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="loc"/>', xml)
+        self.assertIn('<contact:org type="loc"/>', xml)
+        self.assertIn('<contact:addr type="loc"/>', xml)
+        self.assertIn("<contact:voice/>", xml)
+        self.assertNotIn("<contact:postalInfo", xml)
+        ET.fromstring(xml)
+
+    def test_update_contact_privacy_only_with_int_postal_type(self) -> None:
+        """Privacy-only update with PostalInfoData(type='int') renders type='int' on disclosure tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(name=None, type="int"),
+            privacy=["name", "addr"],
+        )
+        contact.update(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="int"/>', xml)
+        self.assertIn('<contact:addr type="int"/>', xml)
+        self.assertNotIn("<contact:postalInfo", xml)
+        ET.fromstring(xml)
+
+    def test_privacy_explicit_element_types(self) -> None:
+        """privacy elements with explicit types (e.g. 'name:int', 'name:loc') render both."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            privacy=["name:int", "name:loc", "voice"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="int"/>', xml)
+        self.assertIn('<contact:name type="loc"/>', xml)
+        self.assertIn("<contact:voice/>", xml)
+        ET.fromstring(xml)
+
+    def test_privacy_normalized_to_rfc5733_schema_order(self) -> None:
+        """privacy elements supplied out of order are rendered in canonical RFC 5733 schema order."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                organization="Test Org",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            privacy=["email", "fax", "voice", "addr", "org", "name"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        # Assert schema sequence: name -> org -> addr -> voice -> fax -> email
+        idx_name = xml.index("<contact:name type=")
+        idx_org = xml.index("<contact:org type=")
+        idx_addr = xml.index("<contact:addr type=")
+        idx_voice = xml.index("<contact:voice/>")
+        idx_fax = xml.index("<contact:fax/>")
+        idx_email = xml.index("<contact:email/>")
+        self.assertTrue(idx_name < idx_org < idx_addr < idx_voice < idx_fax < idx_email)
+        ET.fromstring(xml)
+
+    def test_privacy_duplicate_elements_deduplicated(self) -> None:
+        """privacy elements with duplicate occurrences are rendered exactly once."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            privacy=["voice", "email", "voice", "email"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(xml.count("<contact:voice/>"), 1)
+        self.assertEqual(xml.count("<contact:email/>"), 1)
+        ET.fromstring(xml)
+
+    def test_update_privacy_normalized_schema_order_and_deduplication(self) -> None:
+        """Privacy-only contact.update() normalizes schema order and eliminates duplicate elements."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            privacy=["email", "voice", "voice"],
+        )
+        contact.update(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(xml.count("<contact:voice/>"), 1)
+        self.assertEqual(xml.count("<contact:email/>"), 1)
+        self.assertTrue(xml.index("<contact:voice/>") < xml.index("<contact:email/>"))
+        ET.fromstring(xml)

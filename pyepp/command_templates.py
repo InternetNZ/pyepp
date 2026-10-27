@@ -104,9 +104,16 @@ CONTACT_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
            <contact:pw>{{ password }}</contact:pw>
          </contact:authInfo>
          {% if privacy %}
+         {# RFC 5733 §4: name, org, and addr require type="loc" or type="int"; voice, fax, email have no attributes #}
          <contact:disclose flag="0">
            {% for element in privacy %}
-           <contact:{{ element }}/>
+           {% if element.type is defined and element.type %}
+           <contact:{{ element.name }} type="{{ element.type }}"/>
+           {% elif element in ['name', 'org', 'addr'] %}
+           <contact:{{ element }} type="{{ postal_type or type or 'loc' }}"/>
+           {% else %}
+           <contact:{{ element.name if element.name is defined else element }}/>
+           {% endif %}
            {% endfor %}
          </contact:disclose>
          {% endif %}
@@ -172,9 +179,16 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
          </contact:authInfo>
          {% endif %}
          {% if privacy %}
+         {# RFC 5733 §4: name, org, and addr require type="loc" or type="int"; voice, fax, email have no attributes #}
          <contact:disclose flag="0">
            {% for element in privacy %}
-           <contact:{{ element }}/>
+           {% if element.type is defined and element.type %}
+           <contact:{{ element.name }} type="{{ element.type }}"/>
+           {% elif element in ['name', 'org', 'addr'] %}
+           <contact:{{ element }} type="{{ postal_type or type or 'loc' }}"/>
+           {% else %}
+           <contact:{{ element.name if element.name is defined else element }}/>
+           {% endif %}
            {% endfor %}
          </contact:disclose>
          {% endif %}

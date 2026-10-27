@@ -125,7 +125,9 @@ def contact_update(
         ]
     )
     has_name_or_org = any([name, organization])
-    has_postal_update = any([postal_type, has_name_or_org, has_address_fields])
+    has_postal_fields = any([has_name_or_org, has_address_fields])
+    # Distinguish full postal update from a privacy-only update carrying --type (e.g. --privacy name --type int)
+    has_postal_update = has_postal_fields or (postal_type and not privacy)
 
     postal_info = None
     if has_postal_update:
@@ -164,6 +166,14 @@ def contact_update(
             organization=organization,
             type=postal_type or "loc",
             address=address,
+        )
+    elif postal_type and privacy:
+        # Carry intended postal type for disclosure tags without creating an address update payload
+        postal_info = PostalInfoData(
+            name=None,
+            organization=None,
+            type=postal_type,
+            address=None,
         )
 
     contact_to_update = ContactData(
