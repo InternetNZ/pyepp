@@ -342,13 +342,15 @@ class Contact(BaseCommand):
 
         if raw_response.find("disclose"):
             disclose_el = raw_response.find("disclose")
-            result_data["privacy"] = list(
-                dict.fromkeys(
-                    el.name
-                    for el in disclose_el.find_all(recursive=False)
-                    if el.name in VALID_PRIVACY_ELEMENTS
+            flag = disclose_el.get("flag", "0")
+            if flag in ("0", "false"):
+                result_data["privacy"] = list(
+                    dict.fromkeys(
+                        el.name
+                        for el in disclose_el.find_all(recursive=False)
+                        if el.name in VALID_PRIVACY_ELEMENTS
+                    )
                 )
-            )
 
         result.result_data = ContactData(**result_data)
 

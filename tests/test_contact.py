@@ -1503,3 +1503,55 @@ class ContactTest(unittest.TestCase):
         contact.execute = MagicMock(return_value=execute_result)
         result = contact.info("inz-contact-1")
         self.assertEqual(result.result_data.privacy, ["voice", "email"])
+
+    def test_info_disclose_flag_1_does_not_populate_privacy(self) -> None:
+        """contact.info() must NOT assign privacy elements when disclose flag='1' (disclosure allowed)."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        execute_result = EppResultData(
+            **{
+                "client_transaction_id": "5123c3d4-79ce-4d87-ad7b-d234eb992474",
+                "code": 1000,
+                "message": "Command completed successfully",
+                "raw_response": "<response>\n"
+                '<result code="1000">\n'
+                "<msg>Command completed successfully</msg>\n"
+                "</result>\n"
+                "<resData>\n"
+                "<contact:infData>\n"
+                "<contact:id>inz-contact-1</contact:id>\n"
+                "<contact:roid>9175701-INZ</contact:roid>\n"
+                '<contact:status s="linked"/>\n'
+                '<contact:postalInfo type="loc">\n'
+                "<contact:name>inz</contact:name>\n"
+                "<contact:addr>\n"
+                "<contact:street>18 test street</contact:street>\n"
+                "<contact:city>Wellington</contact:city>\n"
+                "<contact:cc>NZ</contact:cc>\n"
+                "</contact:addr>\n"
+                "</contact:postalInfo>\n"
+                "<contact:email>inz@internet.net.nz</contact:email>\n"
+                "<contact:voice>+64.4123456</contact:voice>\n"
+                "<contact:clID>933</contact:clID>\n"
+                "<contact:crID>933</contact:crID>\n"
+                "<contact:crDate>2023-02-23T02:59:16.784Z</contact:crDate>\n"
+                '<contact:disclose flag="1">\n'
+                "<contact:voice/>\n"
+                "<contact:email/>\n"
+                "</contact:disclose>\n"
+                "</contact:infData>\n"
+                "</resData>\n"
+                "<trID>\n"
+                "<clTRID>5123c3d4-79ce-4d87-ad7b-d234eb992474</clTRID>\n"
+                "<svTRID>CIRA-000062211375-0000000003</svTRID>\n"
+                "</trID>\n"
+                "</response>",
+                "reason": None,
+                "repository_object_id": "9175701-INZ",
+                "server_transaction_id": "CIRA-000062211375-0000000003",
+                "result_data": None,
+            }
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("inz-contact-1")
+        self.assertIsNone(result.result_data.privacy)
