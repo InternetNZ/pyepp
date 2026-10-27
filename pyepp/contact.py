@@ -94,7 +94,23 @@ class PostalInfoData:
 
 @dataclass
 class ContactData:
-    """Contact data class. Contains the properties of the contacts associated with the domain name."""
+    """Contact data class. Contains the properties of the contacts associated with the domain name.
+
+    :param id: Contact ID
+    :param email: Contact email address
+    :param postal_info: Contact postal info data
+    :param status: Contact status list
+    :param phone: Contact voice telephone number
+    :param fax: Contact facsimile number
+    :param password: Contact authorization password
+    :param create_date: Contact creation date
+    :param create_client_id: Client ID that created the contact
+    :param sponsoring_client_id: Sponsoring client ID
+    :param update_client_id: Client ID that last updated the contact
+    :param update_date: Contact last update date
+    :param privacy: Contact elements to redact from disclosure (Whois/RDAP) under RFC 5733 §2.9.
+        Valid options: 'name', 'org', 'addr', 'voice', 'fax', 'email'.
+    """
 
     # pylint: disable=invalid-name,too-many-instance-attributes
     id: str
@@ -109,6 +125,7 @@ class ContactData:
     sponsoring_client_id: Optional[str] = ""
     update_client_id: Optional[str] = ""
     update_date: Optional[str] = ""
+    privacy: Optional[list[str]] = None
 
 
 class Contact(BaseCommand):
@@ -382,6 +399,20 @@ class Contact(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
+        has_chg = bool(
+            contact.postal_info
+            or contact.phone
+            or contact.fax
+            or contact.email
+            or contact.password
+            or contact.privacy
+        )
+        if not (add_status or remove_status or has_chg):
+            raise ValueError(
+                "Contact update requires at least one change "
+                "(postal_info, phone, fax, email, password) or status modification."
+            )
+
         if contact.postal_info:
             if contact.postal_info.type == "int":
                 if (

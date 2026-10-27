@@ -68,6 +68,16 @@ def contact_delete(ctx, contact_id, client_transaction_id) -> None:
 @click.option("--add-status")
 @click.option("--remove-status")
 @click.option(
+    "--privacy",
+    multiple=True,
+    type=click.Choice(
+        ["name", "org", "addr", "voice", "fax", "email"],
+        case_sensitive=False,
+    ),
+    help="Contact elements to redact from disclosure (Whois/RDAP). "
+    "Can be repeated for multiple elements: name, org, addr, voice, fax, email.",
+)
+@click.option(
     "--type",
     "postal_type",
     type=click.Choice(["loc", "int"], case_sensitive=False),
@@ -95,6 +105,7 @@ def contact_update(
     password,
     add_status,
     remove_status,
+    privacy,
     client_transaction_id,
 ) -> None:
     """Updates contact's details.
@@ -162,6 +173,7 @@ def contact_update(
         fax=fax,
         password=password,
         postal_info=postal_info,
+        privacy=list(privacy) if privacy else None,
     )
 
     result = ctx.obj.update(
@@ -193,6 +205,16 @@ def contact_update(
 @click.option("--phone")
 @click.option("--fax")
 @click.option("--password")
+@click.option(
+    "--privacy",
+    multiple=True,
+    type=click.Choice(
+        ["name", "org", "addr", "voice", "fax", "email"],
+        case_sensitive=False,
+    ),
+    help="Contact elements to redact from disclosure (Whois/RDAP). "
+    "Can be repeated for multiple elements: name, org, addr, voice, fax, email.",
+)
 @click.option("--client-transaction-id")
 @click.pass_context
 # pylint: disable=too-many-arguments, too-many-locals, too-many-positional-arguments
@@ -213,6 +235,7 @@ def contact_create(
     fax,
     email,
     password,
+    privacy,
     client_transaction_id,
 ) -> None:
     """Creates a new contact in the registry.
@@ -242,6 +265,7 @@ def contact_create(
         phone=phone,
         fax=fax,
         password=password,
+        privacy=list(privacy) if privacy else None,
         postal_info=PostalInfoData(
             name=name,
             organization=organization,

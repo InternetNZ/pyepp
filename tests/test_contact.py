@@ -74,6 +74,7 @@ class ContactTest(unittest.TestCase):
             "email": "email",
             "password": "",
             "type": "loc",
+            "privacy": None,
         }
 
         epp_communicator = MagicMock(EppCommunicator)
@@ -106,6 +107,7 @@ class ContactTest(unittest.TestCase):
             "fax": "",
             "email": "email",
             "password": "",
+            "privacy": None,
         }
         self.assertDictEqual(result, expected_result)
 
@@ -1379,7 +1381,57 @@ class ContactTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             contact.update(data)
 
+    def test_update_zero_modification_raises_value_error(self) -> None:
+        """update() must raise ValueError if no change or status modification is provided."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(id="test-id")
+        with self.assertRaises(ValueError) as ctx:
+            contact.update(data)
+        self.assertIn("at least one change", str(ctx.exception).lower())
+
     def test_contact_data_create_client_id(self) -> None:
         """ContactData create_client_id field."""
         data = ContactData(id="contact-1", create_client_id="client123")
         self.assertEqual(data.create_client_id, "client123")
+
+    def test_contact_data_privacy_field(self) -> None:
+        """ContactData accepts privacy list."""
+        data = ContactData(id="contact-1", privacy=["voice", "email"])
+        self.assertEqual(data.privacy, ["voice", "email"])
+
+    def test_create_contact_with_privacy_renders_disclose(self) -> None:
+        """contact.create() with privacy renders <contact:disclose> elements."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            privacy=["voice", "email"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:disclose flag="0">', xml)
+        self.assertIn("<contact:voice/>", xml)
+        self.assertIn("<contact:email/>", xml)
+        ET.fromstring(xml)
+
+    def test_update_contact_with_privacy_renders_disclose(self) -> None:
+        """contact.update() with privacy renders <contact:disclose> elements inside <contact:chg>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            privacy=["voice", "email"],
+        )
+        contact.update(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:chg>", xml)
+        self.assertIn('<contact:disclose flag="0">', xml)
+        self.assertIn("<contact:voice/>", xml)
+        self.assertIn("<contact:email/>", xml)
+        ET.fromstring(xml)
