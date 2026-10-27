@@ -74,6 +74,7 @@ class ContactTest(unittest.TestCase):
             "email": "email",
             "password": "",
             "type": "loc",
+            "privacy": None,
         }
 
         epp_communicator = MagicMock(EppCommunicator)
@@ -106,6 +107,7 @@ class ContactTest(unittest.TestCase):
             "fax": "",
             "email": "email",
             "password": "",
+            "privacy": None,
         }
         self.assertDictEqual(result, expected_result)
 
@@ -1262,6 +1264,16 @@ class ContactTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             contact._data_to_dict(data)
 
+    def test_data_to_dict_invalid_privacy_raises_value_error(self) -> None:
+        """_data_to_dict must raise ValueError if privacy contains invalid element."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(id="test-id")
+        # Directly bypass dataclass __post_init__ to test _data_to_dict safeguard
+        data.privacy = ["unsupported_element"]
+        with self.assertRaises(ValueError):
+            contact._data_to_dict(data)
+
     def test_create_missing_postal_info_raises_value_error(self) -> None:
         """create() must raise ValueError if postal_info is missing."""
         epp_communicator = MagicMock(EppCommunicator)
@@ -1379,7 +1391,392 @@ class ContactTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             contact.update(data)
 
+    def test_update_zero_modification_raises_value_error(self) -> None:
+        """update() must raise ValueError if no change or status modification is provided."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(id="test-id")
+        with self.assertRaises(ValueError) as ctx:
+            contact.update(data)
+        self.assertIn("at least one change", str(ctx.exception).lower())
+
     def test_contact_data_create_client_id(self) -> None:
         """ContactData create_client_id field."""
         data = ContactData(id="contact-1", create_client_id="client123")
         self.assertEqual(data.create_client_id, "client123")
+
+    def test_contact_data_privacy_field(self) -> None:
+        """ContactData accepts privacy list."""
+        data = ContactData(id="contact-1", privacy=["voice", "email"])
+        self.assertEqual(data.privacy, ["voice", "email"])
+
+    def test_create_contact_with_privacy_renders_disclose(self) -> None:
+        """contact.create() with privacy renders <contact:disclose> elements."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            privacy=["voice", "email"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:disclose flag="0">', xml)
+        self.assertIn("<contact:voice/>", xml)
+        self.assertIn("<contact:email/>", xml)
+        ET.fromstring(xml)
+
+    def test_update_contact_with_privacy_renders_disclose(self) -> None:
+        """contact.update() with privacy renders <contact:disclose> elements inside <contact:chg>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            privacy=["voice", "email"],
+        )
+        contact.update(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:chg>", xml)
+        self.assertIn('<contact:disclose flag="0">', xml)
+        self.assertIn("<contact:voice/>", xml)
+        self.assertIn("<contact:email/>", xml)
+        ET.fromstring(xml)
+
+    def test_contact_data_invalid_privacy_raises_value_error(self) -> None:
+        """ContactData must raise ValueError if privacy contains invalid disclosure elements."""
+        with self.assertRaises(ValueError) as ctx:
+            ContactData(id="test-contact", privacy=["voice", "invalid_element"])
+        self.assertIn("invalid_element", str(ctx.exception))
+
+    def test_info_parses_disclose_privacy_elements(self) -> None:
+        """contact.info() must parse <contact:disclose> child tags into ContactData.privacy."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        execute_result = EppResultData(
+            **{
+                "client_transaction_id": "5123c3d4-79ce-4d87-ad7b-d234eb992474",
+                "code": 1000,
+                "message": "Command completed successfully",
+                "raw_response": "<response>\n"
+                '<result code="1000">\n'
+                "<msg>Command completed successfully</msg>\n"
+                "</result>\n"
+                "<resData>\n"
+                "<contact:infData>\n"
+                "<contact:id>inz-contact-1</contact:id>\n"
+                "<contact:roid>9175701-INZ</contact:roid>\n"
+                '<contact:status s="linked"/>\n'
+                '<contact:postalInfo type="loc">\n'
+                "<contact:name>inz</contact:name>\n"
+                "<contact:addr>\n"
+                "<contact:street>18 test street</contact:street>\n"
+                "<contact:city>Wellington</contact:city>\n"
+                "<contact:cc>NZ</contact:cc>\n"
+                "</contact:addr>\n"
+                "</contact:postalInfo>\n"
+                "<contact:email>inz@internet.net.nz</contact:email>\n"
+                "<contact:voice>+64.4123456</contact:voice>\n"
+                "<contact:clID>933</contact:clID>\n"
+                "<contact:crID>933</contact:crID>\n"
+                "<contact:crDate>2023-02-23T02:59:16.784Z</contact:crDate>\n"
+                '<contact:disclose flag="0">\n'
+                "<contact:voice/>\n"
+                "<contact:email/>\n"
+                "</contact:disclose>\n"
+                "</contact:infData>\n"
+                "</resData>\n"
+                "<trID>\n"
+                "<clTRID>5123c3d4-79ce-4d87-ad7b-d234eb992474</clTRID>\n"
+                "<svTRID>CIRA-000062211375-0000000003</svTRID>\n"
+                "</trID>\n"
+                "</response>",
+                "reason": None,
+                "repository_object_id": "9175701-INZ",
+                "server_transaction_id": "CIRA-000062211375-0000000003",
+                "result_data": None,
+            }
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("inz-contact-1")
+        self.assertEqual(result.result_data.privacy, ["voice", "email"])
+
+    def test_info_disclose_flag_1_does_not_populate_privacy(self) -> None:
+        """contact.info() must NOT assign privacy elements when disclose flag='1' (disclosure allowed)."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        execute_result = EppResultData(
+            **{
+                "client_transaction_id": "5123c3d4-79ce-4d87-ad7b-d234eb992474",
+                "code": 1000,
+                "message": "Command completed successfully",
+                "raw_response": "<response>\n"
+                '<result code="1000">\n'
+                "<msg>Command completed successfully</msg>\n"
+                "</result>\n"
+                "<resData>\n"
+                "<contact:infData>\n"
+                "<contact:id>inz-contact-1</contact:id>\n"
+                "<contact:roid>9175701-INZ</contact:roid>\n"
+                '<contact:status s="linked"/>\n'
+                '<contact:postalInfo type="loc">\n'
+                "<contact:name>inz</contact:name>\n"
+                "<contact:addr>\n"
+                "<contact:street>18 test street</contact:street>\n"
+                "<contact:city>Wellington</contact:city>\n"
+                "<contact:cc>NZ</contact:cc>\n"
+                "</contact:addr>\n"
+                "</contact:postalInfo>\n"
+                "<contact:email>inz@internet.net.nz</contact:email>\n"
+                "<contact:voice>+64.4123456</contact:voice>\n"
+                "<contact:clID>933</contact:clID>\n"
+                "<contact:crID>933</contact:crID>\n"
+                "<contact:crDate>2023-02-23T02:59:16.784Z</contact:crDate>\n"
+                '<contact:disclose flag="1">\n'
+                "<contact:voice/>\n"
+                "<contact:email/>\n"
+                "</contact:disclose>\n"
+                "</contact:infData>\n"
+                "</resData>\n"
+                "<trID>\n"
+                "<clTRID>5123c3d4-79ce-4d87-ad7b-d234eb992474</clTRID>\n"
+                "<svTRID>CIRA-000062211375-0000000003</svTRID>\n"
+                "</trID>\n"
+                "</response>",
+                "reason": None,
+                "repository_object_id": "9175701-INZ",
+                "server_transaction_id": "CIRA-000062211375-0000000003",
+                "result_data": None,
+            }
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("inz-contact-1")
+        self.assertIsNone(result.result_data.privacy)
+
+    def test_create_contact_with_postal_privacy_renders_type_attribute(self) -> None:
+        """contact.create() renders required type='loc' on name, org, addr disclosure tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                organization="Test Org",
+                address=AddressData(city="Wellington", country_code="NZ"),
+                type="loc",
+            ),
+            privacy=["name", "org", "addr", "voice"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="loc"/>', xml)
+        self.assertIn('<contact:org type="loc"/>', xml)
+        self.assertIn('<contact:addr type="loc"/>', xml)
+        self.assertIn("<contact:voice/>", xml)
+        ET.fromstring(xml)
+
+    def test_create_contact_with_int_postal_privacy_renders_int_type(self) -> None:
+        """contact.create() with type='int' renders required type='int' on postal disclosure tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                address=AddressData(city="Wellington", country_code="NZ"),
+                type="int",
+            ),
+            privacy=["name", "addr"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="int"/>', xml)
+        self.assertIn('<contact:addr type="int"/>', xml)
+        ET.fromstring(xml)
+
+    def test_update_contact_privacy_only_renders_type_loc_by_default(self) -> None:
+        """Privacy-only contact.update() renders type='loc' on postal disclosure tags without postalInfo."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            privacy=["name", "org", "addr", "voice"],
+        )
+        contact.update(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="loc"/>', xml)
+        self.assertIn('<contact:org type="loc"/>', xml)
+        self.assertIn('<contact:addr type="loc"/>', xml)
+        self.assertIn("<contact:voice/>", xml)
+        self.assertNotIn("<contact:postalInfo", xml)
+        ET.fromstring(xml)
+
+    def test_update_contact_privacy_only_with_int_postal_type(self) -> None:
+        """Privacy-only update with PostalInfoData(type='int') renders type='int' on disclosure tags."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            postal_info=PostalInfoData(name=None, type="int"),
+            privacy=["name", "addr"],
+        )
+        contact.update(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="int"/>', xml)
+        self.assertIn('<contact:addr type="int"/>', xml)
+        self.assertNotIn("<contact:postalInfo", xml)
+        ET.fromstring(xml)
+
+    def test_privacy_explicit_element_types(self) -> None:
+        """privacy elements with explicit types (e.g. 'name:int', 'name:loc') render both."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            privacy=["name:int", "name:loc", "voice"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="int"/>', xml)
+        self.assertIn('<contact:name type="loc"/>', xml)
+        self.assertIn("<contact:voice/>", xml)
+        ET.fromstring(xml)
+
+    def test_privacy_normalized_to_rfc5733_schema_order(self) -> None:
+        """privacy elements supplied out of order are rendered in canonical RFC 5733 schema order."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                organization="Test Org",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            privacy=["email", "fax", "voice", "addr", "org", "name"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        # Assert schema sequence: name -> org -> addr -> voice -> fax -> email
+        idx_name = xml.index("<contact:name type=")
+        idx_org = xml.index("<contact:org type=")
+        idx_addr = xml.index("<contact:addr type=")
+        idx_voice = xml.index("<contact:voice/>")
+        idx_fax = xml.index("<contact:fax/>")
+        idx_email = xml.index("<contact:email/>")
+        self.assertTrue(idx_name < idx_org < idx_addr < idx_voice < idx_fax < idx_email)
+        ET.fromstring(xml)
+
+    def test_privacy_duplicate_elements_deduplicated(self) -> None:
+        """privacy elements with duplicate occurrences are rendered exactly once."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            email="test@example.com",
+            postal_info=PostalInfoData(
+                name="Test Name",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            privacy=["voice", "email", "voice", "email"],
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(xml.count("<contact:voice/>"), 1)
+        self.assertEqual(xml.count("<contact:email/>"), 1)
+        ET.fromstring(xml)
+
+    def test_update_privacy_normalized_schema_order_and_deduplication(self) -> None:
+        """Privacy-only contact.update() normalizes schema order and eliminates duplicate elements."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            privacy=["email", "voice", "voice"],
+        )
+        contact.update(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(xml.count("<contact:voice/>"), 1)
+        self.assertEqual(xml.count("<contact:email/>"), 1)
+        self.assertTrue(xml.index("<contact:voice/>") < xml.index("<contact:email/>"))
+        ET.fromstring(xml)
+
+    def test_info_parses_postal_disclose_types_and_round_trip(self) -> None:
+        """Verify contact.info preserves postal disclosure types and round-trips to update."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        execute_result = EppResultData(
+            **{
+                "client_transaction_id": "5123c3d4-79ce-4d87-ad7b-d234eb992474",
+                "code": 1000,
+                "message": "Command completed successfully",
+                "raw_response": "<response>\n"
+                '<result code="1000">\n'
+                "<msg>Command completed successfully</msg>\n"
+                "</result>\n"
+                "<resData>\n"
+                "<contact:infData>\n"
+                "<contact:id>inz-contact-1</contact:id>\n"
+                "<contact:roid>9175701-INZ</contact:roid>\n"
+                '<contact:status s="linked"/>\n'
+                '<contact:postalInfo type="loc">\n'
+                "<contact:name>inz</contact:name>\n"
+                "<contact:addr>\n"
+                "<contact:street>18 test street</contact:street>\n"
+                "<contact:city>Wellington</contact:city>\n"
+                "<contact:cc>NZ</contact:cc>\n"
+                "</contact:addr>\n"
+                "</contact:postalInfo>\n"
+                "<contact:email>inz@internet.net.nz</contact:email>\n"
+                "<contact:clID>933</contact:clID>\n"
+                "<contact:crID>933</contact:crID>\n"
+                "<contact:crDate>2023-02-23T02:59:16.784Z</contact:crDate>\n"
+                '<contact:disclose flag="0">\n'
+                '<contact:name type="int"/>\n'
+                '<contact:name type="loc"/>\n'
+                '<contact:addr type="loc"/>\n'
+                "<contact:voice/>\n"
+                "</contact:disclose>\n"
+                "</contact:infData>\n"
+                "</resData>\n"
+                "<trID>\n"
+                "<clTRID>5123c3d4-79ce-4d87-ad7b-d234eb992474</clTRID>\n"
+                "<svTRID>CIRA-000062211375-0000000003</svTRID>\n"
+                "</trID>\n"
+                "</response>",
+                "reason": None,
+                "repository_object_id": "9175701-INZ",
+                "server_transaction_id": "CIRA-000062211375-0000000003",
+                "result_data": None,
+            }
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("inz-contact-1")
+
+        # 1. Verify privacy parsed with preserved postal types
+        self.assertEqual(
+            result.result_data.privacy,
+            ["name:int", "name:loc", "addr:loc", "voice"],
+        )
+
+        # 2. Verify round-trip update preserves both int and loc disclosure tags
+        info_contact_data = result.result_data
+        update_contact = Contact(epp_communicator)
+        update_contact.update(info_contact_data)
+        update_xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="int"/>', update_xml)
+        self.assertIn('<contact:name type="loc"/>', update_xml)
+        self.assertIn('<contact:addr type="loc"/>', update_xml)
+        self.assertIn("<contact:voice/>", update_xml)
+        ET.fromstring(update_xml)

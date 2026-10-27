@@ -400,6 +400,103 @@ class CliContactTest(unittest.TestCase):
             result.output,
         )
 
+    def test_contact_create_with_privacy(self) -> None:
+        """Verify contact create passes privacy elements to ContactData."""
+        mock_obj = MagicMock()
+        mock_obj.create.return_value = "Success"
+
+        result = self.runner.invoke(
+            contact_create,
+            [
+                "test-contact-1",
+                "--name",
+                "Test",
+                "--email",
+                "test@example.com",
+                "--city",
+                "Wellington",
+                "--country-code",
+                "NZ",
+                "--privacy",
+                "voice",
+                "--privacy",
+                "email",
+            ],
+            obj=mock_obj,
+        )
+        self.assertEqual(result.exit_code, 0)
+        mock_obj.create.assert_called_once()
+        contact_arg = mock_obj.create.call_args[0][0]
+        self.assertEqual(contact_arg.privacy, ["voice", "email"])
+
+    def test_contact_update_with_privacy(self) -> None:
+        """Verify contact update passes privacy elements to ContactData."""
+        mock_obj = MagicMock()
+        mock_obj.update.return_value = "Success"
+
+        result = self.runner.invoke(
+            contact_update,
+            [
+                "test-contact-1",
+                "--privacy",
+                "voice",
+                "--privacy",
+                "addr",
+            ],
+            obj=mock_obj,
+        )
+        self.assertEqual(result.exit_code, 0)
+        mock_obj.update.assert_called_once()
+        contact_arg = mock_obj.update.call_args[0][0]
+        self.assertEqual(contact_arg.privacy, ["voice", "addr"])
+
+    def test_contact_create_help_shows_privacy_options(self) -> None:
+        """Verify contact create --help displays --privacy and valid options."""
+        result = self.runner.invoke(contact_create, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("--privacy", result.output)
+        self.assertIn("name", result.output)
+        self.assertIn("org", result.output)
+        self.assertIn("addr", result.output)
+        self.assertIn("voice", result.output)
+        self.assertIn("fax", result.output)
+        self.assertIn("email", result.output)
+
+    def test_contact_update_help_shows_privacy_options(self) -> None:
+        """Verify contact update --help displays --privacy and valid options."""
+        result = self.runner.invoke(contact_update, ["--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("--privacy", result.output)
+        self.assertIn("name", result.output)
+        self.assertIn("org", result.output)
+        self.assertIn("addr", result.output)
+        self.assertIn("voice", result.output)
+        self.assertIn("fax", result.output)
+        self.assertIn("email", result.output)
+
+    def test_contact_update_privacy_with_type(self) -> None:
+        """Verify contact update with --privacy and --type carries postal_type in postal_info."""
+        mock_obj = MagicMock()
+        mock_obj.update.return_value = "Success"
+
+        result = self.runner.invoke(
+            contact_update,
+            [
+                "test-contact-1",
+                "--privacy",
+                "name",
+                "--type",
+                "int",
+            ],
+            obj=mock_obj,
+        )
+        self.assertEqual(result.exit_code, 0)
+        mock_obj.update.assert_called_once()
+        contact_arg = mock_obj.update.call_args[0][0]
+        self.assertEqual(contact_arg.privacy, ["name"])
+        self.assertIsNotNone(contact_arg.postal_info)
+        self.assertEqual(contact_arg.postal_info.type, "int")
+
 
 if __name__ == "__main__":
     unittest.main()
