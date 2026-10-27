@@ -336,7 +336,7 @@ class CliFormatOutputTest(unittest.TestCase):
         )
 
     def test_cli_runner_min_flags_and_output(self) -> None:
-        """Verify CLI runner accepts -o min, --o min, --output-format min and displays pretty result_data."""
+        """Verify CLI runner accepts -o min, --output-format min and displays pretty result_data."""
         runner = CliRunner()
         check_data = {
             "domain1.nz": {"avail": False, "reason": "Registered"},
@@ -349,7 +349,7 @@ class CliFormatOutputTest(unittest.TestCase):
             result_data=check_data,
         )
 
-        for flag in ["-o", "--o", "--output-format"]:
+        for flag in ["-o", "--output-format"]:
             with patch("pyepp.domain.Domain.check", return_value=mock_result):
                 result = runner.invoke(
                     pyepp_cli,
@@ -445,7 +445,7 @@ class CliFormatOutputTest(unittest.TestCase):
                         "user",
                         "--password",
                         "pass",
-                        "--o",
+                        "--output-format",
                         "min",
                         "-f",
                         out_path,
@@ -699,7 +699,7 @@ class CliFormatOutputTest(unittest.TestCase):
         self.assertIn("1000", output)
 
     def test_cli_runner_table_flags_and_output(self) -> None:
-        """Verify CLI runner accepts -o table, --o table, --output-format table and outputs ASCII table."""
+        """Verify CLI runner accepts -o table, --output-format table and outputs ASCII table."""
         runner = CliRunner()
         check_data = {
             "domain1.nz": {"avail": False, "reason": "Registered"},
@@ -711,7 +711,7 @@ class CliFormatOutputTest(unittest.TestCase):
             result_data=check_data,
         )
 
-        for flag in ["-o", "--o", "--output-format"]:
+        for flag in ["-o", "--output-format"]:
             with patch("pyepp.domain.Domain.check", return_value=mock_result):
                 result = runner.invoke(
                     pyepp_cli,
@@ -774,6 +774,28 @@ class CliFormatOutputTest(unittest.TestCase):
             self.assertEqual(result.exit_code, 0)
             self.assertIn("Field\tValue", result.output)
             self.assertIn("code\t1000", result.output)
+
+    def test_cli_runner_rejects_removed_dash_dash_o_flag(self) -> None:
+        """Verify CLI runner rejects removed --o flag as an unrecognized option."""
+        runner = CliRunner()
+        result = runner.invoke(
+            pyepp_cli,
+            [
+                "--server",
+                "localhost",
+                "--port",
+                "700",
+                "--user",
+                "user",
+                "--password",
+                "pass",
+                "--o",
+                "table",
+            ],
+        )
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("No such option", result.output)
+        self.assertIn("--o", result.output)
 
 
 class CliConfigTest(unittest.TestCase):

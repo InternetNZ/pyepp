@@ -86,7 +86,6 @@ load_config()
 )
 @click.option(
     "-o",
-    "--o",
     "--output-format",
     "output_format",
     envvar="PYEPP_OUTPUT_FORMAT",
