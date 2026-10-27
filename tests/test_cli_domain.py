@@ -58,6 +58,8 @@ class CliDomainTest(unittest.TestCase):
                 "testuser",
                 "--password",
                 "testpass",
+                "-o",
+                "XML",
                 "--dry-run",
                 "domain",
                 "info",
