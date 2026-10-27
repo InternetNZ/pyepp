@@ -482,6 +482,8 @@ class Contact(BaseCommand):
             raise ValueError(
                 "Contact creation requires postal info address with 'city' and 'country_code'."
             )
+        if not contact.email or not contact.email.strip():
+            raise ValueError("Contact creation requires 'email'.")
 
         addr = contact.postal_info.address
         if addr.street_1 == "" and (addr.street_2 or addr.street_3):
