@@ -77,6 +77,23 @@ class BaseCommandTest(unittest.TestCase):
 
         self.assertEqual(expected_result, result)
 
+    def test_prepare_command_special_characters_not_double_escaped(self) -> None:
+        """_prepare_command must not double-escape XML special characters like & and <."""
+        command = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><name>{{ name }}</name><pw>{{ password }}</pw></command></epp>"""
+        expected_result = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><name>Smith &amp; Jones &lt;LLC&gt;</name><pw>Pass&lt;word&gt;&amp;1</pw></command></epp>"""
+        epp_communicator = MagicMock(EppCommunicator)
+
+        base_command = BaseCommand(epp_communicator)
+        result = base_command._prepare_command(
+            command,
+            name="Smith & Jones <LLC>",
+            password="Pass<word>&1",
+        )
+
+        self.assertEqual(expected_result, result)
+
     def test_escape_list(self) -> None:
         test_list = [
             ['hi&', '<world>'],

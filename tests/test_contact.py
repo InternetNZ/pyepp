@@ -1066,6 +1066,28 @@ class ContactTest(unittest.TestCase):
         self.assertIn("<contact:email>test@example.com</contact:email>", xml_with_chg)
         ET.fromstring(xml_with_chg)
 
+    def test_create_contact_with_special_characters_in_name_and_password(self) -> None:
+        """contact.create() must not double-escape special characters in name and password."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-contact",
+            password="Pass<word>&1",
+            postal_info=PostalInfoData(
+                name="Smith & Jones <LLC>",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            email="test@example.com",
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<contact:name>Smith &amp; Jones &lt;LLC&gt;</contact:name>", xml)
+        self.assertIn("<contact:pw>Pass&lt;word&gt;&amp;1</contact:pw>", xml)
+        self.assertNotIn("&amp;amp;", xml)
+        self.assertNotIn("&amp;lt;", xml)
+        self.assertNotIn("&amp;gt;", xml)
+        ET.fromstring(xml)
+
     def test_address_data_sparse_streets_raises_value_error(self) -> None:
         """Verify AddressData rejects sparse street updates that skip preceding lines."""
         # Case 1: street_2 provided when street_1 is omitted
