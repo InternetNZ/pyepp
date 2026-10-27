@@ -1166,6 +1166,7 @@ class ContactTest(unittest.TestCase):
 
         contact_data = ContactData(
             id="test-mutated-contact",
+            email="test@example.com",
             postal_info=PostalInfoData(
                 name="Test Contact",
                 address=addr,
@@ -1325,6 +1326,32 @@ class ContactTest(unittest.TestCase):
         data.postal_info.address.country_code = ""
         with self.assertRaises(ValueError):
             contact.create(data)
+
+    def test_create_missing_email_raises_value_error(self) -> None:
+        """create() must raise ValueError if email is missing or empty."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="test-id",
+            email="",
+            postal_info=PostalInfoData(
+                name="Test",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+        )
+        with self.assertRaises(ValueError) as ctx:
+            contact.create(data)
+        self.assertEqual(str(ctx.exception), "Contact creation requires 'email'.")
+
+        data.email = None
+        with self.assertRaises(ValueError) as ctx:
+            contact.create(data)
+        self.assertEqual(str(ctx.exception), "Contact creation requires 'email'.")
+
+        data.email = "   "
+        with self.assertRaises(ValueError) as ctx:
+            contact.create(data)
+        self.assertEqual(str(ctx.exception), "Contact creation requires 'email'.")
 
     def test_update_int_type_missing_address_raises_value_error(self) -> None:
         """update() must raise ValueError if int postal_info lacks address."""
