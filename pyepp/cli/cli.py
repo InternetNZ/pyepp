@@ -11,6 +11,7 @@ import click
 
 from pyepp.helper import xml_pretty
 from pyepp import EppCommunicator, EppResultData
+from pyepp.cli.utils import format_table, format_tsv
 
 
 def login_logout(func):
@@ -63,7 +64,7 @@ class PyEppCli:
 
         self.extensions = extensions
 
-        self.output_format = output_format
+        self.output_format = output_format.upper() if output_format else "XML"
         self.no_pretty = no_pretty
         self.dry_run = dry_run
 
@@ -89,14 +90,38 @@ class PyEppCli:
         return result
 
     def format_output(self, result: EppResultData):
-        output = result
-        if self.output_format == "XML":
-            output = result.raw_response
-            if not self.no_pretty:
-                output = xml_pretty(result.raw_response)
-        elif self.output_format == "MIN":
-            return result.result_data
+        fmt = self.output_format.upper() if self.output_format else "XML"
+        if fmt == "XML":
+            output = getattr(result, "raw_response", result)
+            if not self.no_pretty and output:
+                output = xml_pretty(output)
+        elif fmt == "MIN":
+            output = getattr(result, "result_data", result)
+            if not self.no_pretty and output is not None:
+                output = pprint.pformat(output)
+        elif fmt == "TABLE":
+            # TABLE format: Displays all EppResultData fields except raw_response and parsed_xml.
+            # When --no-pretty is supplied, plain tab-separated (TSV) format is emitted.
+            # If the response is not an EppResultData instance (e.g. raw greeting or unexpected response),
+            # or if table generation encounters an unexpected error, safely fall back to XML output.
+            if isinstance(result, EppResultData):
+                try:
+                    if self.no_pretty:
+                        output = format_tsv(result)
+                    else:
+                        output = format_table(result)
+                except Exception:  # pylint: disable=broad-exception-caught
+                    # Fallback to XML when table formatting encounters an unexpected failure
+                    output = getattr(result, "raw_response", result)
+                    if not self.no_pretty and output:
+                        output = xml_pretty(output)
+            else:
+                # Fallback to XML when result is not an EppResultData instance
+                output = getattr(result, "raw_response", result)
+                if not self.no_pretty and output:
+                    output = xml_pretty(output)
         else:
+            output = result
             if not self.no_pretty:
                 output = pprint.pformat(output)
 
