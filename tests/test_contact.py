@@ -1711,3 +1711,72 @@ class ContactTest(unittest.TestCase):
         self.assertEqual(xml.count("<contact:email/>"), 1)
         self.assertTrue(xml.index("<contact:voice/>") < xml.index("<contact:email/>"))
         ET.fromstring(xml)
+
+    def test_info_parses_postal_disclose_types_and_round_trip(self) -> None:
+        """Verify contact.info preserves postal disclosure types and round-trips to update."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        execute_result = EppResultData(
+            **{
+                "client_transaction_id": "5123c3d4-79ce-4d87-ad7b-d234eb992474",
+                "code": 1000,
+                "message": "Command completed successfully",
+                "raw_response": "<response>\n"
+                '<result code="1000">\n'
+                "<msg>Command completed successfully</msg>\n"
+                "</result>\n"
+                "<resData>\n"
+                "<contact:infData>\n"
+                "<contact:id>inz-contact-1</contact:id>\n"
+                "<contact:roid>9175701-INZ</contact:roid>\n"
+                '<contact:status s="linked"/>\n'
+                '<contact:postalInfo type="loc">\n'
+                "<contact:name>inz</contact:name>\n"
+                "<contact:addr>\n"
+                "<contact:street>18 test street</contact:street>\n"
+                "<contact:city>Wellington</contact:city>\n"
+                "<contact:cc>NZ</contact:cc>\n"
+                "</contact:addr>\n"
+                "</contact:postalInfo>\n"
+                "<contact:email>inz@internet.net.nz</contact:email>\n"
+                "<contact:clID>933</contact:clID>\n"
+                "<contact:crID>933</contact:crID>\n"
+                "<contact:crDate>2023-02-23T02:59:16.784Z</contact:crDate>\n"
+                '<contact:disclose flag="0">\n'
+                '<contact:name type="int"/>\n'
+                '<contact:name type="loc"/>\n'
+                '<contact:addr type="loc"/>\n'
+                "<contact:voice/>\n"
+                "</contact:disclose>\n"
+                "</contact:infData>\n"
+                "</resData>\n"
+                "<trID>\n"
+                "<clTRID>5123c3d4-79ce-4d87-ad7b-d234eb992474</clTRID>\n"
+                "<svTRID>CIRA-000062211375-0000000003</svTRID>\n"
+                "</trID>\n"
+                "</response>",
+                "reason": None,
+                "repository_object_id": "9175701-INZ",
+                "server_transaction_id": "CIRA-000062211375-0000000003",
+                "result_data": None,
+            }
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("inz-contact-1")
+
+        # 1. Verify privacy parsed with preserved postal types
+        self.assertEqual(
+            result.result_data.privacy,
+            ["name:int", "name:loc", "addr:loc", "voice"],
+        )
+
+        # 2. Verify round-trip update preserves both int and loc disclosure tags
+        info_contact_data = result.result_data
+        update_contact = Contact(epp_communicator)
+        update_contact.update(info_contact_data)
+        update_xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn('<contact:name type="int"/>', update_xml)
+        self.assertIn('<contact:name type="loc"/>', update_xml)
+        self.assertIn('<contact:addr type="loc"/>', update_xml)
+        self.assertIn("<contact:voice/>", update_xml)
+        ET.fromstring(update_xml)

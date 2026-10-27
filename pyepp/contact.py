@@ -439,13 +439,21 @@ class Contact(BaseCommand):
             # when flag is "0" or "false" to prevent marking disclosed fields as private.
             flag = disclose_el.get("flag", "0")
             if flag in ("0", "false"):
-                result_data["privacy"] = list(
-                    dict.fromkeys(
-                        el.name
-                        for el in disclose_el.find_all(recursive=False)
-                        if el.name in VALID_PRIVACY_ELEMENTS
-                    )
-                )
+                # Preserve postal disclosure types (e.g. 'name:int', 'name:loc') so that
+                # both localized and international disclosure settings round-trip losslessly
+                # into subsequent update requests instead of collapsing into a single bare tag.
+                privacy_items = []
+                for el in disclose_el.find_all(recursive=False):
+                    if el.name in VALID_PRIVACY_ELEMENTS:
+                        ptype = el.get("type")
+                        if (
+                            el.name in POSTAL_DISCLOSE_ELEMENTS
+                            and ptype in ("loc", "int")
+                        ):
+                            privacy_items.append(f"{el.name}:{ptype}")
+                        else:
+                            privacy_items.append(el.name)
+                result_data["privacy"] = list(dict.fromkeys(privacy_items))
 
         result.result_data = ContactData(**result_data)
 
