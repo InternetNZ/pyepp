@@ -92,6 +92,11 @@ class PostalInfoData:
             )
 
 
+VALID_PRIVACY_ELEMENTS: frozenset[str] = frozenset(
+    ["name", "org", "addr", "voice", "fax", "email"]
+)
+
+
 @dataclass
 class ContactData:
     """Contact data class. Contains the properties of the contacts associated with the domain name.
@@ -126,6 +131,18 @@ class ContactData:
     update_client_id: Optional[str] = ""
     update_date: Optional[str] = ""
     privacy: Optional[list[str]] = None
+
+    def __post_init__(self) -> None:
+        """Validate privacy elements conform to RFC 5733."""
+        if self.privacy is not None:
+            invalid = [
+                item for item in self.privacy if item not in VALID_PRIVACY_ELEMENTS
+            ]
+            if invalid:
+                raise ValueError(
+                    f"Invalid privacy disclosure element(s): {invalid}. "
+                    f"Must be one of {sorted(VALID_PRIVACY_ELEMENTS)}."
+                )
 
 
 class Contact(BaseCommand):
@@ -175,6 +192,14 @@ class Contact(BaseCommand):
                     f"Invalid postal info type '{type_val}'. Must be 'loc' or 'int'."
                 )
             data_dict["type"] = type_val
+
+        if data_dict.get("privacy") is not None:
+            for item in data_dict["privacy"]:
+                if item not in VALID_PRIVACY_ELEMENTS:
+                    raise ValueError(
+                        f"Invalid privacy disclosure element '{item}'. "
+                        f"Must be one of {sorted(VALID_PRIVACY_ELEMENTS)}."
+                    )
 
         return data_dict
 
@@ -314,6 +339,16 @@ class Contact(BaseCommand):
 
         if raw_response.find("pw"):
             result_data["password"] = raw_response.find("pw").text
+
+        if raw_response.find("disclose"):
+            disclose_el = raw_response.find("disclose")
+            result_data["privacy"] = list(
+                dict.fromkeys(
+                    el.name
+                    for el in disclose_el.find_all(recursive=False)
+                    if el.name in VALID_PRIVACY_ELEMENTS
+                )
+            )
 
         result.result_data = ContactData(**result_data)
 

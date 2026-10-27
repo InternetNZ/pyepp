@@ -1264,6 +1264,16 @@ class ContactTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             contact._data_to_dict(data)
 
+    def test_data_to_dict_invalid_privacy_raises_value_error(self) -> None:
+        """_data_to_dict must raise ValueError if privacy contains invalid element."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(id="test-id")
+        # Directly bypass dataclass __post_init__ to test _data_to_dict safeguard
+        data.privacy = ["unsupported_element"]
+        with self.assertRaises(ValueError):
+            contact._data_to_dict(data)
+
     def test_create_missing_postal_info_raises_value_error(self) -> None:
         """create() must raise ValueError if postal_info is missing."""
         epp_communicator = MagicMock(EppCommunicator)
@@ -1435,3 +1445,61 @@ class ContactTest(unittest.TestCase):
         self.assertIn("<contact:voice/>", xml)
         self.assertIn("<contact:email/>", xml)
         ET.fromstring(xml)
+
+    def test_contact_data_invalid_privacy_raises_value_error(self) -> None:
+        """ContactData must raise ValueError if privacy contains invalid disclosure elements."""
+        with self.assertRaises(ValueError) as ctx:
+            ContactData(id="test-contact", privacy=["voice", "invalid_element"])
+        self.assertIn("invalid_element", str(ctx.exception))
+
+    def test_info_parses_disclose_privacy_elements(self) -> None:
+        """contact.info() must parse <contact:disclose> child tags into ContactData.privacy."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        execute_result = EppResultData(
+            **{
+                "client_transaction_id": "5123c3d4-79ce-4d87-ad7b-d234eb992474",
+                "code": 1000,
+                "message": "Command completed successfully",
+                "raw_response": "<response>\n"
+                '<result code="1000">\n'
+                "<msg>Command completed successfully</msg>\n"
+                "</result>\n"
+                "<resData>\n"
+                "<contact:infData>\n"
+                "<contact:id>inz-contact-1</contact:id>\n"
+                "<contact:roid>9175701-INZ</contact:roid>\n"
+                '<contact:status s="linked"/>\n'
+                '<contact:postalInfo type="loc">\n'
+                "<contact:name>inz</contact:name>\n"
+                "<contact:addr>\n"
+                "<contact:street>18 test street</contact:street>\n"
+                "<contact:city>Wellington</contact:city>\n"
+                "<contact:cc>NZ</contact:cc>\n"
+                "</contact:addr>\n"
+                "</contact:postalInfo>\n"
+                "<contact:email>inz@internet.net.nz</contact:email>\n"
+                "<contact:voice>+64.4123456</contact:voice>\n"
+                "<contact:clID>933</contact:clID>\n"
+                "<contact:crID>933</contact:crID>\n"
+                "<contact:crDate>2023-02-23T02:59:16.784Z</contact:crDate>\n"
+                '<contact:disclose flag="0">\n'
+                "<contact:voice/>\n"
+                "<contact:email/>\n"
+                "</contact:disclose>\n"
+                "</contact:infData>\n"
+                "</resData>\n"
+                "<trID>\n"
+                "<clTRID>5123c3d4-79ce-4d87-ad7b-d234eb992474</clTRID>\n"
+                "<svTRID>CIRA-000062211375-0000000003</svTRID>\n"
+                "</trID>\n"
+                "</response>",
+                "reason": None,
+                "repository_object_id": "9175701-INZ",
+                "server_transaction_id": "CIRA-000062211375-0000000003",
+                "result_data": None,
+            }
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("inz-contact-1")
+        self.assertEqual(result.result_data.privacy, ["voice", "email"])
