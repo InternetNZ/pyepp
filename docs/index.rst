@@ -166,7 +166,7 @@ PyEPP also has a command line interface that allows the user to interact with th
       --client-key TEXT
       --extension TEXT                The extension to be loaded for the EPP
                                       command.
-      -o, --output-format [XML|OBJECT|MIN]
+      -o, --output-format [XML|OBJECT|MIN|TABLE]
                                       [default: XML]
       --no-pretty
       --dry-run
