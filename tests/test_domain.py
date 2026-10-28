@@ -926,3 +926,76 @@ class DomainTest(unittest.TestCase):
         """DomainData create_client_id field."""
         data = DomainData(domain_name="example.com", create_client_id="client123")
         self.assertEqual(data.create_client_id, "client123")
+
+    def test_info_domain_under_other_registrar_missing_optional_fields(self) -> None:
+        """domain.info() must handle response when domain is under another registrar (e.g. no registrant)."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        xml_response = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"\n'
+            '     xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">\n'
+            "    <response>\n"
+            '        <result code="1000">\n'
+            "            <msg>Command completed successfully</msg>\n"
+            "        </result>\n"
+            "        <resData>\n"
+            "            <domain:infData>\n"
+            "                <domain:name>97-dl-domain.nz</domain:name>\n"
+            "                <domain:roid>125526-INZ</domain:roid>\n"
+            '                <domain:status s="serverDeleteProhibited"/>\n'
+            '                <domain:status s="serverTransferProhibited"/>\n'
+            '                <domain:status s="serverUpdateProhibited"/>\n'
+            "                <domain:ns>\n"
+            "                    <domain:hostObj>ns1.97-dl-domain.nz</domain:hostObj>\n"
+            "                    <domain:hostObj>ns2.97-dl-domain.nz</domain:hostObj>\n"
+            "                    <domain:hostObj>ns3.97-dl-domain.nz</domain:hostObj>\n"
+            "                </domain:ns>\n"
+            "                <domain:clID>933</domain:clID>\n"
+            "                <domain:crDate>2026-07-09T03:23:09.226Z</domain:crDate>\n"
+            "                <domain:upDate>2026-10-28T02:19:40.756Z</domain:upDate>\n"
+            "                <domain:exDate>2027-07-09T03:23:09.226Z</domain:exDate>\n"
+            "            </domain:infData>\n"
+            "        </resData>\n"
+            "        <trID>\n"
+            "            <clTRID>e2bba9f9-49a2-4fea-82d3-594b26b5a571</clTRID>\n"
+            "            <svTRID>CIRA-000216281301-0000000002</svTRID>\n"
+            "        </trID>\n"
+            "    </response>\n"
+            "</epp>"
+        )
+        execute_result = EppResultData(
+            client_transaction_id=None,
+            code=1000,
+            message="Command completed successfully",
+            raw_response=xml_response,
+            result_data=None,
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+
+        result = domain.info("97-dl-domain.nz")
+        self.assertEqual(result.result_data.domain_name, "97-dl-domain.nz")
+        self.assertIsNone(result.result_data.registrant)
+        self.assertIsNone(result.result_data.admin)
+        self.assertIsNone(result.result_data.tech)
+        self.assertIsNone(result.result_data.billing)
+        self.assertEqual(result.result_data.sponsoring_client_id, "933")
+        self.assertEqual(
+            result.result_data.host,
+            [
+                "ns1.97-dl-domain.nz",
+                "ns2.97-dl-domain.nz",
+                "ns3.97-dl-domain.nz",
+            ],
+        )
+        self.assertEqual(
+            result.result_data.status,
+            [
+                "serverDeleteProhibited",
+                "serverTransferProhibited",
+                "serverUpdateProhibited",
+            ],
+        )
+        self.assertEqual(result.result_data.create_date, "2026-07-09T03:23:09.226Z")
+        self.assertEqual(result.result_data.update_date, "2026-10-28T02:19:40.756Z")
+        self.assertEqual(result.result_data.expiry_date, "2027-07-09T03:23:09.226Z")
