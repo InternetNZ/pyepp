@@ -42,6 +42,11 @@ with EppCommunicator(**config, user="user_name", password="password") as epp:
     contact = Contact(epp)
     contact_check = contact.check(['contact-1', 'contact-2'])
 
+# Or using Configuration Profiles (AWS CLI style, loaded from ~/.pyepp/config.ini):
+with EppCommunicator.from_profile("ote") as epp:
+    contact = Contact(epp)
+    contact_check = contact.check(['contact-1', 'contact-2'])
+
 # Or using manual sequence management:
 epp = EppCommunicator(**config)
 
@@ -114,15 +119,18 @@ Usage: pyepp [OPTIONS] COMMAND [ARGS]...
   A command line interface to work with PyEpp library.
 
 Options:
-  --server TEXT                   [required]
-  --port TEXT                     [required]
-  --user TEXT                     [required]
-  --password TEXT                 [required]
+  -p, --profile TEXT              Configuration profile name from config.ini
+                                  (e.g. ote, prod).
+  -c, --config-file PATH          Explicit path to config.ini file.
+  --server TEXT
+  --port TEXT
+  --user TEXT
+  --password TEXT
   --client-cert TEXT
   --client-key TEXT
   --extension TEXT                The extension to be loaded for the EPP
                                   command.
-  -o, --output-format [xml|object|min]
+  -o, --output-format [XML|OBJECT|MIN|TABLE]
                                   [default: XML]
   --no-pretty
   --dry-run
@@ -139,7 +147,48 @@ Commands:
   hello    Sends a hello command to the server and receives the Greeting...
   host     To work with Host objects in the registry.
   poll     To manage registry service messages.
+  profile  Manage and inspect EPP configuration profiles.
   run      Receive an XML file containing an EPP XML command and execute it.
+```
+
+### Configuration Profiles (`~/.pyepp/config.ini`)
+
+PyEPP supports user-defined configuration profiles (similar to AWS CLI profiles). Settings defined in `[default]` are shared globally and inherited by named profile sections (`[profile <name>]` or `[<name>]`):
+
+```ini
+[default]
+port = 700
+output_format = TABLE
+no_pretty = false
+dry_run = false
+
+[profile ote]
+server = epp.ote.registry.net.nz
+user = test_registrar
+password = secret_ote_pass
+extensions = urn:ietf:params:xml:ns:secDNS-1.1
+
+[profile prod]
+server = epp.registry.net.nz
+user = prod_registrar
+password = secret_prod_pass
+client_cert = ~/.pyepp/certs/client.crt
+client_key = ~/.pyepp/certs/client.key
+extensions = urn:ietf:params:xml:ns:secDNS-1.1
+```
+
+Using profiles with the CLI:
+
+```sh
+# List all configured profiles
+pyepp profile list
+
+# Show details of a profile (passwords masked by default)
+pyepp profile show ote
+pyepp profile show ote --show-secrets
+
+# Run commands using a profile without needing --server, --user, or --password flags
+pyepp -p ote domain check example.nz
 ```
 
 ### Enable shell autocomplete

@@ -56,6 +56,8 @@ class PyEppCli:
         output_format,
         no_pretty,
         dry_run=False,
+        profile_name=None,
+        config_file=None,
     ):
         self.epp = EppCommunicator(server, port, client_cert, client_key, dry_run)
 
@@ -67,6 +69,8 @@ class PyEppCli:
         self.output_format = output_format.upper() if output_format else "XML"
         self.no_pretty = no_pretty
         self.dry_run = dry_run
+        self.profile_name = profile_name
+        self.config_file = config_file
 
         self.registry_object = None
 

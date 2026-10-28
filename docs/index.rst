@@ -45,6 +45,11 @@ Usage example
        contact = Contact(epp)
        contact_check = contact.check(['contact-1', 'contact-2'])
 
+   # Or using Configuration Profiles (AWS CLI style, loaded from ~/.pyepp/config.ini):
+   with EppCommunicator.from_profile("ote") as epp:
+       contact = Contact(epp)
+       contact_check = contact.check(['contact-1', 'contact-2'])
+
    # Or using manual sequence management:
    epp = EppCommunicator(**config)
 
@@ -158,10 +163,13 @@ PyEPP also has a command line interface that allows the user to interact with th
       A command line interface to work with PyEpp library.
 
     Options:
-      --server TEXT                   [required]
-      --port TEXT                     [required]
-      --user TEXT                     [required]
-      --password TEXT                 [required]
+      -p, --profile TEXT              Configuration profile name from config.ini
+                                      (e.g. ote, prod).
+      -c, --config-file PATH          Explicit path to config.ini file.
+      --server TEXT
+      --port TEXT
+      --user TEXT
+      --password TEXT
       --client-cert TEXT
       --client-key TEXT
       --extension TEXT                The extension to be loaded for the EPP
@@ -183,7 +191,37 @@ PyEPP also has a command line interface that allows the user to interact with th
       hello    Sends a hello command to the server and receives the Greeting...
       host     To work with Host objects in the registry.
       poll     To manage registry service messages.
+      profile  Manage and inspect EPP configuration profiles.
       run      Receive an XML file containing an EPP XML command and execute it.
+
+Configuration Profiles
+----------------------
+PyEPP supports AWS CLI-style profiles in ``~/.pyepp/config.ini``:
+
+.. code:: ini
+
+    [default]
+    port = 700
+    output_format = TABLE
+
+    [profile ote]
+    server = epp.ote.registry.net.nz
+    user = test_registrar
+    password = secret_ote_pass
+    extensions = urn:ietf:params:xml:ns:secDNS-1.1
+
+You can inspect and execute commands with profiles directly:
+
+.. code:: sh
+
+    # List all profiles
+    pyepp profile list
+
+    # Show profile details
+    pyepp profile show ote
+
+    # Run commands with a profile
+    pyepp -p ote domain check example.nz
 
 .. toctree::
    :maxdepth: 2

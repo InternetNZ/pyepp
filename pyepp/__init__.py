@@ -31,3 +31,11 @@ from pyepp.domain import (
 from pyepp.host import Host, HostData, IPAddressData
 
 from pyepp.poll import Poll, ServiceMessageQueueData, ServiceMessageData
+from pyepp.profiles import (
+    Profile,
+    ProfileNotFoundError,
+    load_profile,
+    list_profiles,
+    load_all_profiles,
+    get_default_config_path,
+)

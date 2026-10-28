@@ -3,7 +3,6 @@ Executable cli module.
 """
 
 import os
-from configparser import RawConfigParser
 import logging
 
 import click
@@ -13,6 +12,7 @@ from pyepp.cli import cli
 from pyepp.cli.contact import contact_group
 from pyepp.cli.domain import domain_group
 from pyepp.cli.poll import poll_group
+from pyepp.cli.profile import profile_group
 from pyepp.cli import utils
 
 logging.basicConfig(level=logging.ERROR)
@@ -22,59 +22,125 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 APP_NAME = "pyepp"
 
 
-def load_config(config_file=None):
+def load_config(config_file=None, profile=None):
     """
-    Loads the configuration file into context settings. It reads the config file
-    from the below paths depends on the host OS.
-
-    Mac OS X (POSIX) and Unix (POSIX):
-      ~/.pyepp/config.ini
-    Windows (not roaming):
-      C:\\Users\\<user>\\AppData\\Local\\pyepp\\config.ini
+    Loads configuration settings from config.ini into context settings.
+    Supports AWS CLI style profiles: inherits from [default] (or legacy [pyepp]).
 
     :param config_file: Optional explicit path to configuration file (e.g. for testing).
+    :param profile: Optional profile name to load.
     """
-    cfg = config_file or os.path.join(
-        click.get_app_dir(APP_NAME, roaming=False, force_posix=True), "config.ini"
-    )
-    parser = RawConfigParser()
-    parser.read([cfg])
-    config = {}
-    for section in parser.sections():
-        for key, value in parser.items(section):
-            config[f"{section}_{key}".upper()] = value
-
-    # Read default output format from configuration file, falling back to XML if not specified
-    cfg_output_format = (
-        config.get("PYEPP_OUTPUT_FORMAT")
-        or config.get("PYEPP_OUTPUT-FORMAT")
-        or config.get("PYEPP_FORMAT")
-    )
-    output_format_val = (
-        cfg_output_format.strip().upper()
-        if cfg_output_format and cfg_output_format.strip()
-        else "XML"
+    from pyepp.profiles import (  # pylint: disable=import-outside-toplevel
+        load_profile,
+        get_default_config_path,
     )
 
-    CONTEXT_SETTINGS["default_map"] = {
-        "server": config.get("PYEPP_SERVER"),
-        "port": config.get("PYEPP_PORT"),
-        "client_cert": config.get("PYEPP_CLIENT_CERT"),
-        "client_key": config.get("PYEPP_CLIENT_KEY"),
-        "user": config.get("PYEPP_USER"),
-        "password": config.get("PYEPP_PASSWORD"),
-        "output_format": output_format_val,
-    }
+    cfg = config_file or get_default_config_path()
+    prof_name = profile or os.environ.get("PYEPP_PROFILE", "default")
+    try:
+        prof = load_profile(prof_name, config_file=cfg)
+    except Exception:  # pylint: disable=broad-exception-caught
+        prof = None
+
+    if prof:
+        CONTEXT_SETTINGS["default_map"] = {
+            "server": prof.server,
+            "port": prof.port,
+            "client_cert": prof.client_cert,
+            "client_key": prof.client_key,
+            "user": prof.user,
+            "password": prof.password,
+            "output_format": prof.output_format,
+            "no_pretty": prof.no_pretty,
+            "dry_run": prof.dry_run,
+        }
+        if prof.extensions:
+            CONTEXT_SETTINGS["default_map"]["extension"] = tuple(prof.extensions)
+    else:
+        CONTEXT_SETTINGS["default_map"] = {
+            "output_format": "XML",
+        }
 
 
 load_config()
 
 
+def _resolve_profile_options(ctx, active_profile, config_file, current_values):
+    """Resolve configuration profile options and override non-commandline parameters."""
+    from pyepp.profiles import load_profile  # pylint: disable=import-outside-toplevel
+
+    try:
+        prof = load_profile(active_profile or "default", config_file=config_file)
+    except Exception as ex:  # pylint: disable=broad-exception-caught
+        if ctx.invoked_subcommand != "profile":
+            raise click.ClickException(str(ex)) from ex
+        return current_values
+
+    updated = dict(current_values)
+    for field_name in (
+        "server",
+        "port",
+        "user",
+        "password",
+        "client_cert",
+        "client_key",
+        "output_format",
+    ):
+        if (
+            ctx.get_parameter_source(field_name)
+            != click.core.ParameterSource.COMMANDLINE
+        ):
+            val = getattr(prof, field_name, None)
+            if val is not None or config_file is not None or active_profile is not None:
+                updated[field_name] = val
+
+    if (
+        ctx.get_parameter_source("extension")
+        != click.core.ParameterSource.COMMANDLINE
+    ):
+        updated["extension"] = (
+            tuple(prof.extensions) if prof.extensions else None
+        )
+
+    if (
+        ctx.get_parameter_source("dry_run")
+        != click.core.ParameterSource.COMMANDLINE
+    ):
+        if prof.dry_run:
+            updated["dry_run"] = True
+
+    if (
+        ctx.get_parameter_source("no_pretty")
+        != click.core.ParameterSource.COMMANDLINE
+    ):
+        if prof.no_pretty:
+            updated["no_pretty"] = True
+
+    return updated
+
+
 @click.group(name="pyepp", context_settings=CONTEXT_SETTINGS)
-@click.option("--server", envvar="PYEPP_SERVER", required=True)
-@click.option("--port", envvar="PYEPP_PORT", required=True)
-@click.option("--user", envvar="PYEPP_USER", required=True)
-@click.option("--password", envvar="PYEPP_PASSWORD", required=True)
+@click.option(
+    "-p",
+    "--profile",
+    "profile",
+    envvar="PYEPP_PROFILE",
+    required=False,
+    help="Configuration profile name from config.ini (e.g. ote, prod).",
+)
+@click.option(
+    "-c",
+    "--config-file",
+    "config_file",
+    type=click.Path(),
+    envvar="PYEPP_CONFIG_FILE",
+    required=False,
+    help="Explicit path to config.ini file.",
+)
+@click.option("--server", envvar="PYEPP_SERVER", required=False)
+@click.option("--port", envvar="PYEPP_PORT", required=False)
+@click.option("--user", envvar="PYEPP_USER", required=False)
+@click.option("--password", envvar="PYEPP_PASSWORD", required=False)
 @click.option("--client-cert", envvar="PYEPP_CLIENT_CERT", required=False)
 @click.option("--client-key", envvar="PYEPP_CLIENT_KEY", required=False)
 @click.option(
@@ -106,9 +172,11 @@ load_config()
 @click.option("-d", "--debug", is_flag=True, show_default=True, default=False)
 @click.version_option()
 @click.pass_context
-# pylint: disable=too-many-arguments
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
 def pyepp_cli(
     ctx,
+    profile,
+    config_file,
     server,
     port,
     client_cert,
@@ -124,6 +192,52 @@ def pyepp_cli(
     debug,
 ):
     """A command line interface to work with PyEpp library."""
+    active_profile = profile or os.environ.get("PYEPP_PROFILE")
+    if active_profile or config_file:
+        resolved = _resolve_profile_options(
+            ctx,
+            active_profile,
+            config_file,
+            {
+                "server": server,
+                "port": port,
+                "user": user,
+                "password": password,
+                "client_cert": client_cert,
+                "client_key": client_key,
+                "extension": extension,
+                "output_format": output_format,
+                "dry_run": dry_run,
+                "no_pretty": no_pretty,
+            },
+        )
+        server = resolved["server"]
+        port = resolved["port"]
+        user = resolved["user"]
+        password = resolved["password"]
+        client_cert = resolved["client_cert"]
+        client_key = resolved["client_key"]
+        extension = resolved["extension"]
+        output_format = resolved["output_format"]
+        dry_run = resolved["dry_run"]
+        no_pretty = resolved["no_pretty"]
+
+    if ctx.invoked_subcommand != "profile":
+        missing = []
+        if not server:
+            missing.append("--server")
+        if not port:
+            missing.append("--port")
+        if not user:
+            missing.append("--user")
+        if not password:
+            missing.append("--password")
+        if missing:
+            raise click.UsageError(
+                f"Missing required parameter(s): {', '.join(missing)}. "
+                f"Provide via CLI flags, environment variables, or a profile in config.ini."
+            )
+
     ctx.obj = cli.PyEppCli(
         server,
         port,
@@ -135,6 +249,8 @@ def pyepp_cli(
         output_format,
         no_pretty,
         dry_run,
+        profile_name=active_profile,
+        config_file=config_file,
     )
 
     if verbose:
@@ -172,3 +288,4 @@ pyepp_cli.add_command(domain_group)
 pyepp_cli.add_command(host_group)
 pyepp_cli.add_command(poll_group)
 pyepp_cli.add_command(hello)
+pyepp_cli.add_command(profile_group)
