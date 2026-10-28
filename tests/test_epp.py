@@ -1,19 +1,26 @@
 """
 EPP Communicator unit tests
 """
+import json
 import unittest
+from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 import sys
 import struct
 import socket
+import ssl
 
+from pyepp.command_templates import LOGIN_XML
 from pyepp.epp import (
     EppCommunicator,
     EppResultData,
     EppCommunicatorException,
     EppDryRunException,
+    EppTransactionMismatchException,
     mask_sensitive_xml,
     _find_tag_end,
+    _tag_text,
+    CLTRID_TAG_REGEX,
 )
 
 class EppResultDataTest(unittest.TestCase):
@@ -31,10 +38,206 @@ class EppResultDataTest(unittest.TestCase):
         self.assertFalse(data.dry_run)
         self.assertEqual(d['message'], 'Success')
 
+    def test_parsed_xml_equality_and_repr(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup('<root><a id="1">test</a></root>', 'xml')
+        data_with_xml = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='raw',
+            result_data=None,
+            parsed_xml=soup,
+        )
+        data_without_xml = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='',
+            result_data=None,
+        )
+
+        # compare=False ensures equality is unaffected by parsed_xml
+        # (even when raw_response differs, here we test that parsed_xml does not affect equality)
+        data_matching_fields = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='raw',
+            result_data=None,
+            parsed_xml=soup,
+        )
+        data_matching_other = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='raw',
+            result_data=None,
+        )
+        self.assertEqual(data_matching_fields, data_matching_other)
+        # repr=False ensures parsed_xml does not bloat string representations
+        self.assertNotIn("parsed_xml", repr(data_with_xml))
+        self.assertIs(data_with_xml.parsed_xml, soup)
+        self.assertIsNone(data_without_xml.parsed_xml)
+
+    def test_post_init_populates_parsed_xml(self):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<root><elem>val</elem></root>',
+            result_data=None,
+        )
+        self.assertIsNotNone(data.parsed_xml)
+        self.assertEqual(data.parsed_xml.find("elem").text, "val")
+
+    def test_post_init_skips_when_dry_run(self):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<root><elem>val</elem></root>',
+            result_data=None,
+            dry_run=True,
+        )
+        self.assertIsNone(data.parsed_xml)
+
+    def test_post_init_skips_when_empty_raw_response(self):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='',
+            result_data=None,
+        )
+        self.assertIsNone(data.parsed_xml)
+
+    def test_post_init_preserves_explicit_parsed_xml(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup('<custom/>', 'xml')
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<other/>',
+            result_data=None,
+            parsed_xml=soup,
+        )
+        self.assertIs(data.parsed_xml, soup)
+
+    @patch('pyepp.epp.BeautifulSoup', side_effect=Exception('XML parse failure'))
+    def test_post_init_exception_handling(self, _mock_bs):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<root/>',
+            result_data=None,
+        )
+        self.assertIsNone(data.parsed_xml)
+
+    def test_to_dict_excludes_parsed_xml_and_is_json_serializable(self):
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup('<root><item>test</item></root>', 'xml')
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<root><item>test</item></root>',
+            result_data=None,
+            parsed_xml=soup,
+        )
+        d = data.to_dict()
+        self.assertNotIn('parsed_xml', d)
+        serialized = json.dumps(d)
+        deserialized = json.loads(serialized)
+        self.assertEqual(deserialized['code'], 1000)
+        self.assertEqual(deserialized['message'], 'Success')
+        self.assertNotIn('parsed_xml', deserialized)
+
+    def test_to_dict_converts_nested_dataclasses_in_result_data(self):
+        from bs4 import BeautifulSoup
+
+        @dataclass
+        class SubData:
+            tag: str
+
+        @dataclass
+        class MainData:
+            name: str
+            sub: SubData
+            sub_list: list[SubData]
+            sub_map: dict[str, SubData]
+
+        main_data = MainData(
+            name='parent',
+            sub=SubData(tag='child'),
+            sub_list=[SubData(tag='list_item')],
+            sub_map={'key': SubData(tag='map_item')},
+        )
+        soup = BeautifulSoup('<xml/>', 'xml')
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<xml/>',
+            result_data=main_data,
+            parsed_xml=soup,
+        )
+        d = data.to_dict()
+        self.assertNotIn('parsed_xml', d)
+        self.assertEqual(d['result_data']['sub'], {'tag': 'child'})
+        self.assertEqual(d['result_data']['sub_list'], [{'tag': 'list_item'}])
+        self.assertEqual(d['result_data']['sub_map'], {'key': {'tag': 'map_item'}})
+
+        serialized = json.dumps(d)
+        deserialized = json.loads(serialized)
+        self.assertEqual(deserialized['result_data']['name'], 'parent')
+
+    def test_to_dict_converts_list_and_dict_result_data(self):
+        @dataclass
+        class Item:
+            id: int
+
+        # Test with dict containing dataclasses
+        data_dict = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<xml/>',
+            result_data={'item1': Item(id=1)},
+        )
+        d_dict = data_dict.to_dict()
+        self.assertEqual(d_dict['result_data']['item1'], {'id': 1})
+        self.assertIn('"id": 1', json.dumps(d_dict))
+
+        # Test with list containing dataclasses
+        data_list = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response='<xml/>',
+            result_data=[Item(id=2)],
+        )
+        d_list = data_list.to_dict()
+        self.assertEqual(d_list['result_data'], [{'id': 2}])
+        self.assertIn('"id": 2', json.dumps(d_list))
+
 
 class EppCommunicatorTest(unittest.TestCase):
     def setUp(self):
         self.epp = EppCommunicator('localhost', '700', dry_run=False)
+
+    def test_execute_success_populates_parsed_xml(self):
+        self.epp.greeting = b'greeting'
+        response_xml = (
+            b'<?xml version="1.0" encoding="UTF-8"?>\n'
+            b'<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+            b'  <response>\n'
+            b'    <result code="1000">\n'
+            b'      <msg>Command completed successfully</msg>\n'
+            b'    </result>\n'
+            b'    <trID>\n'
+            b'      <clTRID>ABC-123</clTRID>\n'
+            b'      <svTRID>SRV-456</svTRID>\n'
+            b'    </trID>\n'
+            b'  </response>\n'
+            b'</epp>'
+        )
+        self.epp._execute_command = MagicMock(return_value=response_xml)
+        result = self.epp.execute("<xml/>")
+        self.assertEqual(result.code, 1000)
+        self.assertEqual(result.client_transaction_id, "ABC-123")
+        self.assertEqual(result.server_transaction_id, "SRV-456")
+        self.assertIsNotNone(result.parsed_xml)
+        self.assertEqual(result.parsed_xml.find("result").get("code"), "1000")
 
     def test_execute_command_dry_run(self):
         self.epp._dry_run = True
@@ -53,6 +256,13 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertEqual(result.client_transaction_id, "TEST-TRID-123")
         self.assertIsNone(result.server_transaction_id)
         self.assertIsNone(result.result_data)
+        self.assertIsNotNone(result.parsed_xml)
+
+        # Regression check: to_dict excludes parsed_xml and is JSON-serializable
+        d = result.to_dict()
+        self.assertNotIn("parsed_xml", d)
+        serialized = json.dumps(d)
+        self.assertIn('"message": "Dry run"', serialized)
 
     def test_execute_dry_run_without_cltrid(self):
         self.epp._dry_run = True
@@ -214,6 +424,22 @@ class EppCommunicatorTest(unittest.TestCase):
         self.assertEqual(self.epp.user, 'user')
         sent_command = mock_execute.call_args[0][0]
         self.assertNotIn('<objURI>urn:ietf:params:xml:ns:epp-1.0</objURI>', sent_command)
+        self.assertNotIn('urn:ietf:params:xml:ns:urn:', sent_command)
+        self.assertEqual(sent_command.count('urn:ietf:params:xml:ns:secDNS-1.1'), 1)
+
+    @patch('pyepp.epp.get_compiled_template')
+    @patch('pyepp.epp.EppCommunicator.execute')
+    def test_login_uses_cached_template(self, mock_execute, mock_get_template):
+        mock_result = MagicMock()
+        mock_result.code = 1000
+        mock_execute.return_value = mock_result
+        mock_tmpl = MagicMock()
+        mock_tmpl.render.return_value = "<mock_login/>"
+        mock_get_template.return_value = mock_tmpl
+
+        self.epp.login('user', 'pass')
+        mock_get_template.assert_called_once_with(LOGIN_XML)
+        mock_tmpl.render.assert_called_once_with(user='user', password='pass', extensions=[])
 
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_with_cert_and_key(self, mock_ssl):
@@ -279,6 +505,190 @@ class EppCommunicatorTest(unittest.TestCase):
             self.assertIn("<domain:pw>***</domain:pw>", full_log)
             self.assertNotIn("reqSecret", full_log)
             self.assertNotIn("respSecret", full_log)
+
+    def test_read_fragmented_header_and_body(self):
+        """Confirm that reading 1-byte chunks for header and body reassembles correctly."""
+        self.epp._ssl_socket = MagicMock()
+        # Message length = 12 bytes (4 bytes header + 8 bytes payload: b"<xml/>\r\n")
+        header_bytes = struct.pack(">I", 12)
+        body_bytes = b"<xml/>\r\n"
+
+        # Header delivered in 1-byte chunks
+        self.epp._ssl_socket.read.side_effect = [bytes([b]) for b in header_bytes]
+        # Body delivered in 1-byte chunks
+        self.epp._ssl_socket.recv.side_effect = [bytes([b]) for b in body_bytes]
+
+        result = self.epp._read()
+        self.assertEqual(result, body_bytes)
+
+    def test_read_multi_byte_chunks_reassembly(self):
+        """Confirm that reading irregular chunk sizes correctly reassembles the body."""
+        self.epp._ssl_socket = MagicMock()
+        payload = b"A" * 100
+        total_length = len(payload) + 4
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", total_length)
+        # Deliver payload in chunks of 30, 30, 30, 10
+        self.epp._ssl_socket.recv.side_effect = [b"A" * 30, b"A" * 30, b"A" * 30, b"A" * 10]
+
+        result = self.epp._read()
+        self.assertEqual(result, payload)
+
+    def test_read_exact_zero_bytes(self):
+        """_read_exact with 0 bytes returns b'' immediately."""
+        self.epp._ssl_socket = MagicMock()
+        self.assertEqual(self.epp._read_exact(0), b"")
+
+    def test_read_exact_negative_bytes(self):
+        """_read_exact with negative byte count raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read_exact(-5)
+        self.assertIn("Invalid byte count requested: -5", str(ctx.exception))
+
+    def test_read_empty_body(self):
+        """Message with total length equal to 4 has 0-byte body and returns b''."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 4)
+        result = self.epp._read()
+        self.assertEqual(result, b"")
+
+    def test_read_premature_close_during_header(self):
+        """Premature closure after partial header bytes raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = [b"\x00\x00", b""]
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Connection closed prematurely after 2/4 bytes", str(ctx.exception))
+
+    def test_read_premature_close_during_body(self):
+        """Premature closure after partial body bytes raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 14)  # 10 bytes body
+        self.epp._ssl_socket.recv.side_effect = [b"hello", b""]  # 5 bytes received out of 10
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Connection closed prematurely after 5/10 bytes", str(ctx.exception))
+
+    def test_read_invalid_length_header_too_small(self):
+        """Header with length < 4 bytes disconnects and raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._logged_in = True
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 2)
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Invalid EPP message length header: 2 bytes (minimum is 4 bytes)", str(ctx.exception))
+        self.assertFalse(self.epp.is_connected)
+        self.assertFalse(self.epp.is_logged_in)
+
+    def test_read_length_header_exceeds_max_message_size(self):
+        """Header with length exceeding max_message_size raises EppCommunicatorException (DoS protection)."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.return_value = struct.pack(">I", 10 * 1024 * 1024 + 1)
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("exceeds maximum allowed size", str(ctx.exception))
+
+    def test_configurable_max_message_size(self):
+        """Custom max_message_size can be configured in EppCommunicator."""
+        epp = EppCommunicator('localhost', '700', dry_run=False, max_message_size=100)
+        epp._ssl_socket = MagicMock()
+        epp._ssl_socket.read.return_value = struct.pack(">I", 101)
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp._read()
+        self.assertIn("exceeds maximum allowed size (100 bytes)", str(ctx.exception))
+
+    def test_read_socket_timeout(self):
+        """Socket timeout during read raises EppCommunicatorException and disconnects."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._logged_in = True
+        self.epp._ssl_socket.read.side_effect = socket.timeout("timed out")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Socket timed out while receiving data", str(ctx.exception))
+        self.assertFalse(self.epp.is_connected)
+        self.assertFalse(self.epp.is_logged_in)
+
+    def test_read_ssl_zero_return_error(self):
+        """Clean TLS shutdown (SSLZeroReturnError) before bytes returns None."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = ssl.SSLZeroReturnError("TLS closed")
+        result = self.epp._read()
+        self.assertIsNone(result)
+
+    def test_read_ssl_zero_return_error_after_partial(self):
+        """SSLZeroReturnError after partial bytes raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = [b"\x00\x00", ssl.SSLZeroReturnError("TLS closed")]
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Connection closed prematurely after 2/4 bytes", str(ctx.exception))
+
+    def test_read_ssl_error(self):
+        """SSLError during read raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = ssl.SSLError("bad mac")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("SSL error while receiving data", str(ctx.exception))
+
+    def test_read_os_error(self):
+        """OSError / ConnectionResetError raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.read.side_effect = OSError("Connection reset by peer")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Connection error while receiving data", str(ctx.exception))
+
+    def test_read_socket_not_connected(self):
+        """Calling _read or _read_exact when _ssl_socket is None raises EppCommunicatorException."""
+        self.epp._ssl_socket = None
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read()
+        self.assertIn("Socket connection is not established.", str(ctx.exception))
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read_exact(4)
+        self.assertIn("Socket connection is not established.", str(ctx.exception))
+
+    def test_read_from_socket_neither_read_nor_recv(self):
+        """Calling _read_from_socket on an object without read or recv raises EppCommunicatorException."""
+        self.epp._ssl_socket = object()
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._read_from_socket(4)
+        self.assertIn("Socket has neither read nor recv method.", str(ctx.exception))
+
+    def test_write_socket_not_connected(self):
+        """Calling _write when _ssl_socket is None raises EppCommunicatorException."""
+        self.epp._ssl_socket = None
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._write("<xml/>")
+        self.assertIn("Socket connection is not established.", str(ctx.exception))
+
+    def test_write_socket_timeout(self):
+        """Socket timeout during _write raises EppCommunicatorException and disconnects."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._logged_in = True
+        self.epp._ssl_socket.sendall.side_effect = socket.timeout("write timed out")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._write("<xml/>")
+        self.assertIn("Socket timed out while sending data", str(ctx.exception))
+        self.assertFalse(self.epp.is_connected)
+        self.assertFalse(self.epp.is_logged_in)
+
+    def test_write_ssl_error(self):
+        """SSLError during _write raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.sendall.side_effect = ssl.SSLError("SSL write error")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._write("<xml/>")
+        self.assertIn("SSL error while sending data", str(ctx.exception))
+
+    def test_write_os_error(self):
+        """OSError during _write raises EppCommunicatorException."""
+        self.epp._ssl_socket = MagicMock()
+        self.epp._ssl_socket.sendall.side_effect = OSError("Broken pipe")
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            self.epp._write("<xml/>")
+        self.assertIn("Connection error while sending data", str(ctx.exception))
 
 
 class MaskSensitiveXmlTest(unittest.TestCase):
@@ -371,6 +781,1345 @@ class MaskSensitiveXmlTest(unittest.TestCase):
         self.assertEqual(_find_tag_end(b"<pw>", 0, 4), 4)
         self.assertEqual(_find_tag_end(b"<pw roid='1'>", 0, 13), 13)
         self.assertEqual(_find_tag_end(b"<pw", 0, 3), -1)
+
+
+class EppContextManagerTest(unittest.TestCase):
+    """
+    Tests for EppCommunicator Pythonic context manager protocol (USE-1)
+    and session lifecycle / state tracking.
+    """
+
+    def test_context_manager_auto_connect_and_login_success(self):
+        """Context manager with credentials auto-connects, logs in, and logs out on exit."""
+        epp = EppCommunicator('localhost', '700', user='test_user', password='test_password')
+
+        def fake_connect():
+            epp._ssl_socket = MagicMock()
+            return b'greeting'
+
+        def fake_login(user, password, extensions=None):
+            epp._logged_in = True
+            return MagicMock(code=1000)
+
+        epp.connect = MagicMock(side_effect=fake_connect)
+        epp.login = MagicMock(side_effect=fake_login)
+        epp.logout = MagicMock(return_value=MagicMock())
+
+        with epp as client:
+            self.assertIs(client, epp)
+            epp.connect.assert_called_once()
+            epp.login.assert_called_once_with('test_user', 'test_password', [])
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+
+        epp.logout.assert_called_once()
+        self.assertFalse(epp.is_logged_in)
+
+    def test_context_manager_with_extensions(self):
+        """Context manager forwards configured extensions to login."""
+        extensions = ['urn:ietf:params:xml:ns:secDNS-1.1']
+        epp = EppCommunicator('localhost', '700', user='u', password='p', extensions=extensions)
+        self.assertEqual(epp.extensions, extensions)
+
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.login.assert_called_once_with('u', 'p', extensions)
+
+        epp.logout.assert_called_once()
+
+    def test_context_manager_no_credentials_only_connects(self):
+        """Context manager without credentials connects but does not auto-login, disconnects on exit."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock()
+        epp.logout = MagicMock()
+        epp.disconnect = MagicMock()
+
+        with epp as client:
+            self.assertIs(client, epp)
+            epp.connect.assert_called_once()
+            epp.login.assert_not_called()
+            self.assertTrue(epp.is_connected)
+            self.assertFalse(epp.is_logged_in)
+
+        epp.logout.assert_not_called()
+        epp.disconnect.assert_called_once()
+
+    def test_context_manager_manual_login_inside_block(self):
+        """Manual login inside block marks is_logged_in and triggers logout on exit."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.logout = MagicMock()
+        epp.execute = MagicMock(return_value=MagicMock(code=1000, message='OK'))
+        epp._ssl_socket = MagicMock()
+
+        with epp:
+            self.assertFalse(epp.is_logged_in)
+            epp.login('manual_user', 'manual_pass')
+            self.assertTrue(epp.is_logged_in)
+
+        epp.logout.assert_called_once()
+
+    def test_context_manager_exception_in_block_propagates_and_cleans_up(self):
+        """Exception raised within context block propagates and still triggers logout and disconnect."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp.logout = MagicMock()
+        epp._ssl_socket = MagicMock()
+        # Simulate logged in
+        epp._logged_in = True
+
+        with self.assertRaises(RuntimeError) as ctx:
+            with epp:
+                raise RuntimeError("Custom failure inside context")
+
+        self.assertEqual(str(ctx.exception), "Custom failure inside context")
+        epp.logout.assert_called_once()
+
+    def test_context_manager_logout_failure_does_not_mask_block_exception(self):
+        """Logout error during context exit cleanup is logged at debug and does not mask original error."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        logout_err = EppCommunicatorException("Logout network error")
+        epp.logout = MagicMock(side_effect=logout_err)
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        with self.assertLogs(level='DEBUG') as log:
+            with self.assertRaises(ValueError) as ctx:
+                with epp:
+                    raise ValueError("Original business error")
+
+        self.assertEqual(str(ctx.exception), "Original business error")
+        self.assertIs(epp.last_logout_error, logout_err)
+        self.assertTrue(
+            any("Error during EppCommunicator context exit cleanup while handling exception" in msg for msg in log.output)
+        )
+
+    def test_context_manager_logout_failure_normal_exit_logs_warning_and_records_state(self):
+        """Logout failure on normal context exit logs at WARNING level and records last_logout_error."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        logout_err = EppCommunicatorException("Clean logout timeout from server")
+        epp.logout = MagicMock(side_effect=logout_err)
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        with self.assertLogs(level='WARNING') as log:
+            with epp:
+                pass  # block finishes normally
+
+        self.assertIs(epp.last_logout_error, logout_err)
+        self.assertTrue(
+            any("Logout failed during context exit cleanup: Clean logout timeout from server" in msg
+                for msg in log.output)
+        )
+
+    def test_context_manager_logout_returned_error_code_logs_warning_and_records_state(self):
+        """Logout returning an unsuccessful result code (e.g. 2400) is converted to error, logged, and recorded."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        logout_result = EppResultData(
+            code=2400,
+            message="Command failed",
+            reason="Session busy",
+            raw_response="<raw/>",
+            client_transaction_id=None,
+            server_transaction_id=None,
+            repository_object_id=None,
+            result_data=None,
+        )
+        epp.logout = MagicMock(return_value=logout_result)
+
+        with self.assertLogs(level='WARNING') as log:
+            with epp:
+                pass  # block finishes normally
+
+        self.assertIsInstance(epp.last_logout_error, EppCommunicatorException)
+        self.assertIn("Logout failed with code 2400: Command failed - Session busy", str(epp.last_logout_error))
+        self.assertTrue(
+            any("Logout failed during context exit cleanup: Logout failed with code 2400" in msg
+                for msg in log.output)
+        )
+
+    def test_context_manager_logout_returned_error_code_does_not_mask_block_exception(self):
+        """Logout returning an error code during exception exit is logged at DEBUG and does not mask original error."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp._ssl_socket = MagicMock()
+        epp._logged_in = True
+
+        logout_result = EppResultData(
+            code=2002,
+            message="Command use error",
+            reason=None,
+            raw_response="<raw/>",
+            client_transaction_id=None,
+            server_transaction_id=None,
+            repository_object_id=None,
+            result_data=None,
+        )
+        epp.logout = MagicMock(return_value=logout_result)
+
+        with self.assertLogs(level='DEBUG') as log:
+            with self.assertRaises(ValueError) as ctx:
+                with epp:
+                    raise ValueError("Original business failure")
+
+        self.assertEqual(str(ctx.exception), "Original business failure")
+        self.assertIsInstance(epp.last_logout_error, EppCommunicatorException)
+        self.assertIn("Logout failed with code 2002: Command use error", str(epp.last_logout_error))
+        self.assertTrue(
+            any("Error during EppCommunicator context exit cleanup while handling exception" in msg
+                for msg in log.output)
+        )
+
+    def test_context_manager_logout_success_codes_leave_last_error_none(self):
+        """Logout returning success codes (1500 or 1000) leaves last_logout_error as None."""
+        for success_code in (1500, 1000):
+            epp = EppCommunicator('localhost', '700', user='u', password='p')
+            epp.connect = MagicMock(return_value=b'greeting')
+            epp.login = MagicMock(return_value=MagicMock(code=1000))
+            epp._ssl_socket = MagicMock()
+            epp._logged_in = True
+
+            epp.logout = MagicMock(
+                return_value=EppResultData(
+                    code=success_code,
+                    message="Success",
+                    reason=None,
+                    raw_response="<raw/>",
+                    client_transaction_id=None,
+                    server_transaction_id=None,
+                    repository_object_id=None,
+                    result_data=None,
+                )
+            )
+
+            with epp:
+                pass
+
+            self.assertIsNone(epp.last_logout_error)
+
+    def test_last_logout_error_reset_on_enter(self):
+        """Entering a new context resets last_logout_error to None."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='u', password='p')
+        epp._last_logout_error = RuntimeError("Old error")
+        self.assertIsNotNone(epp.last_logout_error)
+        with epp:
+            self.assertIsNone(epp.last_logout_error)
+        self.assertIsNone(epp.last_logout_error)
+
+    def test_context_manager_login_failure_in_enter_disconnects_socket(self):
+        """If login fails during __enter__, socket is immediately closed to prevent descriptor leak."""
+        epp = EppCommunicator('localhost', '700', user='u', password='bad_pass')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=EppCommunicatorException("Auth error 2200"))
+        epp.disconnect = MagicMock()
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            with epp:
+                pass
+
+        self.assertIn("Auth error 2200", str(ctx.exception))
+        epp.connect.assert_called_once()
+        epp.disconnect.assert_called_once()
+
+    def test_context_manager_connect_failure_in_enter(self):
+        """If connect fails in __enter__, exception propagates cleanly."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=EppCommunicatorException("Connection refused"))
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            with epp:
+                pass
+
+        self.assertIn("Connection refused", str(ctx.exception))
+
+    def test_context_manager_already_connected_does_not_reconnect(self):
+        """If communicator is already connected, __enter__ skips reconnect."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp._ssl_socket = MagicMock()  # makes is_connected True
+        epp.connect = MagicMock()
+        epp.login = MagicMock(return_value=MagicMock(code=1000))
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.connect.assert_not_called()
+            epp.login.assert_called_once()
+
+    def test_context_manager_explicit_logout_inside_block(self):
+        """Calling logout explicitly inside block resets is_logged_in and avoids double-logout on exit."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(return_value=b'greeting')
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock(side_effect=lambda: setattr(epp, '_logged_in', False))
+        epp._ssl_socket = MagicMock()
+
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+            epp.logout()
+            self.assertFalse(epp.is_logged_in)
+
+        # logout called once manually, NOT a second time on exit
+        self.assertEqual(epp.logout.call_count, 1)
+
+    def test_context_manager_dry_run_full_cycle(self):
+        """Context manager with dry_run=True connects, logs in, executes, and cleans up offline."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='dry_user', password='dry_password')
+        with epp as client:
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+            res = client.execute("<xml><command><clTRID>ABC</clTRID></command></xml>")
+            self.assertTrue(res.dry_run)
+            self.assertEqual(res.code, 1000)
+
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_context_manager_reusable(self):
+        """EppCommunicator instance can be reused across multiple with statements."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='u', password='p')
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+        self.assertFalse(epp.is_logged_in)
+
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_repr_masks_password(self):
+        """__repr__ must expose server, port, user, but NEVER secret password or keys."""
+        epp = EppCommunicator(
+            'registry.example.com',
+            '700',
+            user='admin_user',
+            password='super_secret_password',
+            client_cert='cert.pem',
+            client_key='key.pem',
+            dry_run=False,
+        )
+        repr_str = repr(epp)
+        self.assertNotIn('super_secret_password', repr_str)
+        self.assertIn('registry.example.com', repr_str)
+        self.assertIn('admin_user', repr_str)
+        self.assertIn('logged_in=False', repr_str)
+        self.assertIn('dry_run=False', repr_str)
+
+    def test_login_execute_exception_resets_logged_in(self):
+        """If execute() throws an unexpected exception during login(), _logged_in remains False."""
+        epp = EppCommunicator('localhost', '700')
+        epp.execute = MagicMock(side_effect=EppCommunicatorException("Connection aborted"))
+
+        with self.assertRaises(EppCommunicatorException):
+            epp.login('user', 'pass')
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_login_failure_resets_logged_in(self):
+        """Login returning non-success result code sets _logged_in to False and raises."""
+        epp = EppCommunicator('localhost', '700')
+        mock_result = MagicMock()
+        mock_result.code = 2200
+        mock_result.message = "Authentication error"
+        mock_result.reason = "Bad credentials"
+        epp.execute = MagicMock(return_value=mock_result)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp.login('user', 'pass')
+
+        self.assertIn("Auth", str(ctx.exception))
+        self.assertFalse(epp.is_logged_in)
+
+    def test_login_parameter_range_error_resets_logged_in(self):
+        """Login returning PARAMETER_RANGE_ERROR sets _logged_in to False and raises."""
+        epp = EppCommunicator('localhost', '700')
+        mock_result = MagicMock()
+        mock_result.code = 2004
+        mock_result.message = "Parameter range error"
+        mock_result.reason = "Invalid"
+        epp.execute = MagicMock(return_value=mock_result)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp.login('user', 'pass')
+
+        self.assertIn("Incorrect user name or password", str(ctx.exception))
+        self.assertFalse(epp.is_logged_in)
+
+    def test_properties_state_flow(self):
+        """Verify user, extensions, is_connected, and is_logged_in properties."""
+        epp = EppCommunicator('localhost', '700', user='my_user')
+        self.assertEqual(epp.user, 'my_user')
+        self.assertEqual(epp.extensions, [])
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # After connecting in dry run
+        epp._dry_run = True
+        epp.connect()
+        self.assertTrue(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # After disconnecting
+        epp.disconnect()
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_context_reuse_after_switching_credentials(self):
+        """When manual login switches credentials, subsequent context entry uses the new pair."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp.execute = MagicMock(return_value=MagicMock(code=1000, message='OK'))
+        epp._ssl_socket = MagicMock()
+
+        # Switch credentials via manual login
+        epp.login('userB', 'passB')
+        self.assertEqual(epp.user, 'userB')
+        self.assertEqual(epp._password, 'passB')
+
+        # Teardown connection
+        epp.disconnect()
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Context entry should now auto-login with userB and passB
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.login.assert_called_once_with('userB', 'passB', [])
+
+    def test_login_failure_does_not_corrupt_cached_credentials(self):
+        """Failed login does not overwrite existing cached credentials."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        mock_result = MagicMock()
+        mock_result.code = 2200
+        mock_result.message = "Auth failed"
+        mock_result.reason = "Bad credentials"
+        epp.execute = MagicMock(return_value=mock_result)
+
+        with self.assertRaises(EppCommunicatorException):
+            epp.login('userC', 'badPass')
+
+        # Credentials must remain userA / passA
+        self.assertEqual(epp.user, 'userA')
+        self.assertEqual(epp._password, 'passA')
+
+    def test_enter_keyboard_interrupt_during_login_disconnects_socket(self):
+        """KeyboardInterrupt during auto-login in __enter__ closes socket and re-raises."""
+        epp = EppCommunicator('localhost', '700', user='u', password='p')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=KeyboardInterrupt())
+        epp.disconnect = MagicMock()
+
+        with self.assertRaises(KeyboardInterrupt):
+            with epp:
+                pass
+
+        epp.connect.assert_called_once()
+        epp.disconnect.assert_called_once()
+
+    def test_enter_system_exit_during_connect_disconnects(self):
+        """SystemExit during connect in __enter__ triggers disconnect and re-raises."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=SystemExit(1))
+        epp.disconnect = MagicMock()
+
+        with self.assertRaises(SystemExit):
+            with epp:
+                pass
+
+        epp.disconnect.assert_called_once()
+
+    def test_connect_base_exception_disconnects(self):
+        """BaseException (e.g. KeyboardInterrupt) during connect() calls disconnect() and re-raises."""
+        epp = EppCommunicator('localhost', '700')
+        with patch('pyepp.epp.socket.socket', side_effect=KeyboardInterrupt()):
+            with self.assertRaises(KeyboardInterrupt):
+                epp.connect()
+        self.assertIsNone(epp._socket)
+        self.assertIsNone(epp._ssl_socket)
+
+    def test_eof_during_execute_command_disconnects_and_allows_clean_context_entry(self):
+        """EOF during _execute_command disconnects session so subsequent context entry reconnects and re-authenticates."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Simulate EOF: write succeeds, read returns None
+        epp._write = MagicMock()
+        epp._read = MagicMock(return_value=None)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp._execute_command("<check/>")
+
+        self.assertIn("Cannot connect to server. Please re-login!", str(ctx.exception))
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Now entering with epp: must reconnect and re-authenticate instead of skipping
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp as client:
+            epp.connect.assert_called_once()
+            epp.login.assert_called_once_with('userA', 'passA', [])
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+
+    def test_execute_server_closing_connection_codes_disconnects(self):
+        """Server codes 2500, 2501, 2502 trigger disconnect to keep local state synchronized."""
+        for code in (2500, 2501, 2502):
+            epp = EppCommunicator('localhost', '700')
+            epp._ssl_socket = MagicMock()
+            epp._socket = MagicMock()
+            epp.greeting = b'greeting'
+            epp._logged_in = True
+
+            xml_resp = (
+                f'<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+                f'<response><result code="{code}"><msg>Closing</msg></result>'
+                f'<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+                f'</response></epp>'
+            )
+            epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+            res = epp.execute("<command/>")
+            self.assertEqual(res.code, code)
+            self.assertFalse(epp.is_connected)
+            self.assertFalse(epp.is_logged_in)
+
+    @patch('pyepp.epp.socket.socket')
+    @patch('pyepp.epp.ssl.create_default_context')
+    def test_connect_peer_closes_before_greeting_rejects_and_disconnects(self, mock_ssl, mock_sock):
+        """If peer closes before sending greeting, connect() rejects missing greeting and disconnects."""
+        epp = EppCommunicator('localhost', '700')
+        mock_ctx = MagicMock()
+        mock_ssl.return_value = mock_ctx
+        mock_wrapped_sock = MagicMock()
+        mock_ctx.wrap_socket.return_value = mock_wrapped_sock
+        # Peer closes connection before sending greeting
+        epp._read = MagicMock(return_value=None)
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp.connect()
+
+        self.assertIn("Could not setup a secure connection", str(ctx.exception))
+        self.assertFalse(epp.is_connected)
+        self.assertIsNone(epp._ssl_socket)
+        self.assertIsNone(epp.greeting)
+
+    def test_execute_raw_logout_success_end_session_disconnects(self):
+        """Raw logout command returning code 1500 (SUCCESS_END_SESSION) triggers disconnect."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp._ssl_socket = MagicMock()
+        epp._socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1500"><msg>Command completed successfully; end of session</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute("<command><logout/></command>")
+        self.assertEqual(res.code, 1500)
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+        self.assertIsNone(epp._ssl_socket)
+
+        # Subsequent context entry must reconnect and re-authenticate instead of skipping
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.login = MagicMock(side_effect=lambda *a, **k: setattr(epp, '_logged_in', True))
+        epp.logout = MagicMock()
+
+        with epp as client:
+            epp.connect.assert_called_once()
+            epp.login.assert_called_once_with('userA', 'passA', [])
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+
+    def test_reconnect_authenticated_instance_resets_auth_and_context_reauthenticates(self):
+        """Reconnecting an already authenticated instance resets _logged_in so subsequent context entry authenticates."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA', dry_run=True)
+        # Establish authenticated session
+        epp.connect()
+        epp.login('userA', 'passA')
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Fresh transport connect() must reset authentication state
+        epp.connect()
+        self.assertTrue(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Entering context now should NOT skip login
+        with epp:
+            self.assertTrue(epp.is_connected)
+            self.assertTrue(epp.is_logged_in)
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_duplicate_login_rejected_locally_and_preserves_exit_logout(self):
+        """Duplicate login on an authenticated session is rejected locally and preserves session tracking for exit logout."""
+        epp = EppCommunicator('localhost', '700', user='userA', password='passA')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.execute = MagicMock(return_value=MagicMock(code=1000, message='OK'))
+        epp.logout = MagicMock()
+
+        with epp:
+            self.assertTrue(epp.is_logged_in)
+            # Attempt duplicate login
+            with self.assertRaises(EppCommunicatorException) as ctx:
+                epp.login('userB', 'passB')
+            self.assertIn("Already logged in to EPP server", str(ctx.exception))
+            # State must remain tracked and logged in
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'userA')
+
+        # Context exit must NOT skip logout
+        epp.logout.assert_called_once()
+
+    def test_raw_login_via_execute_synchronizes_logged_in_and_context_exit_logs_out(self):
+        """Raw <login> XML executed via execute() sets _logged_in and triggers logout on context exit."""
+        epp = EppCommunicator('localhost', '700')
+        epp.connect = MagicMock(side_effect=lambda: setattr(epp, '_ssl_socket', MagicMock()))
+        epp.logout = MagicMock()
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>rawUser</clID><pw>rawPass</pw>'
+            '<options><version>1.0</version><lang>en</lang></options>'
+            '<svcs><objURI>urn:ietf:params:xml:ns:domain-1.0</objURI>'
+            '<svcExtension><extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI></svcExtension>'
+            '</svcs></login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+        epp.greeting = b'greeting'
+
+        with epp:
+            self.assertFalse(epp.is_logged_in)
+            res = epp.execute(raw_login_xml)
+            self.assertEqual(res.code, 1000)
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'rawUser')
+            self.assertEqual(epp._password, 'rawPass')
+            self.assertEqual(epp.extensions, ['urn:ietf:params:xml:ns:secDNS-1.1'])
+
+        epp.logout.assert_called_once()
+
+    def test_raw_login_with_constructor_credentials_prevents_duplicate_login_on_context_entry(self):
+        """Raw login on connected instance sets _logged_in so subsequent context entry skips duplicate login."""
+        epp = EppCommunicator('localhost', '700', user='admin', password='secret')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>admin</clID><pw>secret</pw>'
+            '</login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+
+        epp.execute(raw_login_xml)
+        self.assertTrue(epp.is_logged_in)
+
+        # Context entry should detect active login and skip calling login()
+        epp.login = MagicMock()
+        epp.logout = MagicMock()
+
+        with epp:
+            epp.login.assert_not_called()
+
+    def test_non_login_command_returning_1000_does_not_set_logged_in(self):
+        """Non-login commands returning code 1000 do not mistakenly set _logged_in."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+        self.assertFalse(epp.is_logged_in)
+
+        domain_check_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command>'
+            '<check><domain:check xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:name>example.com</domain:name>'
+            '</domain:check></check></command></epp>'
+        )
+        check_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=check_resp_xml.encode('utf-8'))
+
+        epp.execute(domain_check_xml)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_failed_raw_login_keeps_logged_in_false(self):
+        """Failed raw login command (code 2200) does not set _logged_in to True."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>badUser</clID><pw>badPass</pw>'
+            '</login></command></epp>'
+        )
+        fail_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="2200"><msg>Authentication error</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=fail_resp_xml.encode('utf-8'))
+
+        res = epp.execute(raw_login_xml)
+        self.assertEqual(res.code, 2200)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_raw_login_dry_run_synchronizes_state(self):
+        """Raw login XML in dry_run mode synchronizes authentication state and triggers logout on exit."""
+        epp = EppCommunicator('localhost', '700', dry_run=True)
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>dryRawUser</clID><pw>dryRawPass</pw>'
+            '</login></command></epp>'
+        )
+        with epp:
+            self.assertFalse(epp.is_logged_in)
+            epp.execute(raw_login_xml)
+            self.assertTrue(epp.is_logged_in)
+            self.assertEqual(epp.user, 'dryRawUser')
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_extract_login_info_edge_cases(self):
+        """Test edge cases in _extract_login_info static method."""
+        # Not containing '<login'
+        self.assertIsNone(EppCommunicator._extract_login_info("<command><check/></command>"))
+        # Contains '<login' but no <command> tag
+        self.assertIsNone(EppCommunicator._extract_login_info("<login><clID>user</clID></login>"))
+        # Contains <command> but no direct <login> tag
+        self.assertIsNone(EppCommunicator._extract_login_info("<command><check><name><login/></name></check></command>"))
+        # With patch raising Exception in BeautifulSoup
+        with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
+            self.assertIsNone(EppCommunicator._extract_login_info("<command><login/></command>"))
+
+    def test_extract_login_info_preserves_password_whitespace(self):
+        """Verify that password leading and trailing whitespace is preserved verbatim."""
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>  spaced_user  </clID>'
+            '<pw>  secret with spaces  </pw>'
+            '</login></command></epp>'
+        )
+        login_info = EppCommunicator._extract_login_info(xml)
+        self.assertIsNotNone(login_info)
+        user, password, ext_uris = login_info
+        self.assertEqual(user, "spaced_user")
+        self.assertEqual(password, "  secret with spaces  ")
+        self.assertEqual(ext_uris, [])
+
+    def test_rendered_login_xml_prevents_duplicate_namespace_prefixes(self):
+        """Verify rendered login XML emits full URIs unchanged and prefixes suffix-style extensions."""
+        epp = EppCommunicator('localhost', '700')
+        epp.execute = MagicMock(return_value=MagicMock(code=1000))
+
+        epp.login(
+            'my_user',
+            'my_pass',
+            extensions=[
+                'urn:ietf:params:xml:ns:secDNS-1.1',
+                'urn:ietf:params:xml:ns:fee-0.10',
+                'rgp-1.0',
+                'http://custom.registry/epp/ext-1.0',
+            ],
+        )
+
+        rendered_xml = epp.execute.call_args[0][0]
+        # Never duplicate urn: prefix
+        self.assertNotIn("urn:ietf:params:xml:ns:urn:", rendered_xml)
+        # secDNS-1.1 should appear only once (not duplicated)
+        self.assertEqual(rendered_xml.count("urn:ietf:params:xml:ns:secDNS-1.1"), 1)
+        # Full URN emitted cleanly
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>", rendered_xml)
+        # Suffix-style input gets prefix prepended
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:rgp-1.0</extURI>", rendered_xml)
+        # Custom URI with scheme emitted cleanly without urn prefix
+        self.assertIn("<extURI>http://custom.registry/epp/ext-1.0</extURI>", rendered_xml)
+
+    def test_reused_communicator_after_raw_login_rendered_xml(self):
+        """Communicator with cached extensions from raw login renders clean XML without duplicate prefixes."""
+        epp = EppCommunicator('localhost', '700')
+        raw_login_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><login>'
+            '<clID>rawUser</clID><pw>rawPass</pw>'
+            '<svcs>'
+            '<svcExtension>'
+            '<extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI>'
+            '<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>'
+            '</svcExtension>'
+            '</svcs>'
+            '</login></command></epp>'
+        )
+        login_resp_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>ABC</clTRID><svTRID>XYZ</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=login_resp_xml.encode('utf-8'))
+        epp.greeting = b'greeting'
+
+        # Execute raw login; populates _extensions with full URIs
+        epp.execute(raw_login_xml)
+        self.assertEqual(epp.extensions, [
+            'urn:ietf:params:xml:ns:secDNS-1.1',
+            'urn:ietf:params:xml:ns:fee-0.10',
+        ])
+
+        # Disconnect so next login is permitted
+        epp.disconnect()
+
+        # Call epp.login() which reuses self._extensions
+        epp.execute = MagicMock(return_value=MagicMock(code=1000))
+        epp.login('rawUser', 'rawPass')
+
+        rendered_xml = epp.execute.call_args[0][0]
+        self.assertNotIn("urn:ietf:params:xml:ns:urn:", rendered_xml)
+        self.assertEqual(rendered_xml.count("urn:ietf:params:xml:ns:secDNS-1.1"), 1)
+        self.assertIn("<extURI>urn:ietf:params:xml:ns:fee-0.10</extURI>", rendered_xml)
+
+    def test_raw_dry_run_logout_sequence_disconnects_session(self):
+        """Raw logout command through execute() in dry-run mode clears is_logged_in and is_connected."""
+        epp = EppCommunicator('localhost', '700', dry_run=True, user='dryUser', password='dryPass')
+        epp.connect()
+        epp.login('dryUser', 'dryPass')
+        self.assertTrue(epp.is_connected)
+        self.assertTrue(epp.is_logged_in)
+
+        # Execute raw logout through execute() API
+        raw_logout_xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<command><logout/></command>'
+            '</epp>'
+        )
+        res = epp.execute(raw_logout_xml)
+        self.assertEqual(res.code, 1000)
+        self.assertTrue(res.dry_run)
+        # Session state must be cleared
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Subsequent context entry must connect and authenticate instead of skipping
+        with epp:
+            self.assertTrue(epp.is_connected)
+            self.assertTrue(epp.is_logged_in)
+
+        self.assertFalse(epp.is_logged_in)
+
+    def test_is_logout_command_edge_cases(self):
+        """Verify _is_logout_command static method edge cases."""
+        # Not containing 'logout'
+        self.assertFalse(EppCommunicator._is_logout_command("<command><check/></command>"))
+        # Contains 'logout' but no <command> tag
+        self.assertFalse(EppCommunicator._is_logout_command("<logout/>"))
+        # Contains <command> but logout is not direct child
+        self.assertFalse(EppCommunicator._is_logout_command("<command><check><logout/></check></command>"))
+        # Exception during parsing
+        with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
+            self.assertFalse(EppCommunicator._is_logout_command("<command><logout/></command>"))
+
+
+class EppClientTransactionIdTest(unittest.TestCase):
+    """Unit tests for client transaction ID validation and extraction (RFC 5730)."""
+
+    def test_extract_client_transaction_id_standard(self):
+        """Extract clTRID from standard EPP XML."""
+        xml = "<epp><command><clTRID>UUID-1234</clTRID></command></epp>"
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "UUID-1234")
+
+    def test_extract_client_transaction_id_prefixed(self):
+        """Extract clTRID with XML namespace prefix."""
+        xml = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:command><epp:clTRID>PREFIX-5678</epp:clTRID></epp:command></epp:epp>'
+        )
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "PREFIX-5678")
+
+    def test_extract_client_transaction_id_whitespace_normalized(self):
+        """Ensure whitespace is stripped from clTRID."""
+        xml = "<epp><command><clTRID>   TRID-SPACES   </clTRID></command></epp>"
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "TRID-SPACES")
+
+    def test_extract_client_transaction_id_empty_and_missing(self):
+        """Return None when clTRID tag is empty, whitespace-only, or absent."""
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><command><clTRID></clTRID></command></epp>")
+        )
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><command><clTRID>   </clTRID></command></epp>")
+        )
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><command><clTRID>\n\t  \n</clTRID></command></epp>")
+        )
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><command><login/></command></epp>")
+        )
+        self.assertIsNone(
+            EppCommunicator._extract_client_transaction_id("<epp><clTRID>NO-CMD</clTRID></epp>")
+        )
+        self.assertIsNone(EppCommunicator._extract_client_transaction_id(""))
+        self.assertIsNone(EppCommunicator._extract_client_transaction_id(None))
+        self.assertIsNone(_tag_text(None, CLTRID_TAG_REGEX))
+
+    def test_extract_client_transaction_id_bytes_input(self):
+        """Support bytes input for clTRID extraction."""
+        xml_bytes = b"<epp><command><clTRID>BYTES-TRID-99</clTRID></command></epp>"
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml_bytes), "BYTES-TRID-99")
+
+    def test_extract_client_transaction_id_undecodable_bytes(self):
+        """Handle undecodable bytes gracefully without raising exception."""
+        invalid_bytes = b"\xff\xfe\xfd clTRID invalid"
+        self.assertIsNone(EppCommunicator._extract_client_transaction_id(invalid_bytes))
+
+    def test_extract_client_transaction_id_parsing_exception(self):
+        """Handle parsing exceptions gracefully."""
+        with patch('pyepp.epp.BeautifulSoup', side_effect=Exception("Parsing error")):
+            self.assertIsNone(EppCommunicator._extract_client_transaction_id("<clTRID>ERR</clTRID>"))
+
+    def test_mismatch_exception_attributes_and_inheritance(self):
+        """Verify EppTransactionMismatchException fields and inheritance."""
+        exc = EppTransactionMismatchException(
+            "Mismatch",
+            expected_transaction_id="EXP",
+            received_transaction_id="RCV",
+        )
+        self.assertIsInstance(exc, EppCommunicatorException)
+        self.assertEqual(exc.expected_transaction_id, "EXP")
+        self.assertEqual(exc.received_transaction_id, "RCV")
+        self.assertEqual(str(exc), "Mismatch")
+
+    def test_execute_matching_client_transaction_id(self):
+        """Execute command successfully when request and response clTRID match."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>MATCH-100</clTRID></command></epp>'
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>MATCH-100</clTRID><svTRID>SRV-1</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "MATCH-100")
+
+    def test_execute_mismatched_client_transaction_id_raises_and_disconnects(self):
+        """Execute command raises EppTransactionMismatchException and disconnects on clTRID mismatch."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp._socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+
+        cmd = '<epp><command><domain:info/><clTRID>DOMAIN-INFO-REQ</clTRID></command></epp>'
+        # Server returns response with a different transaction ID (e.g., buffered contact:create response)
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><clTRID>OLD-CONTACT-CREATE</clTRID><svTRID>SRV-2</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        with self.assertRaises(EppTransactionMismatchException) as ctx:
+            epp.execute(cmd)
+
+        self.assertEqual(ctx.exception.expected_transaction_id, "DOMAIN-INFO-REQ")
+        self.assertEqual(ctx.exception.received_transaction_id, "OLD-CONTACT-CREATE")
+        self.assertIn("DOMAIN-INFO-REQ", str(ctx.exception))
+        self.assertIn("OLD-CONTACT-CREATE", str(ctx.exception))
+        # Connection must be cleanly disconnected to prevent pipeline corruption
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_execute_missing_response_client_transaction_id_raises_and_disconnects(self):
+        """Execute command raises EppTransactionMismatchException when server omits expected clTRID."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp._socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+
+        cmd = '<epp><command><host:info/><clTRID>HOST-INFO-REQ</clTRID></command></epp>'
+        # Server response lacks <clTRID>
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>Command completed successfully</msg></result>'
+            '<trID><svTRID>SRV-3</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        with self.assertRaises(EppTransactionMismatchException) as ctx:
+            epp.execute(cmd)
+
+        self.assertEqual(ctx.exception.expected_transaction_id, "HOST-INFO-REQ")
+        self.assertIsNone(ctx.exception.received_transaction_id)
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+    def test_execute_no_cltrid_in_request_bypasses_validation(self):
+        """Commands without clTRID (e.g. login, logout, raw XML) do not enforce clTRID validation."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><logout/></command></epp>'
+        # Server response has clTRID ABC
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1500"><msg>Command completed successfully; end of session</msg></result>'
+            '<trID><clTRID>SERVER-ECHO-ABC</clTRID><svTRID>SRV-4</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1500)
+        self.assertEqual(res.client_transaction_id, "SERVER-ECHO-ABC")
+
+    def test_execute_prefixed_namespace_cltrid_matching(self):
+        """Matching clTRID with XML prefixes in request and response succeeds."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:command><epp:check/><epp:clTRID>PREFIX-UUID</epp:clTRID></epp:command></epp:epp>'
+        )
+        xml_resp = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:response><epp:result code="1000"><epp:msg>OK</epp:msg></epp:result>'
+            '<epp:trID><epp:clTRID>PREFIX-UUID</epp:clTRID><epp:svTRID>SRV-5</epp:svTRID></epp:trID>'
+            '</epp:response></epp:epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "PREFIX-UUID")
+
+    def test_extract_client_transaction_id_escaped_entities(self):
+        """Extract clTRID with escaped XML entities (e.g. &amp;) and ensure decoded text matches."""
+        xml = '<epp><command><clTRID>REQ&amp;123&lt;456&gt;</clTRID></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "REQ&123<456>")
+
+    def test_extract_client_transaction_id_cdata(self):
+        """Extract clTRID wrapped in CDATA section."""
+        xml = '<epp><command><clTRID><![CDATA[REQ-CDATA-999]]></clTRID></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "REQ-CDATA-999")
+
+    def test_extract_client_transaction_id_space_in_closing_tag(self):
+        """Extract clTRID when closing tag has whitespace (e.g. </clTRID >)."""
+        xml = '<epp><command><clTRID >REQ-SPACE-TAG</clTRID ></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "REQ-SPACE-TAG")
+
+    def test_execute_escaped_entities_match_decoded_response(self):
+        """Execute command where request contains escaped entity and response echoes escaped entity."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>REQ&amp;123</clTRID></command></epp>'
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>REQ&amp;123</clTRID><svTRID>SRV-ESC</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "REQ&123")
+        self.assertEqual(res.server_transaction_id, "SRV-ESC")
+
+    def test_execute_poll_response_with_historical_patrid_cltrid(self):
+        """Scope clTRID extraction to trID block, ignoring preceding historical clTRID in poll resData."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><poll op="req"/><clTRID>CURRENT-POLL-REQ-777</clTRID></command></epp>'
+        # Response contains resData with an earlier command's historical paTRID/clTRID before trID/clTRID
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response>'
+            '  <result code="1301"><msg>Command completed successfully; ack to dequeue</msg></result>'
+            '  <msgQ count="5" id="12345"/>'
+            '  <resData>'
+            '    <domain:panData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '      <domain:name>example.com</domain:name>'
+            '      <domain:paTRID>'
+            '        <clTRID>HISTORICAL-REQ-111</clTRID>'
+            '        <svTRID>HISTORICAL-SRV-222</svTRID>'
+            '      </domain:paTRID>'
+            '    </domain:panData>'
+            '  </resData>'
+            '  <trID>'
+            '    <clTRID>CURRENT-POLL-REQ-777</clTRID>'
+            '    <svTRID>CURRENT-SRV-888</svTRID>'
+            '  </trID>'
+            '</response>'
+            '</epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1301)
+        self.assertEqual(res.client_transaction_id, "CURRENT-POLL-REQ-777")
+        self.assertEqual(res.server_transaction_id, "CURRENT-SRV-888")
+
+    def test_execute_namespace_prefixed_svtrid(self):
+        """Extract server_transaction_id when server uses namespace-prefixed epp:svTRID."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:command><epp:check/><epp:clTRID>CL-TEST-1</epp:clTRID></epp:command></epp:epp>'
+        )
+        xml_resp = (
+            '<epp:epp xmlns:epp="urn:ietf:params:xml:ns:epp-1.0">'
+            '<epp:response><epp:result code="1000"><epp:msg>OK</epp:msg></epp:result>'
+            '<epp:trID><epp:clTRID>CL-TEST-1</epp:clTRID><epp:svTRID>REGISTRY-PREFIXED-SVTRID</epp:svTRID></epp:trID>'
+            '</epp:response></epp:epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "CL-TEST-1")
+        self.assertEqual(res.server_transaction_id, "REGISTRY-PREFIXED-SVTRID")
+
+    def test_xml_schema_token_repeated_spaces_collapsed(self):
+        """Collapse multiple XML spaces, tabs, and newlines per XML Schema token rules."""
+        xml = '<epp><command><clTRID>  REQ \t\n  123   ABC  </clTRID></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "REQ 123 ABC")
+
+    def test_xml_schema_token_non_xml_whitespace_u00a0_preserved(self):
+        """Preserve non-XML whitespace characters such as U+00A0 per XML Schema token rules."""
+        xml = '<epp><command><clTRID>\u00a0REQ-123\u00a0</clTRID></command></epp>'
+        self.assertEqual(EppCommunicator._extract_client_transaction_id(xml), "\u00a0REQ-123\u00a0")
+
+    def test_execute_repeated_spaces_in_request_match_collapsed_response(self):
+        """Request with repeated spaces matches response echoing collapsed single space."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>  REQ    123  </clTRID></command></epp>'
+        # Server echoes collapsed token
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>REQ 123</clTRID><svTRID>SRV-COLLAPSE</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "REQ 123")
+
+    def test_execute_non_xml_whitespace_u00a0_distinguishes_ids(self):
+        """Distinct IDs with U+00A0 vs stripped are not falsely matched."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp._socket = MagicMock()
+        epp.greeting = b'greeting'
+        epp._logged_in = True
+
+        cmd = '<epp><command><check/><clTRID>\u00a0REQ-123\u00a0</clTRID></command></epp>'
+        # Server response lacks U+00A0
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>REQ-123</clTRID><svTRID>SRV-U00A0</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        with self.assertRaises(EppTransactionMismatchException) as ctx:
+            epp.execute(cmd)
+
+        self.assertEqual(ctx.exception.expected_transaction_id, "\u00a0REQ-123\u00a0")
+        self.assertEqual(ctx.exception.received_transaction_id, "REQ-123")
+
+    def test_extract_client_transaction_id_extension_preceding_actual_request_id(self):
+        """Select direct child of <command>, ignoring preceding extension clTRID elements."""
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '  <command>'
+            '    <check/>'
+            '    <extension>'
+            '      <customExt:ext xmlns:customExt="urn:custom">'
+            '        <customExt:clTRID>EXTENSION-TRID-IGNORE</customExt:clTRID>'
+            '      </customExt:ext>'
+            '    </extension>'
+            '    <clTRID>ACTUAL-REQUEST-TRID-OK</clTRID>'
+            '  </command>'
+            '</epp>'
+        )
+        self.assertEqual(
+            EppCommunicator._extract_client_transaction_id(xml),
+            "ACTUAL-REQUEST-TRID-OK"
+        )
+
+    def test_extract_client_transaction_id_empty_extension_cltrid_preceding_command_cltrid(self):
+        """Ensure empty extension clTRID preceding command clTRID does not disable validation."""
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '  <command>'
+            '    <check/>'
+            '    <extension>'
+            '      <customExt:ext xmlns:customExt="urn:custom">'
+            '        <customExt:clTRID></customExt:clTRID>'
+            '      </customExt:ext>'
+            '    </extension>'
+            '    <clTRID>COMMAND-LEVEL-TRID-2</clTRID>'
+            '  </command>'
+            '</epp>'
+        )
+        self.assertEqual(
+            EppCommunicator._extract_client_transaction_id(xml),
+            "COMMAND-LEVEL-TRID-2"
+        )
+
+    def test_execute_extension_cltrid_preceding_command_cltrid_succeeds(self):
+        """Execute command where extension contains a clTRID before command clTRID."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '  <command>'
+            '    <check/>'
+            '    <extension>'
+            '      <customExt:ext xmlns:customExt="urn:custom">'
+            '        <customExt:clTRID>EXTENSION-TRID-DIFFERENT</customExt:clTRID>'
+            '      </customExt:ext>'
+            '    </extension>'
+            '    <clTRID>COMMAND-LEVEL-TRID</clTRID>'
+            '  </command>'
+            '</epp>'
+        )
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><result code="1000"><msg>OK</msg></result>'
+            '<trID><clTRID>COMMAND-LEVEL-TRID</clTRID><svTRID>SRV-EXT-CHECK</svTRID></trID>'
+            '</response></epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "COMMAND-LEVEL-TRID")
+
+    def test_execute_response_with_nested_payload_trid_in_extension(self):
+        """Restrict trID lookup to direct child of <response>, ignoring nested payload trID blocks."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>TOP-LEVEL-REQ-TRID</clTRID></command></epp>'
+        # Response has an extension containing a nested trID block before the top-level response/trID
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response>'
+            '  <result code="1000"><msg>OK</msg></result>'
+            '  <extension>'
+            '    <customExt:ext xmlns:customExt="urn:custom">'
+            '      <customExt:trID>'
+            '        <customExt:clTRID>NESTED-PAYLOAD-TRID-IGNORE</customExt:clTRID>'
+            '        <customExt:svTRID>NESTED-PAYLOAD-SVTRID-IGNORE</customExt:svTRID>'
+            '      </customExt:trID>'
+            '    </customExt:ext>'
+            '  </extension>'
+            '  <trID>'
+            '    <clTRID>TOP-LEVEL-REQ-TRID</clTRID>'
+            '    <svTRID>TOP-LEVEL-SERVER-TRID</svTRID>'
+            '  </trID>'
+            '</response>'
+            '</epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        res = epp.execute(cmd)
+        self.assertEqual(res.code, 1000)
+        self.assertEqual(res.client_transaction_id, "TOP-LEVEL-REQ-TRID")
+        self.assertEqual(res.server_transaction_id, "TOP-LEVEL-SERVER-TRID")
+
+    def test_execute_missing_result_code_raises_communicator_exception(self):
+        """Raise EppCommunicatorException when response lacks a valid result code."""
+        epp = EppCommunicator('localhost', '700')
+        epp._ssl_socket = MagicMock()
+        epp.greeting = b'greeting'
+
+        cmd = '<epp><command><check/><clTRID>TEST-NO-CODE</clTRID></command></epp>'
+        xml_resp = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><trID><clTRID>TEST-NO-CODE</clTRID><svTRID>SRV-1</svTRID></trID></response>'
+            '</epp>'
+        )
+        epp._execute_command = MagicMock(return_value=xml_resp.encode('utf-8'))
+
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            epp.execute(cmd)
+        self.assertIn("Could not get result code", str(ctx.exception))
+
 
 
 

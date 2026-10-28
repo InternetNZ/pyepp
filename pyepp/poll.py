@@ -5,8 +5,6 @@ EPP Poll Module
 from dataclasses import asdict, dataclass
 from typing import List, Optional
 
-from bs4 import BeautifulSoup
-
 from pyepp import EppResultCode, EppResultData
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import POLL_REQUEST_XML, POLL_ACK_XML
@@ -67,7 +65,7 @@ class Poll(BaseCommand):
         ):
             return result
 
-        message_queue = BeautifulSoup(result.raw_response, "xml")
+        message_queue = result.parsed_xml
 
         result_date = {
             "message_count": int(message_queue.find("msgQ").get("count")),
@@ -111,7 +109,7 @@ class Poll(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        message_queue = BeautifulSoup(result.raw_response, "xml")
+        message_queue = result.parsed_xml
 
         result_date = {
             "message_count": int(message_queue.find("msgQ").get("count")),

@@ -1,12 +1,25 @@
 """
 Base Command unit tests
 """
+import threading
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
 from pyepp.base_command import BaseCommand
+from pyepp.command_templates import (
+    _CACHE_LOCK,
+    DOMAIN_CHECK_XML,
+    HELLO_XML,
+    TEMPLATES,
+    TEMPLATE_CACHE,
+    clear_template_cache,
+    get_compiled_template,
+    template_engine,
+)
 from pyepp.epp import EppCommunicator
+
 
 
 class BaseCommandTest(unittest.TestCase):
@@ -61,6 +74,23 @@ class BaseCommandTest(unittest.TestCase):
 
         base_command = BaseCommand(epp_communicator)
         result = base_command._prepare_command(command, val1=0, val2=False)
+
+        self.assertEqual(expected_result, result)
+
+    def test_prepare_command_special_characters_not_double_escaped(self) -> None:
+        """_prepare_command must not double-escape XML special characters like & and <."""
+        command = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><name>{{ name }}</name><pw>{{ password }}</pw></command></epp>"""
+        expected_result = """<?xml version="1.0" encoding="UTF-8"?>
+<epp xmlns="urn:ietf:params:xml:ns:epp-1.0"><command><name>Smith &amp; Jones &lt;LLC&gt;</name><pw>Pass&lt;word&gt;&amp;1</pw></command></epp>"""
+        epp_communicator = MagicMock(EppCommunicator)
+
+        base_command = BaseCommand(epp_communicator)
+        result = base_command._prepare_command(
+            command,
+            name="Smith & Jones <LLC>",
+            password="Pass<word>&1",
+        )
 
         self.assertEqual(expected_result, result)
 
@@ -176,3 +206,212 @@ class BaseCommandTest(unittest.TestCase):
         result = base_command.execute(command, **params)
 
         self.assertEqual(expected_result, result)
+
+    def test_get_compiled_template_cached(self) -> None:
+        """Verify pre-compiled template returns from cache and subsequent calls return identical object."""
+        tmpl1 = BaseCommand._get_compiled_template(DOMAIN_CHECK_XML)
+        self.assertIsNotNone(tmpl1)
+        tmpl2 = BaseCommand._get_compiled_template(DOMAIN_CHECK_XML)
+        self.assertIs(tmpl1, tmpl2)
+
+    def test_get_compiled_template_by_name(self) -> None:
+        """Verify template can be retrieved by name and produces matching output."""
+        tmpl_by_name = BaseCommand._get_compiled_template("DOMAIN_CHECK")
+        tmpl_by_xml = BaseCommand._get_compiled_template(DOMAIN_CHECK_XML)
+        self.assertIsNotNone(tmpl_by_name)
+        out1 = tmpl_by_name.render(domain_names=["example.nz"], client_transaction_id="123")
+        out2 = tmpl_by_xml.render(domain_names=["example.nz"], client_transaction_id="123")
+        self.assertEqual(out1, out2)
+
+    def test_prepare_command_with_template_name(self) -> None:
+        """Verify _prepare_command handles template names and generates client_transaction_id."""
+        epp_communicator = MagicMock(EppCommunicator)
+        base_command = BaseCommand(epp_communicator)
+        xml = base_command._prepare_command("DOMAIN_CHECK", domain_names=["example.nz"])
+        self.assertIn("<domain:name>example.nz</domain:name>", xml)
+        self.assertIn("<clTRID>", xml)
+
+    def test_get_compiled_template_custom_string(self) -> None:
+        """Verify raw XML with credentials is not cached by default, but safe cache_key is cached."""
+        # 1. Raw XML without cache_key: rendered without storing credentials in global cache
+        cred_xml = """<epp><command><login><pw>{{ password }}</pw></login></command></epp>"""
+        tmpl_uncached = BaseCommand._get_compiled_template(cred_xml)
+        self.assertEqual(
+            tmpl_uncached.render(password="secret123"),
+            "<epp><command><login><pw>secret123</pw></login></command></epp>",
+        )
+        self.assertNotIn(cred_xml, BaseCommand._TEMPLATE_CACHE)
+
+        # 2. Custom XML with safe cache_key: cached and reused
+        safe_xml = """<epp><custom>{{ value }}</custom></epp>"""
+        tmpl1 = BaseCommand._get_compiled_template(safe_xml, cache_key="SAFE_CUSTOM")
+        self.assertEqual(tmpl1.render(value="hello"), "<epp><custom>hello</custom></epp>")
+        self.assertIn("SAFE_CUSTOM", BaseCommand._TEMPLATE_CACHE)
+        tmpl2 = BaseCommand._get_compiled_template(safe_xml, cache_key="SAFE_CUSTOM")
+        self.assertIs(tmpl1, tmpl2)
+
+    def test_get_compiled_template_cold_start_and_clear(self) -> None:
+        """Verify get_compiled_template recovers when cache is cleared and re-initializes."""
+        custom_xml = """<epp><test>{{ x }}</test></epp>"""
+        get_compiled_template(custom_xml, cache_key="CUSTOM_TEST")
+        self.assertIn("CUSTOM_TEST", TEMPLATE_CACHE)
+
+        clear_template_cache()
+        # Custom template should be gone
+        self.assertNotIn("CUSTOM_TEST", TEMPLATE_CACHE)
+        # Static templates should be re-initialized
+        self.assertIn("DOMAIN_CHECK", TEMPLATE_CACHE)
+        self.assertIn(DOMAIN_CHECK_XML, TEMPLATE_CACHE)
+
+        # Directly test cold cache lookups
+        with patch.dict(TEMPLATE_CACHE, {}, clear=True):
+            # Lookup by template name
+            tmpl_name = get_compiled_template("HELLO")
+            self.assertIsNotNone(tmpl_name)
+            # Lookup by XML string matching static template
+            tmpl_xml = get_compiled_template(HELLO_XML)
+            self.assertIsNotNone(tmpl_xml)
+
+    def test_dynamic_template_cache_eviction(self) -> None:
+        """Verify dynamic templates are evicted when max cache size is exceeded."""
+        clear_template_cache()
+        with patch("pyepp.command_templates._MAX_DYNAMIC_CACHE_SIZE", 3):
+            for i in range(6):
+                get_compiled_template(
+                    f"<epp><dynamic_{i}>{{{{ val }}}}</dynamic_{i}></epp>",
+                    cache_key=f"dyn_{i}",
+                )
+
+            # Ensure dynamic templates were evicted while static templates remain.
+            self.assertNotIn("dyn_0", TEMPLATE_CACHE)
+            self.assertIn("dyn_5", TEMPLATE_CACHE)
+            self.assertIn("DOMAIN_CHECK", TEMPLATE_CACHE)
+            self.assertIn(DOMAIN_CHECK_XML, TEMPLATE_CACHE)
+
+    def test_concurrent_template_compilation(self) -> None:
+        """Verify thread-safe compilation of concurrent templates."""
+        results = []
+        errors = []
+
+        def worker(idx: int) -> None:
+            try:
+                tmpl = get_compiled_template(
+                    f"<epp><concurrent_{idx % 3}>{{{{ v }}}}</concurrent_{idx % 3}></epp>",
+                    cache_key=f"concurrent_{idx % 3}",
+                )
+                rendered = tmpl.render(v=str(idx))
+                results.append(rendered)
+            except Exception as ex:  # pylint: disable=broad-except
+                errors.append(ex)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(errors), 0)
+        self.assertEqual(len(results), 20)
+
+    def test_get_compiled_template_double_checked_lock(self) -> None:
+        """Verify double-checked locking handles case where template was cached while waiting for lock."""
+        custom_xml = "<epp><double_check/></epp>"
+        custom_key = "double_check_key"
+        entered_lock = threading.Event()
+        result_holder = []
+
+        def worker() -> None:
+            entered_lock.set()
+            tmpl = get_compiled_template(custom_xml, cache_key=custom_key)
+            result_holder.append(tmpl)
+
+        with _CACHE_LOCK:
+            t = threading.Thread(target=worker)
+            t.start()
+            entered_lock.wait(timeout=1.0)
+            time.sleep(0.01)
+            # While the lock is held, populate TEMPLATE_CACHE
+            expected_tmpl = template_engine.from_string(custom_xml)
+            TEMPLATE_CACHE[custom_key] = expected_tmpl
+
+        t.join(timeout=1.0)
+        self.assertEqual(len(result_holder), 1)
+        self.assertIs(result_holder[0], expected_tmpl)
+
+    def test_concurrent_template_eviction_no_keyerror(self) -> None:
+        """Verify concurrent lookup and cache eviction does not raise KeyError."""
+        clear_template_cache()
+        errors: list[Exception] = []
+        stop_event = threading.Event()
+
+        def reader() -> None:
+            while not stop_event.is_set():
+                try:
+                    for i in range(10):
+                        tmpl = BaseCommand._get_compiled_template(
+                            f"<epp><item_{i}>{{{{ val }}}}</item_{i}></epp>",
+                            cache_key=f"item_{i}",
+                        )
+                        self.assertIsNotNone(tmpl)
+                except Exception as ex:  # pylint: disable=broad-except
+                    errors.append(ex)
+                    break
+
+        def writer() -> None:
+            with patch("pyepp.command_templates._MAX_DYNAMIC_CACHE_SIZE", 5):
+                for i in range(100):
+                    if stop_event.is_set():
+                        break
+                    get_compiled_template(
+                        f"<epp><churn_{i}>{{{{ val }}}}</churn_{i}></epp>",
+                        cache_key=f"churn_{i}",
+                    )
+
+        threads = [threading.Thread(target=reader) for _ in range(4)]
+        writer_thread = threading.Thread(target=writer)
+
+        for t in threads:
+            t.start()
+        writer_thread.start()
+
+        writer_thread.join()
+        stop_event.set()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(errors, [])
+
+    def test_prepare_command_benchmark(self) -> None:
+        """Verify that 1,000 iterations of _prepare_command drops execution time by >80%."""
+        epp_communicator = MagicMock(EppCommunicator)
+        base_command = BaseCommand(epp_communicator)
+
+        # Warm up
+        base_command._prepare_command(
+            DOMAIN_CHECK_XML, domain_names=["test.nz"], client_transaction_id="mock-uuid"
+        )
+
+        # Measure cached execution (PERF-1)
+        t0 = time.perf_counter()
+        for _ in range(1000):
+            base_command._prepare_command(
+                DOMAIN_CHECK_XML, domain_names=["test.nz"], client_transaction_id="mock-uuid"
+            )
+        cached_duration = time.perf_counter() - t0
+
+        # Measure uncached execution with identical workload (patching _get_compiled_template)
+        with patch.object(BaseCommand, "_get_compiled_template", side_effect=template_engine.from_string):
+            t0 = time.perf_counter()
+            for _ in range(1000):
+                base_command._prepare_command(
+                    DOMAIN_CHECK_XML, domain_names=["test.nz"], client_transaction_id="mock-uuid"
+                )
+            uncached_duration = time.perf_counter() - t0
+
+        speedup_pct = (1.0 - (cached_duration / uncached_duration)) * 100.0
+        # Verification requirement: execution time drops by >80%
+        self.assertGreater(
+            speedup_pct,
+            80.0,
+            f"Expected >80% speedup, achieved {speedup_pct:.2f}% (cached: {cached_duration:.4f}s, uncached: {uncached_duration:.4f}s)",
+        )

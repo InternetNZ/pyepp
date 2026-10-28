@@ -28,7 +28,7 @@ To see the help page:
       --client-key TEXT
       --extension TEXT                The extension to be loaded for the EPP
                                       command.
-      -o, --output-format [XML|OBJECT|MIN]
+      -o, --output-format [XML|OBJECT|MIN|TABLE]
                                       [default: XML]
       --no-pretty
       --dry-run
@@ -141,6 +141,7 @@ this way you don't have to pass the parameters for running each command.
     PYEPP_PASSWORD=SecurePassWord
     PYEPP_CLIENT_CERT=/path/to/epp.crt
     PYEPP_CLIENT_KEY=/path/to/epp.key.pem
+    PYEPP_OUTPUT_FORMAT=XML
 
 Config file
 ^^^^^^^^^^^
@@ -164,7 +165,8 @@ Then add the below lines to the file:
     user = epp_user
     password = SecurePassWord
     client_cert = /path/to/epp.crt
-    client_key = /path/to/epp.key.pem 
+    client_key = /path/to/epp.key.pem
+    output_format = XML 
 
 Examples
 ---------------
@@ -236,6 +238,19 @@ contact
                       client_transaction_id='32ebe5a8-225b-4829-a8e0-aa1a10602138',
                       server_transaction_id='CIRA-000232306101-0000000002',
                       repository_object_id=None)
+
+.. code-block:: text
+
+    # Standard contact update (omitted streets are not sent):
+    sh> pyepp contact update sh8014 --street-1 "123 Main St" --city Dulles --country-code US
+
+    # Explicitly clearing secondary street lines in registries requiring empty tags (e.g. CentralNic):
+    sh> pyepp contact update sh8014 --street-1 "123 Main St" --street-2 "" --street-3 "" --city Dulles --country-code US
+
+.. note::
+   Street options in CLI are strictly positional. You cannot pass ``--street-2`` or ``--street-3``
+   if the preceding street lines are omitted. To modify or clear a later line, always supply
+   the preceding lines as well.
 
 domain
 ^^^^^^^^^^^

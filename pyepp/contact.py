@@ -5,7 +5,6 @@ Contact Mapping Module. This module is used to manage contact objects in Registr
 from enum import Enum
 from typing import Literal, Optional, Union
 from dataclasses import dataclass, asdict
-from bs4 import BeautifulSoup
 
 from pyepp import helper
 from pyepp.base_command import BaseCommand
@@ -28,15 +27,48 @@ class PostalInfoTypeEnum(str, Enum):
 
 @dataclass
 class AddressData:
-    """Contact address data class."""
+    """Contact address data class.
 
-    street_1: Optional[str] = ""
+    Street fields (`street_1`, `street_2`, `street_3`) default to `None`, meaning they
+    are omitted from the update XML payload (standard RFC 5733 replacement behavior).
+    Passing an empty string `""` explicitly renders an empty `<contact:street></contact:street>`
+    element in `<contact:update>`, which clears secondary street lines in registries that
+    require explicit blank tags (such as CentralNic).
+
+    Street lines in EPP are strictly positional. Sparse updates containing gaps
+    (e.g., specifying `street_2` or `street_3` when preceding lines are `None`) are rejected
+    with a `ValueError` to prevent unintended positional shifting and registry data corruption.
+    """
+
+    street_1: Optional[str] = None
     city: Optional[str] = ""
     country_code: Optional[str] = ""
-    street_2: Optional[str] = ""
-    street_3: Optional[str] = ""
+    street_2: Optional[str] = None
+    street_3: Optional[str] = None
     province: Optional[str] = ""
     postal_code: Optional[str] = ""
+
+    @staticmethod
+    def validate_street_continuity(
+        street_1: Optional[str],
+        street_2: Optional[str],
+        street_3: Optional[str],
+    ) -> None:
+        """Validate street lines do not have gaps."""
+        if street_1 is None and (street_2 is not None or street_3 is not None):
+            raise ValueError(
+                "Cannot specify 'street_2' or 'street_3' when preceding street lines are omitted."
+            )
+        if street_2 is None and street_3 is not None:
+            raise ValueError(
+                "Cannot specify 'street_3' when 'street_2' is omitted."
+            )
+
+    def __post_init__(self) -> None:
+        """Validate street lines do not have gaps."""
+        self.validate_street_continuity(
+            self.street_1, self.street_2, self.street_3
+        )
 
 
 @dataclass
@@ -60,9 +92,45 @@ class PostalInfoData:
             )
 
 
+# RFC 5733 §2.9 defines allowed disclosure elements. Under §4 XML schema,
+# POSTAL_DISCLOSE_ELEMENTS ('name', 'org', 'addr') are of type contact:intLocType
+# and REQUIRE a type="loc" or type="int" attribute, whereas communication elements
+# ('voice', 'fax', 'email') have no attributes.
+VALID_PRIVACY_ELEMENTS: frozenset[str] = frozenset(
+    ["name", "org", "addr", "voice", "fax", "email"]
+)
+POSTAL_DISCLOSE_ELEMENTS: frozenset[str] = frozenset(
+    ["name", "org", "addr"]
+)
+DISCLOSE_ELEMENT_ORDER: dict[str, int] = {
+    "name": 1,
+    "org": 2,
+    "addr": 3,
+    "voice": 4,
+    "fax": 5,
+    "email": 6,
+}
+
+
 @dataclass
 class ContactData:
-    """Contact data class. Contains the properties of the contacts associated with the domain name."""
+    """Contact data class. Contains the properties of the contacts associated with the domain name.
+
+    :param id: Contact ID
+    :param email: Contact email address
+    :param postal_info: Contact postal info data
+    :param status: Contact status list
+    :param phone: Contact voice telephone number
+    :param fax: Contact facsimile number
+    :param password: Contact authorization password
+    :param create_date: Contact creation date
+    :param create_client_id: Client ID that created the contact
+    :param sponsoring_client_id: Sponsoring client ID
+    :param update_client_id: Client ID that last updated the contact
+    :param update_date: Contact last update date
+    :param privacy: Contact elements to redact from disclosure (Whois/RDAP) under RFC 5733 §2.9.
+        Valid options: 'name', 'org', 'addr', 'voice', 'fax', 'email'.
+    """
 
     # pylint: disable=invalid-name,too-many-instance-attributes
     id: str
@@ -77,6 +145,34 @@ class ContactData:
     sponsoring_client_id: Optional[str] = ""
     update_client_id: Optional[str] = ""
     update_date: Optional[str] = ""
+    privacy: Optional[list[str]] = None
+
+    def __post_init__(self) -> None:
+        """Validate privacy elements conform to RFC 5733."""
+        if self.privacy is not None:
+            for item in self.privacy:
+                if not isinstance(item, str):
+                    raise ValueError(
+                        f"Invalid privacy disclosure item: {item}. Must be a string."
+                    )
+                # Parse optional ':loc' or ':int' suffix (e.g. 'name:int', 'name:loc')
+                elem, *ptype_parts = item.split(":", 1)
+                if elem not in VALID_PRIVACY_ELEMENTS:
+                    raise ValueError(
+                        f"Invalid privacy disclosure element '{elem}'. "
+                        f"Must be one of {sorted(VALID_PRIVACY_ELEMENTS)}."
+                    )
+                if ptype_parts:
+                    ptype = ptype_parts[0]
+                    if ptype not in ("loc", "int"):
+                        raise ValueError(
+                            f"Invalid postal type '{ptype}' for element '{elem}'. "
+                            "Must be 'loc' or 'int'."
+                        )
+                    if elem not in POSTAL_DISCLOSE_ELEMENTS:
+                        raise ValueError(
+                            f"Element '{elem}' does not support postal type qualification."
+                        )
 
 
 class Contact(BaseCommand):
@@ -93,6 +189,66 @@ class Contact(BaseCommand):
       payment of fees related to the domain name and will monitor period activity, account balances, and account status.
     """
 
+    @staticmethod
+    def _format_privacy_disclosure(
+        privacy: list[str], intended_postal_type: str
+    ) -> list[dict]:
+        """Format privacy elements with intended postal type for disclosure template.
+
+        RFC 5733 requires type="loc" or type="int" on <contact:name>, <contact:org>,
+        and <contact:addr> disclosure tags. For postal elements that do not explicitly
+        specify a type suffix, we assign the contact's intended postal type (defaulting
+        to 'loc' for privacy-only updates). Communication elements (voice, fax, email)
+        remain without attributes (type=None).
+
+        Elements are deduplicated and normalized to canonical RFC 5733 schema order
+        (name -> org -> addr -> voice -> fax -> email).
+        """
+        seen: set[tuple[str, Optional[str]]] = set()
+        disclosure_data: list[dict] = []
+        for item in privacy:
+            if not isinstance(item, str):
+                raise ValueError(
+                    f"Invalid privacy disclosure item '{item}'. Must be a string."
+                )
+            elem, *ptype_parts = item.split(":", 1)
+            if elem not in VALID_PRIVACY_ELEMENTS:
+                raise ValueError(
+                    f"Invalid privacy disclosure element '{elem}'. "
+                    f"Must be one of {sorted(VALID_PRIVACY_ELEMENTS)}."
+                )
+            if ptype_parts:
+                ptype = ptype_parts[0]
+                if ptype not in ("loc", "int"):
+                    raise ValueError(
+                        f"Invalid postal type '{ptype}' for element '{elem}'. "
+                        "Must be 'loc' or 'int'."
+                    )
+                if elem not in POSTAL_DISCLOSE_ELEMENTS:
+                    raise ValueError(
+                        f"Element '{elem}' does not support postal type qualification."
+                    )
+                actual_type = ptype
+            elif elem in POSTAL_DISCLOSE_ELEMENTS:
+                actual_type = intended_postal_type
+            else:
+                actual_type = None
+
+            key = (elem, actual_type)
+            if key not in seen:
+                seen.add(key)
+                disclosure_data.append({"name": elem, "type": actual_type})
+
+        # RFC 5733 §4 XML schema requires elements in strict sequence:
+        # name -> org -> addr -> voice -> fax -> email
+        disclosure_data.sort(
+            key=lambda x: (
+                DISCLOSE_ELEMENT_ORDER.get(x["name"], 99),
+                0 if x.get("type") == "int" else (1 if x.get("type") == "loc" else 2),
+            )
+        )
+        return disclosure_data
+
     def _data_to_dict(self, data: ContactData) -> dict:
         """Convert a contact dataclass to a dictionary.
 
@@ -106,6 +262,11 @@ class Contact(BaseCommand):
         address = postal_info.pop("address", {}) if postal_info is not None else {}
 
         if address:
+            AddressData.validate_street_continuity(
+                address.get("street_1"),
+                address.get("street_2"),
+                address.get("street_3"),
+            )
             data_dict.update(address)
         if postal_info:
             data_dict.update(postal_info)
@@ -121,6 +282,16 @@ class Contact(BaseCommand):
                     f"Invalid postal info type '{type_val}'. Must be 'loc' or 'int'."
                 )
             data_dict["type"] = type_val
+
+        if data_dict.get("privacy") is not None:
+            intended_postal_type = (
+                data_dict.get("type")
+                if data_dict.get("type") in ("loc", "int")
+                else "loc"
+            )
+            data_dict["privacy"] = self._format_privacy_disclosure(
+                data_dict["privacy"], intended_postal_type
+            )
 
         return data_dict
 
@@ -147,7 +318,7 @@ class Contact(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
         contacts_check_data = raw_response.find_all("cd")
 
         result_data = {}
@@ -188,7 +359,7 @@ class Contact(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
 
         result_data = {
             "id": raw_response.find("id").text,
@@ -261,6 +432,29 @@ class Contact(BaseCommand):
         if raw_response.find("pw"):
             result_data["password"] = raw_response.find("pw").text
 
+        if raw_response.find("disclose"):
+            disclose_el = raw_response.find("disclose")
+            # RFC 5733 §2.9: flag="0" indicates non-disclosure / redaction (privacy),
+            # while flag="1" indicates disclosure is allowed. Only populate privacy
+            # when flag is "0" or "false" to prevent marking disclosed fields as private.
+            flag = disclose_el.get("flag", "0")
+            if flag in ("0", "false"):
+                # Preserve postal disclosure types (e.g. 'name:int', 'name:loc') so that
+                # both localized and international disclosure settings round-trip losslessly
+                # into subsequent update requests instead of collapsing into a single bare tag.
+                privacy_items = []
+                for el in disclose_el.find_all(recursive=False):
+                    if el.name in VALID_PRIVACY_ELEMENTS:
+                        ptype = el.get("type")
+                        if (
+                            el.name in POSTAL_DISCLOSE_ELEMENTS
+                            and ptype in ("loc", "int")
+                        ):
+                            privacy_items.append(f"{el.name}:{ptype}")
+                        else:
+                            privacy_items.append(el.name)
+                result_data["privacy"] = list(dict.fromkeys(privacy_items))
+
         result.result_data = ContactData(**result_data)
 
         return result
@@ -287,6 +481,18 @@ class Contact(BaseCommand):
         ):
             raise ValueError(
                 "Contact creation requires postal info address with 'city' and 'country_code'."
+            )
+        if not contact.email or not contact.email.strip():
+            raise ValueError("Contact creation requires 'email'.")
+
+        addr = contact.postal_info.address
+        if addr.street_1 == "" and (addr.street_2 or addr.street_3):
+            raise ValueError(
+                "Cannot specify 'street_2' or 'street_3' when 'street_1' is empty."
+            )
+        if addr.street_2 == "" and addr.street_3:
+            raise ValueError(
+                "Cannot specify 'street_3' when 'street_2' is empty."
             )
 
         params = self._data_to_dict(contact)
@@ -335,7 +541,32 @@ class Contact(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
-        if contact.postal_info:
+        # Check if actual postal information (name, org, address) is being modified.
+        # If postal_info only specifies type (e.g. type="int" to convey disclosure postal type
+        # for a privacy-only update), do not trigger postalinfo_change or validation errors.
+        has_postal_change = bool(
+            contact.postal_info
+            and (
+                contact.postal_info.name
+                or contact.postal_info.organization
+                or contact.postal_info.address
+            )
+        )
+        has_chg = bool(
+            has_postal_change
+            or contact.phone
+            or contact.fax
+            or contact.email
+            or contact.password
+            or contact.privacy
+        )
+        if not (add_status or remove_status or has_chg):
+            raise ValueError(
+                "Contact update requires at least one change "
+                "(postal_info, phone, fax, email, password) or status modification."
+            )
+
+        if contact.postal_info and has_postal_change:
             if contact.postal_info.type == "int":
                 if (
                     not contact.postal_info.name
@@ -365,9 +596,14 @@ class Contact(BaseCommand):
         params["add_status"] = add_status
         params["remove_status"] = remove_status
 
-        params["postalinfo_change"] = bool(contact.postal_info)
+        params["postalinfo_change"] = has_postal_change
         params["address_change"] = bool(
             contact.postal_info and contact.postal_info.address
+        )
+        params["postal_type"] = (
+            contact.postal_info.type
+            if contact.postal_info and contact.postal_info.type
+            else "loc"
         )
         params["client_transaction_id"] = client_transaction_id
 

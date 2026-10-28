@@ -6,8 +6,6 @@ A host object represents a Domain Name System (DNS) server that resolves domain 
 from dataclasses import dataclass, asdict
 from typing import Optional
 
-from bs4 import BeautifulSoup
-
 from pyepp.epp import EppResultData
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import (
@@ -88,7 +86,7 @@ class Host(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
         domains_check_data = raw_response.find_all("cd")
 
         result_data = {}
@@ -126,7 +124,7 @@ class Host(BaseCommand):
         if int(result.code) != int(EppResultCode.SUCCESS.value) or result.dry_run:
             return result
 
-        raw_response = BeautifulSoup(result.raw_response, "xml")
+        raw_response = result.parsed_xml
 
         result_data = {
             "host_name": raw_response.find("name").text,
