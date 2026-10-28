@@ -3,10 +3,12 @@ Utilities module
 """
 
 import dataclasses
+import re
 import shutil
 import textwrap
 from typing import Optional, Any
 
+from bs4 import BeautifulSoup
 import click
 
 OUTPUT_FILE = None
@@ -392,12 +394,107 @@ def _extract_subtable_info(
     return _format_generic_data(data)
 
 
-def format_table(result: Any, max_width: Optional[int] = None) -> str:
+def _get_response_soup(result: Any) -> Optional[BeautifulSoup]:
+    """Get parsed BeautifulSoup instance from result, parsing raw_response if needed."""
+    soup = getattr(result, "parsed_xml", None)
+    if isinstance(soup, BeautifulSoup):
+        return soup
+    raw = getattr(result, "raw_response", None)
+    if raw and isinstance(raw, (str, bytes)):
+        try:
+            return BeautifulSoup(raw, "xml")
+        except Exception:  # pylint: disable=broad-exception-caught
+            return None
+    return None
+
+
+def _format_container_title(name: str) -> str:
+    """Format an XML payload container tag name into a table title."""
+    titles = {
+        "renData": "Renew Data",
+        "trnData": "Transfer Data",
+        "creData": "Create Data",
+        "panData": "Pending Action Data",
+        "infData": "Info Data",
+        "chkData": "Check Data",
+        "delData": "Delete Data",
+    }
+    if name in titles:
+        return titles[name]
+    if name.endswith("Data"):
+        return f"{name[:-4].capitalize()} Data"
+    return f"{name.capitalize()} Data"
+
+
+def _extract_res_data(
+    result: Any,
+) -> Optional[tuple[str, list[str], list[list[str]]]]:
+    """Extract sub-table information from undecoded resData in XML response."""
+    soup = _get_response_soup(result)
+    if soup is None:
+        return None
+
+    res_data = soup.find(re.compile(r"(^|:)resData$"))
+    if not res_data:
+        return None
+
+    containers = [
+        child for child in res_data.find_all(recursive=False)
+        if hasattr(child, "name") and child.name
+    ]
+    if not containers:
+        return None
+
+    container = containers[0]
+    children = [
+        c for c in container.find_all(recursive=False)
+        if hasattr(c, "name") and c.name
+    ]
+    if not children or any(c.find_all(recursive=False) for c in children):
+        return None
+
+    local_name = container.name.split(":")[-1]
+    title = _format_container_title(local_name)
+
+    rows = [
+        [child.name.split(":")[-1], child.get_text().strip()]
+        for child in children
+    ]
+
+    return title, ["Property", "Value"], rows
+
+
+def _has_undecoded_payload(result: Any) -> bool:
+    """Check if result contains an XML payload that was not decoded into result_data."""
+    if (
+        not hasattr(result, "code")
+        or getattr(result, "result_data", None) is not None
+        or getattr(result, "dry_run", False)
+    ):
+        return False
+
+    soup = _get_response_soup(result)
+    if soup is None:
+        return False
+
+    for tag in ("resData", "extension"):
+        element = soup.find(re.compile(rf"(^|:){tag}$"))
+        if element and any(
+            hasattr(c, "name") and c.name for c in element.find_all(recursive=False)
+        ):
+            return True
+
+    return False
+
+
+def format_table(result: Any, max_width: Optional[int] = None) -> Optional[str]:
     """Format EppResultData into Master EPP Envelope table and optional payload Sub-table.
 
     :param result: The EppResultData object to format.
     :param max_width: Optional maximum table width. If not provided, dynamically checks
         terminal width (fallback to 80 columns).
+    :return: Formatted table string, or None if the response contains an undecoded XML
+        payload that cannot be represented in tabular form (signaling XML fallback).
     """
     term_width = (
         max_width
@@ -430,12 +527,32 @@ def format_table(result: Any, max_width: Optional[int] = None) -> str:
                 title=sub_title,
             )
             tables.append(sub_table)
+    else:
+        # result_data is None: decode XML payload if present (e.g. renew or transfer resData)
+        sub_info = _extract_res_data(result)
+        if sub_info:
+            sub_title, sub_headers, sub_rows = sub_info
+            sub_table = _render_ascii_table(
+                headers=sub_headers,
+                rows=sub_rows,
+                max_width=term_width,
+                title=sub_title,
+            )
+            tables.append(sub_table)
+        elif _has_undecoded_payload(result):
+            # XML payload could not be decoded into a table; return None to trigger XML fallback
+            return None
 
     return "\n\n".join(tables)
 
 
-def format_tsv(result: Any) -> str:
-    """Format EppResultData into Master EPP Envelope TSV and optional payload Sub-table TSV."""
+def format_tsv(result: Any) -> Optional[str]:
+    """Format EppResultData into Master EPP Envelope TSV and optional payload Sub-table TSV.
+
+    :param result: The EppResultData object to format.
+    :return: Formatted TSV string, or None if the response contains an undecoded XML
+        payload that cannot be represented in TSV form (signaling XML fallback).
+    """
     envelope_rows = _format_envelope_fields(result)
     if not envelope_rows:
         return ""
@@ -448,6 +565,15 @@ def format_tsv(result: Any) -> str:
         if sub_info:
             _, sub_headers, sub_rows = sub_info
             sections.append(_render_tsv_section(headers=sub_headers, rows=sub_rows))
+    else:
+        # result_data is None: decode XML payload if present (e.g. renew or transfer resData)
+        sub_info = _extract_res_data(result)
+        if sub_info:
+            _, sub_headers, sub_rows = sub_info
+            sections.append(_render_tsv_section(headers=sub_headers, rows=sub_rows))
+        elif _has_undecoded_payload(result):
+            # XML payload could not be decoded into TSV; return None to trigger XML fallback
+            return None
 
     return "\n\n".join(sections)
 

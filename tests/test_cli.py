@@ -726,6 +726,99 @@ class CliFormatOutputTest(unittest.TestCase):
             if line.startswith(("+", "|")):
                 self.assertLessEqual(len(line), 50)
 
+    def test_table_format_decodes_resdata_renew_payload(self) -> None:
+        """Verify TABLE and TSV formats decode resData renew payload when result_data is None."""
+        raw_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response>'
+            '<result code="1000"><msg>Command completed successfully</msg></result>'
+            '<resData>'
+            '<domain:renData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:name>example.nz</domain:name>'
+            '<domain:exDate>2027-05-14T08:30:00.0Z</domain:exDate>'
+            '</domain:renData>'
+            '</resData>'
+            '<trID><clTRID>cl-123</clTRID><svTRID>sv-456</svTRID></trID>'
+            '</response></epp>'
+        )
+        result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=raw_xml,
+            result_data=None,
+            client_transaction_id="cl-123",
+            server_transaction_id="sv-456",
+        )
+        # TABLE output
+        table_output = self.cli_table.format_output(result)
+        self.assertIn("[ EPP Response ]", table_output)
+        self.assertIn("[ Renew Data ]", table_output)
+        self.assertIn("name", table_output)
+        self.assertIn("example.nz", table_output)
+        self.assertIn("exDate", table_output)
+        self.assertIn("2027-05-14T08:30:00.0Z", table_output)
+
+        # TSV output
+        tsv_output = self.cli_table_raw.format_output(result)
+        self.assertIn("name\texample.nz", tsv_output)
+        self.assertIn("exDate\t2027-05-14T08:30:00.0Z", tsv_output)
+
+    def test_table_format_decodes_resdata_transfer_payload(self) -> None:
+        """Verify TABLE format decodes resData transfer payload when result_data is None."""
+        raw_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response>'
+            '<result code="1001"><msg>Action pending</msg></result>'
+            '<resData>'
+            '<domain:trnData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:name>example.nz</domain:name>'
+            '<domain:trStatus>pending</domain:trStatus>'
+            '<domain:reID>ClientX</domain:reID>'
+            '<domain:reDate>2024-04-03T22:00:00.0Z</domain:reDate>'
+            '<domain:exDate>2025-04-03T22:00:00.0Z</domain:exDate>'
+            '</domain:trnData>'
+            '</resData>'
+            '<trID><clTRID>cl-123</clTRID><svTRID>sv-456</svTRID></trID>'
+            '</response></epp>'
+        )
+        result = EppResultData(
+            code=1001,
+            message="Action pending",
+            raw_response=raw_xml,
+            result_data=None,
+        )
+        table_output = self.cli_table.format_output(result)
+        self.assertIn("[ Transfer Data ]", table_output)
+        self.assertIn("pending", table_output)
+        self.assertIn("ClientX", table_output)
+
+    def test_table_format_fallback_on_undecodable_xml_payload(self) -> None:
+        """Verify TABLE format falls back to XML when response contains an undecodable extension payload."""
+        raw_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response>'
+            '<result code="1000"><msg>Success</msg></result>'
+            '<extension>'
+            '<custom:ext xmlns:custom="urn:ietf:params:xml:ns:custom">'
+            '<custom:complexData><custom:item id="1">value</custom:item></custom:complexData>'
+            '</custom:ext>'
+            '</extension>'
+            '<trID><clTRID>cl-123</clTRID><svTRID>sv-456</svTRID></trID>'
+            '</response></epp>'
+        )
+        result = EppResultData(
+            code=1000,
+            message="Success",
+            raw_response=raw_xml,
+            result_data=None,
+        )
+        output = self.cli_table.format_output(result)
+        self.assertIn("<custom:complexData>", output)
+        self.assertIn("<custom:item", output)
+
     def test_table_format_fallback_to_xml(self) -> None:
         """Verify TABLE output format falls back to XML when input is not an EppResultData instance."""
         raw_xml = '<?xml version="1.0"?><greeting><svID>TestRegistry</svID></greeting>'

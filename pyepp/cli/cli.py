@@ -110,6 +110,12 @@ class PyEppCli:
                         output = format_tsv(result)
                     else:
                         output = format_table(result)
+
+                    if output is None:
+                        # Fallback to XML when response payload cannot be represented in tabular form
+                        output = getattr(result, "raw_response", result)
+                        if not self.no_pretty and output:
+                            output = xml_pretty(output)
                 except Exception:  # pylint: disable=broad-exception-caught
                     # Fallback to XML when table formatting encounters an unexpected failure
                     output = getattr(result, "raw_response", result)
