@@ -62,6 +62,35 @@ client_key = /path/to/key.pem
         self.assertIn("epp.ote.registry.net.nz", result.output)
         self.assertIn("epp.registry.net.nz", result.output)
 
+    def test_cli_profile_list_order_sorted_with_default_first(self) -> None:
+        """Verify 'pyepp profile list' outputs profiles sorted alphabetically with default first."""
+        ini_content = """[zebra]
+server = epp.zebra.net
+
+[default]
+server = epp.default.net
+
+[alpha]
+server = epp.alpha.net
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            result = self.runner.invoke(
+                pyepp_cli,
+                ["-c", cfg_path, "profile", "list"],
+            )
+            self.assertEqual(result.exit_code, 0)
+            # Parse profile column from data lines (skip header and separator)
+            lines = result.output.strip().split("\n")[2:]
+            ordered_names = [line.split()[0] for line in lines]
+            self.assertEqual(ordered_names, ["default", "alpha", "zebra"])
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
     def test_cli_profile_show_default(self) -> None:
         """Verify 'pyepp profile show' without arguments displays default profile."""
         result = self.runner.invoke(

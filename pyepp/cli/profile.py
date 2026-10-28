@@ -21,17 +21,25 @@ def profile_group():
 
 
 def _format_profiles_table(profiles: dict[str, Profile]) -> str:
-    """Format profiles dictionary into an aligned text table."""
+    """Format profiles dictionary into an aligned text table sorted with 'default' first."""
     headers = ["Profile", "Server", "Port", "User", "Output Format"]
+
+    # Sort profile names alphabetically with 'default' always listed first,
+    # matching the canonical ordering from list_profiles().
+    ordered_names = sorted(list(profiles.keys()))
+    if "default" in ordered_names:
+        ordered_names.remove("default")
+        ordered_names.insert(0, "default")
+
     rows = [
         [
             name,
-            prof.server or "-",
-            prof.port or "-",
-            prof.user or "-",
-            prof.output_format or "-",
+            profiles[name].server or "-",
+            profiles[name].port or "-",
+            profiles[name].user or "-",
+            profiles[name].output_format or "-",
         ]
-        for name, prof in profiles.items()
+        for name in ordered_names
     ]
 
     col_widths = [len(h) for h in headers]
