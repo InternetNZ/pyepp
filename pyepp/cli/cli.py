@@ -104,7 +104,7 @@ class PyEppCli:
             # When --no-pretty is supplied, plain tab-separated (TSV) format is emitted.
             # If the response is not an EppResultData instance (e.g. raw greeting or unexpected response),
             # or if table generation encounters an unexpected error, safely fall back to XML output.
-            if isinstance(result, EppResultData):
+            if isinstance(result, EppResultData) and not result.dry_run:
                 try:
                     if self.no_pretty:
                         output = format_tsv(result)
