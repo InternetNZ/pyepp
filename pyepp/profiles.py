@@ -195,6 +195,40 @@ def _build_profile_from_config(name: str, config: dict[str, str]) -> Profile:
     )
 
 
+def _load_base_default_config(
+    parser: RawConfigParser,
+) -> tuple[dict[str, str], bool]:
+    """
+    Extract base default configuration from parser defaults and default sections.
+
+    Legacy [pyepp] / [profile pyepp] sections are loaded first so that modern
+    [default] sections take precedence regardless of their order in the config file.
+    Normalizing section names ensures [profile default] is treated identically to [default].
+    """
+    default_config: dict[str, str] = {}
+    for k, v in parser.defaults().items():
+        default_config[k.lower()] = v
+
+    has_pyepp_section = False
+    for sec in parser.sections():
+        if normalize_profile_name(sec).lower() == "pyepp":
+            has_pyepp_section = True
+            for k, v in parser.items(sec):
+                default_config[k.lower()] = v
+
+    for sec in parser.sections():
+        if normalize_profile_name(sec).lower() == "default":
+            for k, v in parser.items(sec):
+                default_config[k.lower()] = v
+
+    if "port" not in default_config:
+        default_config["port"] = "700"
+    if "output_format" not in default_config and "format" not in default_config:
+        default_config["output_format"] = "XML"
+
+    return default_config, has_pyepp_section
+
+
 def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
     """
     Load all configuration profiles defined in the config.ini file.
@@ -209,37 +243,32 @@ def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
     if os.path.exists(cfg_path):
         parser.read([cfg_path])
 
-    # 1. Gather base defaults from parser defaults, [default], or legacy [pyepp]
-    default_config: dict[str, str] = {}
-    for k, v in parser.defaults().items():
-        default_config[k.lower()] = v
-
-    for sec in parser.sections():
-        if sec.lower() in ("default", "pyepp"):
-            for k, v in parser.items(sec):
-                default_config[k.lower()] = v
-
-    if "port" not in default_config:
-        default_config["port"] = "700"
-    if "output_format" not in default_config and "format" not in default_config:
-        default_config["output_format"] = "XML"
+    # 1. Gather base defaults with strict precedence ([default] over legacy [pyepp])
+    default_config, has_pyepp_section = _load_base_default_config(parser)
 
     profiles: dict[str, Profile] = {}
 
     # 2. Build default profile
     profiles["default"] = _build_profile_from_config("default", default_config)
 
-    # 3. Build specific named profiles
+    # Register 'pyepp' as a profile name if explicitly present in config
+    if has_pyepp_section:
+        profiles["pyepp"] = _build_profile_from_config("pyepp", default_config)
+
+    # 3. Build specific named profiles with normalized lowercase keys to prevent
+    # duplicate entries differing only by case or prefix (e.g. [OTE] and [profile ote]).
     for sec in parser.sections():
-        sec_lower = sec.lower()
-        if sec_lower in ("default", "pyepp"):
-            # Also register 'pyepp' as a profile name if explicitly present
-            if sec_lower == "pyepp":
-                profiles["pyepp"] = _build_profile_from_config("pyepp", default_config)
+        prof_name = normalize_profile_name(sec).lower()
+        if prof_name in ("default", "pyepp"):
             continue
 
-        prof_name = normalize_profile_name(sec)
-        merged = dict(default_config)
+        # If profile was already encountered under another case/alias, merge with
+        # its current settings; otherwise inherit base default_config.
+        if prof_name in profiles:
+            merged = dict(profiles[prof_name].raw_config)
+        else:
+            merged = dict(default_config)
+
         for k, v in parser.items(sec):
             merged[k.lower()] = v
 
@@ -277,10 +306,8 @@ def load_profile(
     profiles = load_all_profiles(config_file)
     target = normalize_profile_name(name).lower()
 
-    # Exact or case-insensitive match
-    for prof_name, prof in profiles.items():
-        if prof_name.lower() == target:
-            return prof
+    if target in profiles:
+        return profiles[target]
 
     available = ", ".join(list_profiles(config_file))
     raise ProfileNotFoundError(

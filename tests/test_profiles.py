@@ -268,6 +268,88 @@ output_format = TABLE
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
 
+    def test_default_section_precedence_over_legacy_pyepp(self) -> None:
+        """Verify [default] takes precedence over [pyepp] even when [pyepp] appears second."""
+        ini_content = """[default]
+server = modern.server.net
+port = 700
+user = modern_user
+
+[pyepp]
+server = legacy.server.net
+user = legacy_user
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            prof = load_profile("default", config_file=cfg_path)
+            self.assertEqual(prof.server, "modern.server.net")
+            self.assertEqual(prof.user, "modern_user")
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_profile_default_section_support(self) -> None:
+        """Verify [profile default] acts as base default and is inherited by other profiles."""
+        ini_content = """[profile default]
+server = base.default.net
+port = 700
+output_format = TABLE
+
+[profile ote]
+user = ote_user
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            prof_default = load_profile("default", config_file=cfg_path)
+            self.assertEqual(prof_default.server, "base.default.net")
+            self.assertEqual(prof_default.output_format, "TABLE")
+
+            prof_ote = load_profile("ote", config_file=cfg_path)
+            self.assertEqual(prof_ote.server, "base.default.net")
+            self.assertEqual(prof_ote.output_format, "TABLE")
+            self.assertEqual(prof_ote.user, "ote_user")
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_profile_case_collision_and_alias_merging(self) -> None:
+        """Verify sections differing only by case or prefix merge into a single canonical profile."""
+        ini_content = """[OTE]
+server = epp.ote.net
+user = ote_user
+
+[profile ote]
+password = ote_secret
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            profiles = load_all_profiles(cfg_path)
+            # Only one canonical 'ote' profile key should exist
+            self.assertIn("ote", profiles)
+            self.assertNotIn("OTE", profiles)
+            self.assertNotIn("profile ote", profiles)
+
+            ote = profiles["ote"]
+            self.assertEqual(ote.server, "epp.ote.net")
+            self.assertEqual(ote.user, "ote_user")
+            self.assertEqual(ote.password, "ote_secret")
+
+            # list_profiles should only have unique entries
+            names = list_profiles(cfg_path)
+            self.assertEqual(names.count("ote"), 1)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
     def test_epp_communicator_from_profile(self) -> None:
         """Verify EppCommunicator.from_profile instantiates correctly."""
         ini_content = """[profile ote]
