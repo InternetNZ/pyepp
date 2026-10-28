@@ -222,6 +222,57 @@ server = epp.alpha.net
             self.assertEqual(called_args[4], "ote_user")
             self.assertEqual(called_args[5], "ote_secret_password")
 
+    def test_cli_env_var_overrides_when_default_section_defines_server(self) -> None:
+        """Verify environment variable overrides profile and [default] even when present in config."""
+        from pyepp.cli.__main__ import CONTEXT_SETTINGS  # pylint: disable=import-outside-toplevel
+
+        ini_content = """[default]
+server = default.server.example.com
+user = default_user
+password = default_pass
+port = 700
+
+[ote]
+server = ote.server.example.com
+user = ote_user
+password = ote_pass
+port = 700
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            with patch.dict(os.environ, {"PYEPP_SERVER": "env.priority.example.com"}):
+                load_config(cfg_path)
+                # Ensure server is omitted from default_map because PYEPP_SERVER is active
+                self.assertNotIn("server", CONTEXT_SETTINGS["default_map"])
+
+                with patch("pyepp.cli.cli.PyEppCli") as mock_cli_cls:
+                    instance = mock_cli_cls.return_value
+                    instance.execute = lambda *args, **kwargs: "<raw/>"
+
+                    result = self.runner.invoke(
+                        pyepp_cli,
+                        [
+                            "-c",
+                            cfg_path,
+                            "-p",
+                            "ote",
+                            "--dry-run",
+                            "domain",
+                            "check",
+                            "test.nz",
+                        ],
+                    )
+                    self.assertEqual(result.exit_code, 0)
+                    called_args = mock_cli_cls.call_args[0]
+                    self.assertEqual(called_args[0], "env.priority.example.com")
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+            load_config()
+
     def test_cli_env_var_preserved_when_profile_omits_field(self) -> None:
         """Verify environment variable is preserved when selected profile omits the field."""
         # Create a profile that omits password

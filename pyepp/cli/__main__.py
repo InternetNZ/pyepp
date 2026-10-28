@@ -24,6 +24,11 @@ APP_NAME = "pyepp"
 VALID_OUTPUT_FORMATS = ("XML", "OBJECT", "MIN", "TABLE")
 
 
+def _get_option_env_var(field_name: str) -> str:
+    """Return the corresponding PYEPP_* environment variable name for a CLI field."""
+    return f"PYEPP_{field_name.upper()}"
+
+
 def load_config(config_file=None, profile=None):
     """
     Loads configuration settings from config.ini into context settings.
@@ -53,7 +58,7 @@ def load_config(config_file=None, profile=None):
         if fmt not in VALID_OUTPUT_FORMATS:
             fmt = "XML"
 
-        CONTEXT_SETTINGS["default_map"] = {
+        d_map = {
             "server": prof.server,
             "port": prof.port,
             "client_cert": prof.client_cert,
@@ -65,11 +70,20 @@ def load_config(config_file=None, profile=None):
             "dry_run": prof.dry_run,
         }
         if prof.extensions:
-            CONTEXT_SETTINGS["default_map"]["extension"] = tuple(prof.extensions)
-    else:
+            d_map["extension"] = tuple(prof.extensions)
+
+        # Only populate keys into default_map when the corresponding PYEPP_*
+        # environment variable is NOT set in os.environ. This ensures environment
+        # variables reliably take precedence over configuration file defaults.
         CONTEXT_SETTINGS["default_map"] = {
-            "output_format": "XML",
+            k: v
+            for k, v in d_map.items()
+            if _get_option_env_var(k) not in os.environ
         }
+    else:
+        CONTEXT_SETTINGS["default_map"] = (
+            {} if "PYEPP_OUTPUT_FORMAT" in os.environ else {"output_format": "XML"}
+        )
 
 
 load_config()
@@ -124,6 +138,10 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
         "client_cert",
         "client_key",
     ):
+        # Environment variables take precedence over profile configuration
+        if _get_option_env_var(field_name) in os.environ:
+            continue
+
         if ctx.get_parameter_source(field_name) in overridable_sources:
             val = getattr(prof, field_name, None)
             if val is not None or config_file is not None or active_profile is not None:
@@ -132,12 +150,16 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
     # Validate output_format from the loaded profile against allowed choices.
     # Click Choice validation occurs prior to pyepp_cli execution, so dynamically
     # resolved profile options must be explicitly validated here.
-    if ctx.get_parameter_source("output_format") in overridable_sources:
+    if _get_option_env_var("output_format") not in os.environ and ctx.get_parameter_source(
+        "output_format"
+    ) in overridable_sources:
         updated["output_format"] = _validate_profile_output_format(
             ctx, getattr(prof, "output_format", None)
         )
 
-    if ctx.get_parameter_source("extension") in overridable_sources:
+    if _get_option_env_var("extension") not in os.environ and ctx.get_parameter_source(
+        "extension"
+    ) in overridable_sources:
         updated["extension"] = (
             tuple(prof.extensions) if prof.extensions else None
         )
