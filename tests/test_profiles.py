@@ -297,6 +297,38 @@ password = prod_p
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
 
+    def test_epp_communicator_port_override_to_700(self) -> None:
+        """Verify overriding port to '700' when profile specifies a non-700 port."""
+        ini_content = """[profile custom_port]
+server = epp.custom.test
+port = 701
+user = u
+password = p
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            # When port is omitted, profile port (701) is used
+            epp_default = EppCommunicator(profile="custom_port", config_file=cfg_path)
+            self.assertEqual(epp_default._port, "701")
+
+            # When port="700" is explicitly provided as str, it overrides profile port 701
+            epp_str = EppCommunicator(
+                profile="custom_port", config_file=cfg_path, port="700"
+            )
+            self.assertEqual(epp_str._port, "700")
+
+            # When port=700 is explicitly provided as int, it overrides profile port 701
+            epp_int = EppCommunicator(
+                profile="custom_port", config_file=cfg_path, port=700
+            )
+            self.assertEqual(epp_int._port, "700")
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
     def test_connect_raises_when_no_server_is_configured(self) -> None:
         """Verify connect() raises EppCommunicatorException when server is missing."""
         epp = EppCommunicator()

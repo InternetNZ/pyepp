@@ -319,7 +319,7 @@ class EppCommunicator:
     def __init__(
         self,
         server: Optional[str] = None,
-        port: Optional[str] = "700",
+        port: Optional[Union[str, int]] = None,
         client_cert: Optional[str] = None,
         client_key: Optional[str] = None,
         dry_run: Optional[bool] = False,
@@ -354,7 +354,10 @@ class EppCommunicator:
 
             if server is None and getattr(prof_obj, "server", None):
                 server = prof_obj.server
-            if (port is None or port == "700") and getattr(prof_obj, "port", None):
+            # Only use profile port if port was not explicitly specified by the caller.
+            # Defaulting port parameter to None allows callers to explicitly pass
+            # port="700" (or port=700) to override profiles that configure non-700 ports.
+            if port is None and getattr(prof_obj, "port", None):
                 port = prof_obj.port
             if user is None and getattr(prof_obj, "user", None):
                 user = prof_obj.user
@@ -371,7 +374,7 @@ class EppCommunicator:
 
         self.profile = prof_obj
         self._server = server
-        self._port = port or "700"
+        self._port = str(port) if port else "700"
         self._user = user
         self._password = password
         self._extensions = extensions or []
