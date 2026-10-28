@@ -277,6 +277,85 @@ port = 700
             if os.path.exists(empty_cfg):
                 os.remove(empty_cfg)
 
+    def test_cli_load_config_sanitizes_invalid_output_format(self) -> None:
+        """Verify load_config sanitizes invalid output_format to XML so Click does not crash."""
+        bad_format_ini = """[default]
+server = epp.registry.net.nz
+output_format = INVALID_FORMAT
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(bad_format_ini)
+            bad_cfg = tf.name
+
+        try:
+            load_config(bad_cfg)
+            # Invoking profile list with valid cfg must not fail with Click choice error
+            result = self.runner.invoke(
+                pyepp_cli,
+                ["-c", self.cfg_path, "profile", "list"],
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Profile", result.output)
+        finally:
+            if os.path.exists(bad_cfg):
+                os.remove(bad_cfg)
+            load_config()
+
+    def test_cli_profile_with_invalid_output_format_rejected(self) -> None:
+        """Verify selecting a profile with invalid output_format raises a Click BadParameter error."""
+        bad_format_ini = """[bad_fmt]
+server = epp.registry.net.nz
+user = test_user
+password = test_pass
+port = 700
+output_format = INVALID_FORMAT
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(bad_format_ini)
+            bad_cfg = tf.name
+
+        try:
+            result = self.runner.invoke(
+                pyepp_cli,
+                [
+                    "-c",
+                    bad_cfg,
+                    "-p",
+                    "bad_fmt",
+                    "--dry-run",
+                    "domain",
+                    "check",
+                    "test.nz",
+                ],
+            )
+            self.assertEqual(result.exit_code, 2)
+            self.assertIn("Invalid value for '-o' / '--output-format'", result.output)
+            self.assertIn("INVALID_FORMAT", result.output)
+        finally:
+            if os.path.exists(bad_cfg):
+                os.remove(bad_cfg)
+
+    def test_cli_profile_list_allowed_with_invalid_output_format(self) -> None:
+        """Verify profile list command succeeds even if a profile has an invalid output_format."""
+        bad_format_ini = """[bad_fmt]
+server = epp.registry.net.nz
+output_format = NOT_A_FORMAT
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(bad_format_ini)
+            bad_cfg = tf.name
+
+        try:
+            result = self.runner.invoke(
+                pyepp_cli,
+                ["-c", bad_cfg, "profile", "list"],
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("bad_fmt", result.output)
+        finally:
+            if os.path.exists(bad_cfg):
+                os.remove(bad_cfg)
+
 
 if __name__ == "__main__":
     unittest.main()

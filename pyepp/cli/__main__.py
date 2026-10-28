@@ -21,6 +21,8 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 APP_NAME = "pyepp"
 
+VALID_OUTPUT_FORMATS = ("XML", "OBJECT", "MIN", "TABLE")
+
 
 def load_config(config_file=None, profile=None):
     """
@@ -43,6 +45,14 @@ def load_config(config_file=None, profile=None):
         prof = None
 
     if prof:
+        # Sanitize output_format before placing into default_map. Click validates
+        # default_map choices prior to command execution; an invalid choice here
+        # would block commands like 'pyepp -c valid.ini' or 'pyepp profile list'.
+        raw_fmt = getattr(prof, "output_format", None)
+        fmt = str(raw_fmt).upper() if raw_fmt else "XML"
+        if fmt not in VALID_OUTPUT_FORMATS:
+            fmt = "XML"
+
         CONTEXT_SETTINGS["default_map"] = {
             "server": prof.server,
             "port": prof.port,
@@ -50,7 +60,7 @@ def load_config(config_file=None, profile=None):
             "client_key": prof.client_key,
             "user": prof.user,
             "password": prof.password,
-            "output_format": prof.output_format,
+            "output_format": fmt,
             "no_pretty": prof.no_pretty,
             "dry_run": prof.dry_run,
         }
@@ -63,6 +73,23 @@ def load_config(config_file=None, profile=None):
 
 
 load_config()
+
+
+def _validate_profile_output_format(ctx, raw_fmt):
+    """Validate profile output_format against allowed choices, raising BadParameter if invalid."""
+    if raw_fmt is None:
+        return "XML"
+    fmt_upper = str(raw_fmt).upper()
+    if fmt_upper not in VALID_OUTPUT_FORMATS:
+        if ctx.invoked_subcommand != "profile":
+            allowed = ", ".join(f"'{f.lower()}'" for f in VALID_OUTPUT_FORMATS)
+            raise click.BadParameter(
+                f"'{raw_fmt}' is not one of {allowed}.",
+                ctx=ctx,
+                param_hint="'-o' / '--output-format'",
+            )
+        return raw_fmt
+    return fmt_upper
 
 
 def _resolve_profile_options(ctx, active_profile, config_file, current_values):
@@ -96,12 +123,19 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
         "password",
         "client_cert",
         "client_key",
-        "output_format",
     ):
         if ctx.get_parameter_source(field_name) in overridable_sources:
             val = getattr(prof, field_name, None)
             if val is not None or config_file is not None or active_profile is not None:
                 updated[field_name] = val
+
+    # Validate output_format from the loaded profile against allowed choices.
+    # Click Choice validation occurs prior to pyepp_cli execution, so dynamically
+    # resolved profile options must be explicitly validated here.
+    if ctx.get_parameter_source("output_format") in overridable_sources:
+        updated["output_format"] = _validate_profile_output_format(
+            ctx, getattr(prof, "output_format", None)
+        )
 
     if ctx.get_parameter_source("extension") in overridable_sources:
         updated["extension"] = (
@@ -157,7 +191,7 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
     envvar="PYEPP_OUTPUT_FORMAT",
     show_default=True,
     default="XML",
-    type=click.Choice(["XML", "OBJECT", "MIN", "TABLE"], case_sensitive=False),
+    type=click.Choice(list(VALID_OUTPUT_FORMATS), case_sensitive=False),
 )
 @click.option("--no-pretty", is_flag=True, show_default=True, default=False)
 @click.option("--dry-run", is_flag=True, show_default=True, default=False)
