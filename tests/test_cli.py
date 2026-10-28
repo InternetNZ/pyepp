@@ -16,6 +16,9 @@ from pyepp import (
     ContactData,
     PostalInfoData,
     AddressData,
+    DSRecordData,
+    DigestTypeEnum,
+    DNSSECAlgorithm,
 )
 from pyepp.host import HostData, IPAddressData
 from pyepp.cli.cli import PyEppCli, login_logout
@@ -590,6 +593,53 @@ class CliFormatOutputTest(unittest.TestCase):
         self.assertIn("192.0.2.1 (v4)", output)
         self.assertIn("2001:db8::1 (v6)", output)
         self.assertIn("ok", output)
+
+    def test_table_and_tsv_format_dnssec_ds_records(self) -> None:
+        """Verify TABLE and TSV representations include DS digest_type for enum and string values."""
+        # Record with enum values
+        ds_enum = DSRecordData(
+            key_tag=12345,
+            algorithm=DNSSECAlgorithm.RSA_SHA_256,
+            digest_type=DigestTypeEnum.SHA_256,
+            digest="49FD46E6C4B45C55D4AC49DA1B7728F6",
+        )
+        # Record with parsed string values (as returned by Domain.info())
+        ds_str = DSRecordData(
+            key_tag="54321",
+            algorithm="8",
+            digest_type="2",
+            digest="ABCDEF0123456789ABCDEF0123456789",
+        )
+        domain_data = DomainData(
+            domain_name="example.nz",
+            dns_sec=[ds_enum, ds_str],
+        )
+        result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response="<raw/>",
+            result_data=domain_data,
+        )
+
+        # 1. TABLE format output
+        table_output = self.cli_table.format_output(result)
+        self.assertIn("KeyTag: 12345", table_output)
+        self.assertIn("Alg: RSA_SHA_256", table_output)
+        self.assertIn("DigestType: SHA_256", table_output)
+        self.assertIn("49FD46E6C4B45C55D4AC49DA1B7728F6", table_output)
+        self.assertIn("KeyTag: 54321", table_output)
+        self.assertIn("Alg: 8", table_output)
+        self.assertIn("DigestType: 2", table_output)
+        self.assertIn("ABCDEF0123456789ABCDEF0123456789", table_output)
+
+        # 2. TSV format output
+        tsv_output = self.cli_table_raw.format_output(result)
+        self.assertIn("KeyTag: 12345", tsv_output)
+        self.assertIn("Alg: RSA_SHA_256", tsv_output)
+        self.assertIn("DigestType: SHA_256", tsv_output)
+        self.assertIn("KeyTag: 54321", tsv_output)
+        self.assertIn("Alg: 8", tsv_output)
+        self.assertIn("DigestType: 2", tsv_output)
 
     def test_table_format_none_result_data(self) -> None:
         """Verify TABLE output format renders only Master EPP table when result_data is None."""

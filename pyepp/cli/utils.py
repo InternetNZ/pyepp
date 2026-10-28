@@ -239,10 +239,11 @@ def _format_dnssec(dns_sec: Any) -> str:
         return "None"
     lines = []
     for ds in dns_sec:
-        alg = getattr(getattr(ds, "algorithm", None), "name", getattr(ds, "algorithm", ""))
-        lines.append(
-            f"KeyTag: {getattr(ds, 'key_tag', '')}, Alg: {alg}, Digest: {getattr(ds, 'digest', '')}"
-        )
+        alg = getattr(getattr(ds, "algorithm", None), "name", str(getattr(ds, "algorithm", "")))
+        dtype = getattr(getattr(ds, "digest_type", None), "name", str(getattr(ds, "digest_type", "")))
+        key_tag = getattr(ds, "key_tag", "")
+        digest = getattr(ds, "digest", "")
+        lines.append(f"KeyTag: {key_tag}, Alg: {alg}, DigestType: {dtype}, Digest: {digest}")
     return "\n".join(lines)
 
 
