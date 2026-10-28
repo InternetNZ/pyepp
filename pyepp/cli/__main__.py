@@ -142,13 +142,14 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
             tuple(prof.extensions) if prof.extensions else None
         )
 
+    # Apply boolean profile options unconditionally when not explicitly set via
+    # CLI flags or environment variables. This allows profiles to override
+    # default_map values (e.g. setting dry_run=False when [default] has dry_run=True).
     if ctx.get_parameter_source("dry_run") in overridable_sources:
-        if prof.dry_run:
-            updated["dry_run"] = True
+        updated["dry_run"] = bool(prof.dry_run)
 
     if ctx.get_parameter_source("no_pretty") in overridable_sources:
-        if prof.no_pretty:
-            updated["no_pretty"] = True
+        updated["no_pretty"] = bool(prof.no_pretty)
 
     return updated
 

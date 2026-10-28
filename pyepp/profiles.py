@@ -121,6 +121,8 @@ class Profile(Mapping[str, Any]):
 
     def to_communicator_kwargs(self, **overrides: Any) -> dict[str, Any]:
         """Return dictionary of parameters suitable for EppCommunicator(**kwargs)."""
+        # Ensure extensions is consistently included as a list (matching Profile.__getitem__
+        # and the Mapping protocol) rather than being stripped when empty.
         kwargs: dict[str, Any] = {
             "server": self.server,
             "port": self.port,
@@ -129,7 +131,7 @@ class Profile(Mapping[str, Any]):
             "dry_run": self.dry_run,
             "user": self.user,
             "password": self.password,
-            "extensions": list(self.extensions) if self.extensions else None,
+            "extensions": list(self.extensions) if self.extensions is not None else [],
         }
         result = {k: v for k, v in kwargs.items() if v is not None}
         result.update(overrides)

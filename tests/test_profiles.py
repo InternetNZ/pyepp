@@ -90,7 +90,30 @@ class ProfilesModuleTest(unittest.TestCase):
         self.assertEqual(kwargs["server"], "epp.registry.net.nz")
         self.assertEqual(kwargs["port"], "700")
         self.assertEqual(kwargs["user"], "override_user")
+        self.assertEqual(kwargs["extensions"], [])
         self.assertTrue(kwargs["dry_run"])
+
+    def test_epp_communicator_dry_run_and_extensions_overrides(self) -> None:
+        """Verify overriding dry_run=False and extensions=[] when profile sets them to truthy."""
+        prof = Profile(
+            name="test_overrides",
+            server="127.0.0.1",
+            port="700",
+            user="admin",
+            password="secret",
+            dry_run=True,
+            extensions=["urn:ietf:params:xml:ns:secDNS-1.1"],
+        )
+
+        # Omitted arguments inherit truthy values from profile
+        epp_default = EppCommunicator(profile=prof)
+        self.assertTrue(epp_default._dry_run)
+        self.assertEqual(epp_default._extensions, ["urn:ietf:params:xml:ns:secDNS-1.1"])
+
+        # Explicit dry_run=False and extensions=[] override profile truthy values
+        epp_override = EppCommunicator(profile=prof, dry_run=False, extensions=[])
+        self.assertFalse(epp_override._dry_run)
+        self.assertEqual(epp_override._extensions, [])
 
     def test_profile_create_communicator(self) -> None:
         """Verify create_communicator creates a properly configured EppCommunicator."""

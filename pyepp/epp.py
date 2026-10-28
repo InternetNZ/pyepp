@@ -322,7 +322,7 @@ class EppCommunicator:
         port: Optional[Union[str, int]] = None,
         client_cert: Optional[str] = None,
         client_key: Optional[str] = None,
-        dry_run: Optional[bool] = False,
+        dry_run: Optional[bool] = None,
         max_message_size: int = DEFAULT_MAX_MESSAGE_SIZE,
         user: Optional[str] = None,
         password: Optional[str] = None,
@@ -369,8 +369,10 @@ class EppCommunicator:
                 client_key = prof_obj.client_key
             if extensions is None and getattr(prof_obj, "extensions", None):
                 extensions = list(prof_obj.extensions)
-            if not dry_run and getattr(prof_obj, "dry_run", False):
-                dry_run = True
+            # Defaulting dry_run to None allows callers to explicitly pass dry_run=False
+            # to override profiles where dry_run is configured as True.
+            if dry_run is None and getattr(prof_obj, "dry_run", False):
+                dry_run = prof_obj.dry_run
 
         self.profile = prof_obj
         self._server = server
@@ -381,7 +383,7 @@ class EppCommunicator:
         self._client_cert = client_cert
         self._client_key = client_key
 
-        self._dry_run = dry_run
+        self._dry_run = bool(dry_run)
         self._max_message_size = max_message_size
 
         self._format_32 = get_format_32()

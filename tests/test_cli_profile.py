@@ -356,6 +356,48 @@ output_format = NOT_A_FORMAT
             if os.path.exists(bad_cfg):
                 os.remove(bad_cfg)
 
+    def test_cli_profile_overrides_default_truthy_booleans(self) -> None:
+        """Verify named profile with falsy booleans overrides [default] profile's truthy booleans."""
+        ini_content = """[default]
+server = epp.default.net.nz
+user = default_user
+password = default_pass
+port = 700
+dry_run = true
+no_pretty = true
+
+[prod]
+server = epp.prod.net.nz
+user = prod_user
+password = prod_pass
+port = 700
+dry_run = false
+no_pretty = false
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            load_config(cfg_path)
+            with patch("pyepp.cli.cli.PyEppCli") as mock_cli_cls:
+                instance = mock_cli_cls.return_value
+                instance.execute = lambda *args, **kwargs: "<raw/>"
+
+                result = self.runner.invoke(
+                    pyepp_cli,
+                    ["-c", cfg_path, "-p", "prod", "domain", "check", "test.nz"],
+                )
+                self.assertEqual(result.exit_code, 0)
+                called_args = mock_cli_cls.call_args[0]
+                # no_pretty=args[8], dry_run=args[9]
+                self.assertFalse(called_args[8])
+                self.assertFalse(called_args[9])
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+            load_config()
+
 
 if __name__ == "__main__":
     unittest.main()
