@@ -66,7 +66,7 @@ load_config()
 
 
 def _resolve_profile_options(ctx, active_profile, config_file, current_values):
-    """Resolve configuration profile options and override non-commandline parameters."""
+    """Resolve configuration profile options and override default/unspecified parameters."""
     from pyepp.profiles import load_profile  # pylint: disable=import-outside-toplevel
 
     try:
@@ -77,6 +77,18 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
         return current_values
 
     updated = dict(current_values)
+
+    # Profile settings must only override options whose parameter source is
+    # DEFAULT, DEFAULT_MAP, or None. Explicit values from CLI flags (COMMANDLINE)
+    # and environment variables (ENVIRONMENT) take precedence over profile values.
+    # This prevents profiles from clobbering environment variables or wiping
+    # credentials supplied via the environment when not specified in the profile.
+    overridable_sources = (
+        click.core.ParameterSource.DEFAULT,
+        click.core.ParameterSource.DEFAULT_MAP,
+        None,
+    )
+
     for field_name in (
         "server",
         "port",
@@ -86,33 +98,21 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
         "client_key",
         "output_format",
     ):
-        if (
-            ctx.get_parameter_source(field_name)
-            != click.core.ParameterSource.COMMANDLINE
-        ):
+        if ctx.get_parameter_source(field_name) in overridable_sources:
             val = getattr(prof, field_name, None)
             if val is not None or config_file is not None or active_profile is not None:
                 updated[field_name] = val
 
-    if (
-        ctx.get_parameter_source("extension")
-        != click.core.ParameterSource.COMMANDLINE
-    ):
+    if ctx.get_parameter_source("extension") in overridable_sources:
         updated["extension"] = (
             tuple(prof.extensions) if prof.extensions else None
         )
 
-    if (
-        ctx.get_parameter_source("dry_run")
-        != click.core.ParameterSource.COMMANDLINE
-    ):
+    if ctx.get_parameter_source("dry_run") in overridable_sources:
         if prof.dry_run:
             updated["dry_run"] = True
 
-    if (
-        ctx.get_parameter_source("no_pretty")
-        != click.core.ParameterSource.COMMANDLINE
-    ):
+    if ctx.get_parameter_source("no_pretty") in overridable_sources:
         if prof.no_pretty:
             updated["no_pretty"] = True
 

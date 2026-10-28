@@ -166,6 +166,99 @@ client_key = /path/to/key.pem
             self.assertEqual(called_args[0], "epp.ote.registry.net.nz")
             self.assertEqual(called_args[4], "cli_override_user")
 
+    def test_cli_env_var_overrides_profile_setting(self) -> None:
+        """Verify environment variables take precedence over profile values."""
+        with patch("pyepp.cli.cli.PyEppCli") as mock_cli_cls:
+            instance = mock_cli_cls.return_value
+            instance.execute = lambda *args, **kwargs: "<raw/>"
+
+            result = self.runner.invoke(
+                pyepp_cli,
+                [
+                    "-c",
+                    self.cfg_path,
+                    "-p",
+                    "ote",
+                    "--dry-run",
+                    "domain",
+                    "check",
+                    "test.nz",
+                ],
+                env={"PYEPP_SERVER": "env.override.example.com"},
+            )
+            self.assertEqual(result.exit_code, 0)
+            called_args = mock_cli_cls.call_args[0]
+            # server=args[0], user=args[4], password=args[5]
+            self.assertEqual(called_args[0], "env.override.example.com")
+            self.assertEqual(called_args[4], "ote_user")
+            self.assertEqual(called_args[5], "ote_secret_password")
+
+    def test_cli_env_var_preserved_when_profile_omits_field(self) -> None:
+        """Verify environment variable is preserved when selected profile omits the field."""
+        # Create a profile that omits password
+        no_pwd_ini = """[no_pwd]
+server = epp.no-pwd.registry.net.nz
+user = no_pwd_user
+port = 700
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(no_pwd_ini)
+            no_pwd_cfg = tf.name
+
+        try:
+            with patch("pyepp.cli.cli.PyEppCli") as mock_cli_cls:
+                instance = mock_cli_cls.return_value
+                instance.execute = lambda *args, **kwargs: "<raw/>"
+
+                result = self.runner.invoke(
+                    pyepp_cli,
+                    [
+                        "-c",
+                        no_pwd_cfg,
+                        "-p",
+                        "no_pwd",
+                        "--dry-run",
+                        "domain",
+                        "check",
+                        "test.nz",
+                    ],
+                    env={"PYEPP_PASSWORD": "env_secret_password"},
+                )
+                self.assertEqual(result.exit_code, 0)
+                called_args = mock_cli_cls.call_args[0]
+                self.assertEqual(called_args[0], "epp.no-pwd.registry.net.nz")
+                self.assertEqual(called_args[4], "no_pwd_user")
+                self.assertEqual(called_args[5], "env_secret_password")
+        finally:
+            if os.path.exists(no_pwd_cfg):
+                os.remove(no_pwd_cfg)
+
+    def test_cli_flag_overrides_env_var_and_profile(self) -> None:
+        """Verify CLI flag takes highest precedence over both env var and profile."""
+        with patch("pyepp.cli.cli.PyEppCli") as mock_cli_cls:
+            instance = mock_cli_cls.return_value
+            instance.execute = lambda *args, **kwargs: "<raw/>"
+
+            result = self.runner.invoke(
+                pyepp_cli,
+                [
+                    "-c",
+                    self.cfg_path,
+                    "-p",
+                    "ote",
+                    "--server",
+                    "flag.override.example.com",
+                    "--dry-run",
+                    "domain",
+                    "check",
+                    "test.nz",
+                ],
+                env={"PYEPP_SERVER": "env.override.example.com"},
+            )
+            self.assertEqual(result.exit_code, 0)
+            called_args = mock_cli_cls.call_args[0]
+            self.assertEqual(called_args[0], "flag.override.example.com")
+
     def test_cli_missing_required_params_error(self) -> None:
         """Verify error message when no profile and no server flags are provided."""
         # Use an empty temp config file
