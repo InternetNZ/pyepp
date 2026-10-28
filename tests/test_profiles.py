@@ -38,6 +38,23 @@ class ProfilesModuleTest(unittest.TestCase):
         self.assertFalse(prof.dry_run)
         self.assertEqual(prof.raw_config, {})
 
+    def test_profile_repr_masks_password_and_raw_config(self) -> None:
+        """Verify Profile.__repr__ does not expose plaintext password or raw_config."""
+        prof = Profile(
+            name="test_repr",
+            server="epp.test",
+            user="test_user",
+            password="super_secret_epp_password",
+            raw_config={"password": "super_secret_epp_password", "token": "sensitive_tok"},
+        )
+        repr_str = repr(prof)
+        self.assertNotIn("super_secret_epp_password", repr_str)
+        self.assertNotIn("sensitive_tok", repr_str)
+        self.assertNotIn("raw_config", repr_str)
+        # Ensure credentials remain accessible on the instance
+        self.assertEqual(prof.password, "super_secret_epp_password")
+        self.assertEqual(prof.raw_config["password"], "super_secret_epp_password")
+
     def test_profile_mapping_protocol_and_unpacking(self) -> None:
         """Verify Profile behaves as a Mapping and can be unpacked into EppCommunicator."""
         prof = Profile(

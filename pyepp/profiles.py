@@ -74,14 +74,16 @@ class Profile(Mapping[str, Any]):
     server: Optional[str] = None
     port: Optional[str] = "700"
     user: Optional[str] = None
-    password: Optional[str] = None
+    # Exclude password and raw_config from __repr__ to avoid leaking sensitive
+    # credentials in logs, exception tracebacks, or debugger inspections.
+    password: Optional[str] = field(default=None, repr=False)
     client_cert: Optional[str] = None
     client_key: Optional[str] = None
     extensions: list[str] = field(default_factory=list)
     output_format: str = "XML"
     no_pretty: bool = False
     dry_run: bool = False
-    raw_config: dict[str, str] = field(default_factory=dict)
+    raw_config: dict[str, str] = field(default_factory=dict, repr=False)
 
     _COMMUNICATOR_KEYS = (
         "server",
