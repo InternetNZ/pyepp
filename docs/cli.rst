@@ -28,7 +28,7 @@ To see the help page:
       --client-key TEXT
       --extension TEXT                The extension to be loaded for the EPP
                                       command.
-      -o, --output-format [XML|OBJECT|MIN]
+      -o, --output-format [XML|OBJECT|MIN|TABLE]
                                       [default: XML]
       --no-pretty
       --dry-run
@@ -141,6 +141,7 @@ this way you don't have to pass the parameters for running each command.
     PYEPP_PASSWORD=SecurePassWord
     PYEPP_CLIENT_CERT=/path/to/epp.crt
     PYEPP_CLIENT_KEY=/path/to/epp.key.pem
+    PYEPP_OUTPUT_FORMAT=XML
 
 Config file
 ^^^^^^^^^^^
@@ -164,7 +165,8 @@ Then add the below lines to the file:
     user = epp_user
     password = SecurePassWord
     client_cert = /path/to/epp.crt
-    client_key = /path/to/epp.key.pem 
+    client_key = /path/to/epp.key.pem
+    output_format = XML 
 
 Examples
 ---------------

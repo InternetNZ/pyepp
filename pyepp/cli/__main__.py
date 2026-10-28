@@ -22,7 +22,7 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 APP_NAME = "pyepp"
 
 
-def load_config():
+def load_config(config_file=None):
     """
     Loads the configuration file into context settings. It reads the config file
     from the below paths depends on the host OS.
@@ -31,8 +31,10 @@ def load_config():
       ~/.pyepp/config.ini
     Windows (not roaming):
       C:\\Users\\<user>\\AppData\\Local\\pyepp\\config.ini
+
+    :param config_file: Optional explicit path to configuration file (e.g. for testing).
     """
-    cfg = os.path.join(
+    cfg = config_file or os.path.join(
         click.get_app_dir(APP_NAME, roaming=False, force_posix=True), "config.ini"
     )
     parser = RawConfigParser()
@@ -42,6 +44,18 @@ def load_config():
         for key, value in parser.items(section):
             config[f"{section}_{key}".upper()] = value
 
+    # Read default output format from configuration file, falling back to XML if not specified
+    cfg_output_format = (
+        config.get("PYEPP_OUTPUT_FORMAT")
+        or config.get("PYEPP_OUTPUT-FORMAT")
+        or config.get("PYEPP_FORMAT")
+    )
+    output_format_val = (
+        cfg_output_format.strip().upper()
+        if cfg_output_format and cfg_output_format.strip()
+        else "XML"
+    )
+
     CONTEXT_SETTINGS["default_map"] = {
         "server": config.get("PYEPP_SERVER"),
         "port": config.get("PYEPP_PORT"),
@@ -49,6 +63,7 @@ def load_config():
         "client_key": config.get("PYEPP_CLIENT_KEY"),
         "user": config.get("PYEPP_USER"),
         "password": config.get("PYEPP_PASSWORD"),
+        "output_format": output_format_val,
     }
 
 
@@ -72,9 +87,11 @@ load_config()
 @click.option(
     "-o",
     "--output-format",
+    "output_format",
+    envvar="PYEPP_OUTPUT_FORMAT",
     show_default=True,
     default="XML",
-    type=click.Choice(["XML", "OBJECT", "MIN"], case_sensitive=False),
+    type=click.Choice(["XML", "OBJECT", "MIN", "TABLE"], case_sensitive=False),
 )
 @click.option("--no-pretty", is_flag=True, show_default=True, default=False)
 @click.option("--dry-run", is_flag=True, show_default=True, default=False)
