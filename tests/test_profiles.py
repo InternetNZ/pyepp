@@ -458,6 +458,52 @@ password = p
             epp.connect()
         self.assertIn("server hostname is required", str(ctx.exception))
 
+    def test_load_profiles_utf8_encoding(self) -> None:
+        """Verify load_all_profiles correctly parses non-ASCII UTF-8 characters."""
+        ini_content = """[profile utf8_test]
+server = epp.māori.test
+user = Māori_user
+password = Pāsswørd_€_123
+"""
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            prof = load_profile("utf8_test", config_file=cfg_path)
+            self.assertEqual(prof.server, "epp.māori.test")
+            self.assertEqual(prof.user, "Māori_user")
+            self.assertEqual(prof.password, "Pāsswørd_€_123")
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_check_config_file_permissions_warning(self) -> None:
+        """Verify security warning is emitted on POSIX when file permissions are too open."""
+        if os.name != "posix":
+            self.skipTest("Permission test only applies to POSIX systems")
+
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write("[default]\nserver=test\n")
+            cfg_path = tf.name
+
+        try:
+            # Set open permissions 0644 (world-readable)
+            os.chmod(cfg_path, 0o644)
+            with patch("logging.warning") as mock_warn:
+                load_all_profiles(cfg_path)
+                mock_warn.assert_called_once()
+                self.assertIn("accessible by other users", mock_warn.call_args[0][0])
+
+            # Set secure permissions 0600 (owner only)
+            os.chmod(cfg_path, 0o600)
+            with patch("logging.warning") as mock_warn_secure:
+                load_all_profiles(cfg_path)
+                mock_warn_secure.assert_not_called()
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
 
 if __name__ == "__main__":
     unittest.main()

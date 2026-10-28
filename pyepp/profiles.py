@@ -11,6 +11,7 @@ Provides support for user-defined configuration profiles in config.ini (AWS CLI 
 from collections.abc import Iterator, Mapping
 from configparser import RawConfigParser
 from dataclasses import dataclass, field
+import logging
 import os
 from typing import Any, Optional, TYPE_CHECKING
 import click
@@ -231,6 +232,28 @@ def _load_base_default_config(
     return default_config, has_pyepp_section
 
 
+def _check_config_file_permissions(file_path: str) -> None:
+    """
+    Check and warn if configuration file permissions are excessively permissive on POSIX.
+
+    Since config.ini typically stores plaintext registrar credentials, files accessible
+    by group or world users (st_mode & 0o077) should emit a security warning advising
+    more restrictive permissions (e.g. 0600).
+    """
+    if os.name == "posix" and os.path.isfile(file_path):
+        try:
+            mode = os.stat(file_path).st_mode
+            if mode & 0o077:
+                logging.warning(
+                    "Config file %s contains credentials but is accessible by other users "
+                    "(mode 0%o). Consider setting permissions to 0600.",
+                    file_path,
+                    mode & 0o777,
+                )
+        except OSError:
+            pass
+
+
 def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
     """
     Load all configuration profiles defined in the config.ini file.
@@ -243,7 +266,10 @@ def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
     cfg_path = config_file or get_default_config_path()
     parser = RawConfigParser()
     if os.path.exists(cfg_path):
-        parser.read([cfg_path])
+        _check_config_file_permissions(cfg_path)
+        # Always read configuration with explicit UTF-8 encoding to prevent
+        # character corruption on non-UTF-8 platform locales.
+        parser.read([cfg_path], encoding="utf-8")
 
     # 1. Gather base defaults with strict precedence ([default] over legacy [pyepp])
     default_config, has_pyepp_section = _load_base_default_config(parser)
