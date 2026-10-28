@@ -59,19 +59,26 @@ def _calculate_table_widths(
     if sum(longest) <= budget:
         return longest
 
+    min_widths = [len(h) for h in headers]
+    effective_budget = max(sum(min_widths), budget)
+
     if num_cols == 2:
-        col0_w = max(len(headers[0]), min(longest[0], 25))
-        col1_w = max(len(headers[1]), budget - col0_w)
+        # Reserve space for column 1 header before allocating column 0
+        max_avail_0 = effective_budget - min_widths[1]
+        col0_w = max(min_widths[0], min(longest[0], 25, max_avail_0))
+        col1_w = max(min_widths[1], effective_budget - col0_w)
         return [col0_w, col1_w]
 
     if num_cols == 3:
-        col0_w = max(len(headers[0]), min(longest[0], 30))
-        col1_w = max(len(headers[1]), min(longest[1], 12))
-        col2_w = max(len(headers[2]), 15, budget - col0_w - col1_w)
+        # Reserve space for subsequent column headers before allocating each column
+        max_avail_0 = effective_budget - min_widths[1] - min_widths[2]
+        col0_w = max(min_widths[0], min(longest[0], 30, max_avail_0))
+        max_avail_1 = effective_budget - col0_w - min_widths[2]
+        col1_w = max(min_widths[1], min(longest[1], 12, max_avail_1))
+        col2_w = max(min_widths[2], effective_budget - col0_w - col1_w)
         return [col0_w, col1_w, col2_w]
 
-    min_widths = [len(h) for h in headers]
-    remaining = max(0, budget - sum(min_widths))
+    remaining = max(0, effective_budget - sum(min_widths))
     extra = remaining // num_cols
     return [mw + extra for mw in min_widths]
 
@@ -107,7 +114,8 @@ def _render_ascii_table(
 
     num_cols = len(headers)
     overhead = 1 + (3 * num_cols)
-    budget = max(30, max_width - overhead)
+    min_budget = sum(len(h) for h in headers)
+    budget = max(min_budget, max_width - overhead)
     col_widths = _calculate_table_widths(headers, rows, budget)
 
     border = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"

@@ -654,6 +654,28 @@ class CliFormatOutputTest(unittest.TestCase):
             if line.startswith(("+", "|")):
                 self.assertLessEqual(len(line), 50)
 
+        # Three-column check results sub-table with long domain and long reason at constrained width
+        check_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response="<raw/>",
+            result_data={
+                "a-very-long-example-domain.co.nz": {
+                    "avail": False,
+                    "reason": "This is a longer reason explaining why it is not available in registry",
+                },
+            },
+        )
+        check_output = format_table(check_result, max_width=50)
+        self.assertIn("Entity", check_output)
+        self.assertIn("Available", check_output)
+        self.assertIn("Reason", check_output)
+        self.assertIn("a-very-long-example-domai", check_output)
+        self.assertIn("longer", check_output)
+        for line in check_output.splitlines():
+            if line.startswith(("+", "|")):
+                self.assertLessEqual(len(line), 50)
+
     def test_table_format_fallback_to_xml(self) -> None:
         """Verify TABLE output format falls back to XML when input is not an EppResultData instance."""
         raw_xml = '<?xml version="1.0"?><greeting><svID>TestRegistry</svID></greeting>'
