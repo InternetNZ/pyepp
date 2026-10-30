@@ -30,13 +30,15 @@ All AI coding agents working on PyEPP must adhere to these core rules:
   - `contact.py`: Contact mapping commands (`check`, `info`, `create`, `delete`, `update`), dataclasses (`ContactData`, `PostalInfoData`, `PostalInfoTypeEnum`, `AddressData`), RFC 5733 §2.9 privacy disclosure redaction, and street continuity validation.
   - `host.py`: Host mapping commands (`check`, `info`, `create`, `delete`, `update`) and dataclasses (`HostData`, `IPAddressData`).
   - `poll.py`: Poll message mapping (`request`, `acknowledge`) and dataclasses (`ServiceMessageQueueData`, `ServiceMessageData`).
+  - `profiles.py`: `Profile` dataclass implementing Mapping protocol, AWS CLI-style configuration profile loader (`load_profile`, `load_all_profiles`, `list_profiles`, `get_default_config_path`) with `[default]` inheritance and legacy `[pyepp]` fallback.
   - `helper.py`: Utility functions (`generate_password` using `secrets`, `xml_pretty`).
   - `cli/`: Click-based command-line interface (`pyepp`).
     - `__main__.py`: CLI entry point, global options, configuration loading, root subcommands (`run`, `hello`).
     - `cli.py`: `PyEppCli` helper class wiring CLI options to `EppCommunicator` and command classes with safe connection cleanup.
+    - `profile.py`: `profile` subcommand group (`list`, `show`).
     - `domain.py`, `contact.py`, `host.py`, `poll.py`: Subcommand groups and options.
     - `utils.py`: Output formatting (`XML`, `OBJECT`, `MIN`) and file output handlers.
-- `tests/`: Pytest suite covering core modules (`test_base_command.py`, `test_contact.py`, `test_domain.py`, `test_epp.py`, `test_helper.py`, `test_host.py`, `test_poll.py`, `test_pyepp.py`) and CLI commands (`test_cli.py`, `test_cli_contact.py`, `test_cli_domain.py`, `test_cli_host.py`).
+- `tests/`: Pytest suite covering core modules (`test_base_command.py`, `test_contact.py`, `test_domain.py`, `test_epp.py`, `test_helper.py`, `test_host.py`, `test_poll.py`, `test_profiles.py`, `test_pyepp.py`) and CLI commands (`test_cli.py`, `test_cli_contact.py`, `test_cli_domain.py`, `test_cli_host.py`, `test_cli_profile.py`).
 - `scripts/`: Development and QA scripts:
   - `tests.sh`: Runs `coverage run -m pytest ./tests/` and generates coverage report.
   - `linter.sh`: Runs `pylint ./pyepp --disable=R0401,R0801`.
@@ -81,6 +83,8 @@ pyepp --help
 ```
 
 Global options:
+- `-p, --profile` (configuration profile name from `config.ini`, e.g. `ote`, `prod`)
+- `-c, --config-file` (explicit path to `config.ini` file)
 - `--server`, `--port`, `--user`, `--password` (or via `PYEPP_*` environment variables or `~/.pyepp/config.ini`)
 - `--client-cert`, `--client-key` (for TLS client certificate authentication)
 - `--extension` (repeatable custom EPP service extension URIs)
@@ -93,6 +97,7 @@ Subcommands:
 - `pyepp domain`: Domain commands (`check`, `info`, `create`, `delete`, `renew`, `transfer`, `update`, `restore`, `restore-report`).
 - `pyepp host`: Host commands (`check`, `info`, `create`, `delete`, `update`).
 - `pyepp poll`: Service message queue operations (`request`, `acknowledge`).
+- `pyepp profile`: Manage and inspect EPP configuration profiles (`list`, `show`).
 - `pyepp hello`: Send hello command and display greeting.
 - `pyepp run`: Execute a raw XML file command.
 

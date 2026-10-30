@@ -20,10 +20,13 @@ To see the help page:
       A command line interface to work with PyEpp library.
 
     Options:
-      --server TEXT                   [required]
-      --port TEXT                     [required]
-      --user TEXT                     [required]
-      --password TEXT                 [required]
+      -p, --profile TEXT              Configuration profile name from config.ini
+                                      (e.g. ote, prod).
+      -c, --config-file PATH          Explicit path to config.ini file.
+      --server TEXT
+      --port TEXT
+      --user TEXT
+      --password TEXT
       --client-cert TEXT
       --client-key TEXT
       --extension TEXT                The extension to be loaded for the EPP
@@ -45,6 +48,7 @@ To see the help page:
       hello    Sends a hello command to the server and receives the Greeting...
       host     To work with Host objects in the registry.
       poll     To manage registry service messages.
+      profile  Manage and inspect EPP configuration profiles.
       run      Receive an XML file containing an EPP XML command and execute it.
 
 And to get help for a specific command:
@@ -390,3 +394,50 @@ poll
           </trID>
          </response>
         </epp>
+
+profile
+^^^^^^^
+
+Configuration profiles allow defining registry connections and credentials in ``~/.pyepp/config.ini``
+(similar to AWS CLI profiles). Settings in ``[default]`` are inherited by named profiles (``[profile <name>]``
+or ``[<name>]``).
+
+To list all configured profiles:
+
+.. code-block:: text
+
+    sh> pyepp profile list
+    Profile  Server                   Port  User            Output Format
+    ---------------------------------------------------------------------
+    default  -                        700   -               TABLE
+    ote      epp.ote.registry.net.nz  700   test_registrar  TABLE
+    prod     epp.registry.net.nz      700   prod_registrar  XML
+
+To inspect profile settings (passwords are masked by default):
+
+.. code-block:: text
+
+    sh> pyepp profile show ote
+    Profile: ote
+      Server:        epp.ote.registry.net.nz
+      Port:          700
+      User:          test_registrar
+      Password:      ********
+      Client Cert:   None
+      Client Key:    None
+      Extensions:    urn:ietf:params:xml:ns:secDNS-1.1
+      Output Format: TABLE
+      No Pretty:     False
+      Dry Run:       False
+
+To display cleartext secrets, pass ``--show-secrets``:
+
+.. code-block:: text
+
+    sh> pyepp profile show ote --show-secrets
+
+To execute any command using a specific profile:
+
+.. code-block:: text
+
+    sh> pyepp -p ote domain check example.nz
