@@ -3,6 +3,7 @@ CLI Interactive Shell unit tests.
 """
 
 import os
+import stat
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -10,15 +11,22 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from pyepp import EppResultData, EppCommunicatorException
+from pyepp.poll import ServiceMessageQueueData
 from pyepp.cli.__main__ import pyepp_cli, load_config
 from pyepp.cli.cli import PyEppCli
 from pyepp.cli.shell import (
     ASCII_BANNER,
     ShellCompleter,
     execute_shell_line,
+    format_divider_line,
     format_prompt,
+    format_status_bar,
+    get_default_history_path,
     switch_profile,
     _configure_readline,
+    _load_persistent_history,
+    _read_line_with_status_bar,
+    _save_persistent_history,
 )
 
 
@@ -53,10 +61,22 @@ server = epp.incomplete.net.nz
         with tempfile.NamedTemporaryFile("w", delete=False) as tf:
             tf.write(self.ini_content)
             self.cfg_path = tf.name
+        self.tmp_history_dir = tempfile.mkdtemp()
+        self.history_path = os.path.join(self.tmp_history_dir, "history")
+        self._old_hist_env = os.environ.get("PYEPP_HISTORY_FILE")
+        os.environ["PYEPP_HISTORY_FILE"] = self.history_path
 
     def tearDown(self) -> None:
         if os.path.exists(self.cfg_path):
             os.remove(self.cfg_path)
+        if os.path.exists(self.history_path):
+            os.remove(self.history_path)
+        if os.path.exists(self.tmp_history_dir):
+            os.rmdir(self.tmp_history_dir)
+        if self._old_hist_env is None:
+            os.environ.pop("PYEPP_HISTORY_FILE", None)
+        else:
+            os.environ["PYEPP_HISTORY_FILE"] = self._old_hist_env
         load_config()
 
     def _create_mock_cli(self, dry_run: bool = False) -> PyEppCli:
@@ -401,25 +421,105 @@ server = epp.incomplete.net.nz
         self.assertFalse(execute_shell_line(cli_obj, "quit"))
 
     def test_shell_prompt_formatting_and_interrupts(self) -> None:
-        """Verify dynamic prompt formatting and handling of KeyboardInterrupt / EOFError."""
+        """Verify concise prompt, bottom status bar formatting, colors, and interrupt handling."""
         cli_obj = self._create_mock_cli(dry_run=True)
+        self.assertEqual(format_prompt(cli_obj, color=False), "pyepp> ")
+        colored_prompt = format_prompt(cli_obj, color=True)
+        self.assertIn("pyepp", colored_prompt)
+        self.assertIn("\x01", colored_prompt)
+        self.assertIn("\x02", colored_prompt)
+
         self.assertEqual(
-            format_prompt(cli_obj),
-            "pyepp [ote:dry-run] (ote_user@epp.ote.registry.net.nz)> ",
+            format_status_bar(cli_obj, color=False),
+            " ● dry-run | profile: ote | ote_user@epp.ote.registry.net.nz:700 | format: XML | pretty: on",
         )
+        self.assertIn("● dry-run", format_status_bar(cli_obj, color=True))
 
         cli_obj.dry_run = False
         cli_obj.epp._logged_in = False
         self.assertEqual(
-            format_prompt(cli_obj),
-            "pyepp [ote:disconnected] (ote_user@epp.ote.registry.net.nz)> ",
+            format_status_bar(cli_obj, color=False),
+            " ○ disconnected | profile: ote | ote_user@epp.ote.registry.net.nz:700 | format: XML | pretty: on",
         )
+        self.assertIn("○ disconnected", format_status_bar(cli_obj, color=True))
 
         cli_obj.epp._logged_in = True
+        cli_obj.no_pretty = True
         self.assertEqual(
-            format_prompt(cli_obj),
-            "pyepp [ote] (ote_user@epp.ote.registry.net.nz)> ",
+            format_status_bar(cli_obj, color=False),
+            " ● connected | profile: ote | ote_user@epp.ote.registry.net.nz:700 | format: XML | pretty: off",
         )
+        self.assertIn("● connected", format_status_bar(cli_obj, color=True))
+        self.assertIn("pyepp", format_prompt(cli_obj, color=True))
+
+        # Test TTY divider lines and bottom status bar rendering around input()
+        self.assertEqual(format_divider_line(10, color=False), "─" * 10)
+        self.assertIn("─" * 10, format_divider_line(10, color=True))
+
+        with patch("pyepp.cli.shell.sys.stdout") as mock_stdout, patch.dict(
+            os.environ, {"TERM": "xterm-256color"}, clear=False
+        ), patch("builtins.input", return_value="status"):
+            mock_stdout.isatty.return_value = True
+            line = _read_line_with_status_bar(cli_obj)
+            self.assertEqual(line, "status")
+            writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
+            self.assertIn("● connected", writes)
+            self.assertIn("─", writes)
+            self.assertIn("\r\033[2A", writes)
+            self.assertIn("\n\r\033[2K", writes)
+
+        # Empty input clears both the bottom divider and status bar rows
+        with patch("pyepp.cli.shell.sys.stdout") as mock_stdout, patch.dict(
+            os.environ, {"TERM": "xterm-256color"}, clear=False
+        ), patch("builtins.input", return_value="   "):
+            mock_stdout.isatty.return_value = True
+            self.assertEqual(_read_line_with_status_bar(cli_obj), "   ")
+            writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
+            self.assertIn("\r\033[2K\n\r\033[2K\033[A", writes)
+
+        # Test TTY status bar cleanup when KeyboardInterrupt occurs during input()
+        with patch("pyepp.cli.shell.sys.stdout") as mock_stdout, patch.dict(
+            os.environ, {"TERM": "xterm-256color"}, clear=False
+        ), patch("builtins.input", side_effect=KeyboardInterrupt()):
+            mock_stdout.isatty.return_value = True
+            with self.assertRaises(KeyboardInterrupt):
+                _read_line_with_status_bar(cli_obj)
+            writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
+            self.assertIn("\n\r\033[2K\n\r\033[2K\033[A", writes)
+
+        # Test status bar truncation to max_width so narrow terminals never wrap
+        truncated_plain = format_status_bar(cli_obj, color=False, max_width=30)
+        self.assertEqual(len(truncated_plain), 30)
+        self.assertTrue(truncated_plain.endswith("…"))
+
+        import click as _click
+
+        truncated_color = format_status_bar(cli_obj, color=True, max_width=30)
+        self.assertEqual(len(_click.unstyle(truncated_color)), 30)
+        self.assertTrue(truncated_color.endswith("\x1b[0m"))
+
+        # Test control character / escape sequence sanitization (CWE-150)
+        cli_obj.user = "bad\x1b[31m\nuser\r"
+        sanitized_bar = format_status_bar(cli_obj, color=False)
+        self.assertNotIn("\n", sanitized_bar)
+        self.assertNotIn("\r", sanitized_bar)
+        self.assertIn("bad[31muser@", sanitized_bar)
+        cli_obj.user = "ote_user"
+
+        # Test TERM=dumb disables ANSI status bar cursor movement and NO_COLOR disables colors
+        with patch("pyepp.cli.shell.sys.stdout") as mock_stdout, patch.dict(
+            os.environ, {"TERM": "dumb"}, clear=False
+        ), patch("builtins.input", return_value="exit"):
+            mock_stdout.isatty.return_value = True
+            self.assertEqual(_read_line_with_status_bar(cli_obj), "exit")
+            mock_stdout.write.assert_not_called()
+
+        with patch("pyepp.cli.shell.sys.stdout") as mock_stdout, patch.dict(
+            os.environ, {"TERM": "xterm-256color", "NO_COLOR": "1"}, clear=False
+        ), patch("builtins.input", return_value="exit") as mock_input:
+            mock_stdout.isatty.return_value = True
+            self.assertEqual(_read_line_with_status_bar(cli_obj), "exit")
+            self.assertEqual(mock_input.call_args[0][0], "pyepp> ")
 
         # Test KeyboardInterrupt continues loop and EOFError exits cleanly
         with patch("builtins.input", side_effect=[KeyboardInterrupt(), EOFError()]):
@@ -638,6 +738,248 @@ server = epp.incomplete.net.nz
         self.assertEqual(completer.get_candidates("profile use P", "P"), ["prod"])
         help_cands = completer.get_candidates("help ", "")
         self.assertEqual(help_cands, sorted(help_cands))
+        self.assertEqual(completer.get_candidates("? d", "d"), ["domain"])
+        self.assertIn("create", completer.get_candidates("? domain ", ""))
+        self.assertEqual(completer.get_candidates("last T", "T"), ["TABLE"])
+        self.assertEqual(completer.get_candidates("save out.xml X", "X"), ["XML"])
+        self.assertEqual(
+            completer.get_candidates("domain check example.nz --output-format M", "M"),
+            ["MIN"],
+        )
+
+    def test_command_latency_and_poll_badge_in_status_bar_and_status(self) -> None:
+        """Verify command latency (ms) and poll queue count badge in status bar and 'status' output."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        poll_res = EppResultData(
+            code=1301,
+            message="Command completed successfully; ack to dequeue",
+            raw_response="<epp/>",
+            result_data=ServiceMessageQueueData(message_count=3, message_id="123"),
+            dry_run=False,
+        )
+
+        with patch("pyepp.poll.Poll.request", return_value=poll_res):
+            self.assertTrue(execute_shell_line(cli_obj, "poll request"))
+
+        self.assertEqual(cli_obj.poll_queue_count, 3)
+        self.assertIsNotNone(cli_obj.last_latency_ms)
+
+        bar_plain = format_status_bar(cli_obj, color=False)
+        self.assertIn("✉ poll: 3", bar_plain)
+        self.assertIn(f"last: {cli_obj.last_latency_ms}ms", bar_plain)
+
+        bar_color = format_status_bar(cli_obj, color=True)
+        self.assertIn("✉ poll: ", bar_color)
+        self.assertIn("last: ", bar_color)
+
+        # Verify empty queue (code 1300) updates poll_queue_count to 0
+        empty_poll_res = EppResultData(
+            code=1300,
+            message="Command completed successfully; no messages",
+            raw_response="<epp/>",
+            result_data=None,
+            dry_run=False,
+        )
+        with patch("pyepp.poll.Poll.acknowledge", return_value=empty_poll_res):
+            self.assertTrue(execute_shell_line(cli_obj, "poll acknowledge 123"))
+
+        self.assertEqual(cli_obj.poll_queue_count, 0)
+        self.assertNotIn("✉ poll:", format_status_bar(cli_obj, color=False))
+
+        # Verify 'status' / 'st' prints Poll Queue and Last Latency
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "st"))
+            status_out = mock_echo.call_args[0][0]
+            self.assertIn("Poll Queue:", status_out)
+            self.assertIn("Last Latency:", status_out)
+
+    def test_history_command_and_bang_expansion(self) -> None:
+        """Verify 'history' / 'hist' built-in and '!!' / '!<N>' / '!<negative>' command expansion."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+
+        # Empty history cases
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "history"))
+            self.assertIn("No commands in history.", mock_echo.call_args[0][0])
+            self.assertTrue(execute_shell_line(cli_obj, "!!"))
+            self.assertIn("No previous command in history.", mock_echo.call_args[0][0])
+
+        check_res = EppResultData(
+            code=1000,
+            message="OK",
+            raw_response="<epp/>",
+            result_data={"example.nz": {"avail": True, "reason": None}},
+            dry_run=True,
+        )
+        with patch("pyepp.domain.Domain.check", return_value=check_res) as mock_check:
+            self.assertTrue(execute_shell_line(cli_obj, "domain check example.nz"))
+            self.assertTrue(execute_shell_line(cli_obj, "set pretty off"))
+            # Duplicate consecutive command is deduplicated
+            self.assertTrue(execute_shell_line(cli_obj, "set pretty off"))
+            self.assertEqual(
+                cli_obj.session_history,
+                ["domain check example.nz", "set pretty off"],
+            )
+
+            # Re-run command #1 via '!1'
+            self.assertTrue(execute_shell_line(cli_obj, "!1"))
+            self.assertEqual(mock_check.call_count, 2)
+
+            # Re-run last command via '!!' and '!-1'
+            self.assertTrue(execute_shell_line(cli_obj, "!!"))
+            self.assertEqual(mock_check.call_count, 3)
+            self.assertTrue(execute_shell_line(cli_obj, "!-1"))
+            self.assertEqual(mock_check.call_count, 4)
+
+        # Inspect history via 'hist 1' and error cases
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "hist 1"))
+            self.assertIn("domain check example.nz", mock_echo.call_args[0][0])
+
+            self.assertTrue(execute_shell_line(cli_obj, "history -5"))
+            self.assertIn("Usage: history [positive_count]", mock_echo.call_args[0][0])
+
+            self.assertTrue(execute_shell_line(cli_obj, "history 1 2"))
+            self.assertIn("Usage: history [count]", mock_echo.call_args[0][0])
+
+            self.assertTrue(execute_shell_line(cli_obj, "!abc"))
+            self.assertIn("Invalid history reference", mock_echo.call_args[0][0])
+
+            self.assertTrue(execute_shell_line(cli_obj, "!999"))
+            self.assertIn("History event '!999' not found.", mock_echo.call_args[0][0])
+
+    def test_persistent_history_load_save_and_permissions(self) -> None:
+        """Verify persistent history saves with 0600 permissions, scrubs --password, and reloads."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        cli_obj.session_history = [
+            "domain check example.nz",
+            "domain info secret.nz --password MySecretPassword",
+            "contact check c-1",
+        ]
+
+        _save_persistent_history(cli_obj, self.history_path)
+        self.assertTrue(os.path.isfile(self.history_path))
+        file_mode = stat.S_IMODE(os.stat(self.history_path).st_mode)
+        self.assertEqual(file_mode, 0o600)
+
+        with open(self.history_path, "r", encoding="utf-8") as f_in:
+            saved_text = f_in.read()
+        self.assertIn("domain check example.nz", saved_text)
+        self.assertIn("contact check c-1", saved_text)
+        self.assertNotIn("MySecretPassword", saved_text)
+
+        # Load into a fresh PyEppCli instance
+        fresh_cli = self._create_mock_cli(dry_run=True)
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            _load_persistent_history(fresh_cli, self.history_path)
+            self.assertEqual(
+                fresh_cli.session_history,
+                ["domain check example.nz", "contact check c-1"],
+            )
+            self.assertEqual(mock_rl.add_history.call_count, 2)
+
+        self.assertEqual(get_default_history_path(), self.history_path)
+
+    def test_last_and_save_commands(self) -> None:
+        """Verify 'last [FORMAT]' and 'save <filepath> [FORMAT]' re-render and export last result."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+
+        # When no command has executed yet
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "last"))
+            self.assertIn("No command result recorded", mock_echo.call_args[0][0])
+
+        check_res = EppResultData(
+            code=1000,
+            message="OK",
+            raw_response="<epp><response><result code='1000'><msg>OK</msg></result></response></epp>",
+            result_data={"example.nz": {"avail": True, "reason": None}},
+            dry_run=True,
+        )
+        with patch("pyepp.domain.Domain.check", return_value=check_res):
+            self.assertTrue(execute_shell_line(cli_obj, "domain check example.nz"))
+
+        # Re-display as MIN and TABLE without re-running the EPP command
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "last MIN"))
+            self.assertIn("example.nz", str(mock_echo.call_args[0][0]))
+            self.assertEqual(cli_obj.output_format, "XML")
+
+            self.assertTrue(execute_shell_line(cli_obj, "last INVALID"))
+            self.assertIn("Invalid output format", mock_echo.call_args[0][0])
+
+            self.assertTrue(execute_shell_line(cli_obj, "last XML EXTRA"))
+            self.assertIn("Usage: last", mock_echo.call_args[0][0])
+
+        # Save last result to disk in XML format
+        out_file = os.path.join(self.tmp_history_dir, "saved_response.xml")
+        try:
+            self.assertTrue(execute_shell_line(cli_obj, f"save {out_file} XML"))
+            self.assertTrue(os.path.isfile(out_file))
+            with open(out_file, "r", encoding="utf-8") as f_in:
+                content = f_in.read()
+            self.assertIn("<result code=", content)
+        finally:
+            if os.path.exists(out_file):
+                os.remove(out_file)
+
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "save"))
+            self.assertIn("Usage: save", mock_echo.call_args[0][0])
+
+        # Verify 'q' alias exits shell
+        self.assertFalse(execute_shell_line(cli_obj, "q"))
+
+    def test_security_review_hardening(self) -> None:
+        """Verify symlink rejection, control-char sanitization, --pass= scrubbing, and comment divider cleanup."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+
+        # 1. Unclosed quote with --pass= or --show-secrets still scrubs readline history immediately
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            mock_rl.get_current_history_length.return_value = 2
+            self.assertTrue(execute_shell_line(cli_obj, 'domain info example.nz --pass="unclosedSecret'))
+            mock_rl.remove_history_item.assert_called_once_with(1)
+
+        self.assertTrue(execute_shell_line(cli_obj, "profile show default --show-secrets"))
+        self.assertEqual(cli_obj.session_history, [])
+
+        # 2. Symlinked history file is refused on both save and load
+        target_file = os.path.join(self.tmp_history_dir, "target.txt")
+        symlink_file = os.path.join(self.tmp_history_dir, "symlink_history")
+        try:
+            with open(target_file, "w", encoding="utf-8") as f_out:
+                f_out.write("original\n")
+            os.symlink(target_file, symlink_file)
+
+            cli_obj.session_history = ["domain check example.nz"]
+            _save_persistent_history(cli_obj, symlink_file)
+            with open(target_file, "r", encoding="utf-8") as f_in:
+                self.assertEqual(f_in.read(), "original\n")
+
+            fresh_cli = self._create_mock_cli(dry_run=True)
+            _load_persistent_history(fresh_cli, symlink_file)
+            self.assertEqual(fresh_cli.session_history, [])
+        finally:
+            if os.path.lexists(symlink_file):
+                os.remove(symlink_file)
+            if os.path.exists(target_file):
+                os.remove(target_file)
+
+        # 3. Control characters in persistent history file are stripped on load
+        with open(self.history_path, "w", encoding="utf-8") as f_out:
+            f_out.write("domain check \x1b[31mexample.nz\n")
+        _load_persistent_history(fresh_cli, self.history_path)
+        self.assertEqual(fresh_cli.session_history, ["domain check [31mexample.nz"])
+
+        # 4. Comment lines clear both Row 3 and Row 4 in _read_line_with_status_bar
+        with (
+            patch("pyepp.cli.shell._supports_ansi_tty", return_value=True),
+            patch("builtins.input", return_value="# just a comment"),
+            patch("sys.stdout") as mock_stdout,
+        ):
+            self.assertEqual(_read_line_with_status_bar(cli_obj), "# just a comment")
+            writes = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            self.assertIn("\r\033[2K\n\r\033[2K\033[A", writes)
 
 
 if __name__ == "__main__":

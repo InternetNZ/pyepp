@@ -446,18 +446,29 @@ To execute any command using a specific profile:
 shell
 ^^^^^
 
-The ``shell`` command starts an interactive REPL session that connects and logs in once, reusing the
-persistent EPP session across commands. It supports Tab auto-completion for commands, subcommands,
-option flags, and profile names, as well as switching profiles mid-session:
+The ``shell`` command starts a colorized interactive REPL session that connects and logs in once, reusing the
+persistent EPP session across commands. It features a live bottom status bar displaying connection state,
+active profile, ``user@server:port``, output format, pretty-print mode, pending poll queue count
+(``✉ poll: <N>``), and round-trip command execution latency (``last: <N>ms``).
+
+Built-in shell features include:
+
+- **Tab auto-completion** for commands, subcommands, profile names, option flags, and output format values.
+- **Mid-session profile switching** via ``use <profile>`` or ``profile use <profile>``.
+- **Response re-formatting & export** via ``last [XML|OBJECT|MIN|TABLE]`` and ``save <filepath> [XML|OBJECT|MIN|TABLE]`` without re-querying the registry.
+- **Command history & bang expansion** via ``history [count]`` (or ``hist``), ``!!`` (repeat last command), and ``!<N>`` (repeat command ``#N``). Non-sensitive command history is persisted across sessions in ``~/.pyepp/history`` (``0600`` permissions) with automatic ``--password`` scrubbing.
+- **Shorthand aliases**: ``?`` (``help``), ``st`` (``status``), ``hist`` (``history``), and ``q`` (``exit``).
 
 .. code-block:: text
 
     sh> pyepp -p ote shell
     Connected and logged in as test_registrar@epp.ote.registry.net.nz:700
-    pyepp [ote] (test_registrar@epp.ote.registry.net.nz)> domain check example.nz
-    pyepp [ote] (test_registrar@epp.ote.registry.net.nz)> set output-format TABLE
-    Output format set to TABLE.
-    pyepp [ote] (test_registrar@epp.ote.registry.net.nz)> use prod
+    pyepp> domain check example.nz
+     ● connected │ profile: ote │ test_registrar@epp.ote.registry.net.nz:700 │ format: XML │ pretty: on │ last: 42ms
+    pyepp> last TABLE
+    pyepp> save /tmp/check_example.xml XML
+    Saved last response to /tmp/check_example.xml.
+    pyepp> use prod
     Switched to profile 'prod'.
     Connected and logged in as prod_registrar@epp.registry.net.nz:700
-    pyepp [prod] (prod_registrar@epp.registry.net.nz)> exit
+    pyepp> exit

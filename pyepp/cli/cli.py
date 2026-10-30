@@ -96,6 +96,10 @@ class PyEppCli:
         self.persistent_session = persistent_session
 
         self.registry_object = None
+        self.last_result = None
+        self.last_latency_ms = None
+        self.poll_queue_count = None
+        self.session_history = []
 
     def connect(self):
         self.epp.connect()
@@ -136,6 +140,7 @@ class PyEppCli:
                     logging.debug("Disconnect failed during hello cleanup: %s", ex)
 
     def format_output(self, result: EppResultData):
+        self.last_result = result
         fmt = self.output_format.upper() if self.output_format else "XML"
         if fmt == "XML":
             output = getattr(result, "raw_response", result)
@@ -231,14 +236,30 @@ class PyEppCli:
         result = self.registry_object.transfer(*args, **kwargs)
         return self.format_output(result)
 
+    def _update_poll_queue_count(self, result):
+        """Update cached poll queue count from a Poll request/acknowledge result."""
+        if not isinstance(result, EppResultData) or result.dry_run:
+            return
+        data = getattr(result, "result_data", None)
+        if data is not None and hasattr(data, "message_count"):
+            try:
+                self.poll_queue_count = int(data.message_count)
+            except (TypeError, ValueError):
+                pass
+        elif str(getattr(result, "code", "")) == "1300":
+            # RFC 5730 code 1300: Command completed successfully; no messages
+            self.poll_queue_count = 0
+
     @login_logout
     def request(self, *args, **kwargs):
         result = self.registry_object.request(*args, **kwargs)
+        self._update_poll_queue_count(result)
         return self.format_output(result)
 
     @login_logout
     def acknowledge(self, *args, **kwargs):
         result = self.registry_object.acknowledge(*args, **kwargs)
+        self._update_poll_queue_count(result)
         return self.format_output(result)
 
     @login_logout

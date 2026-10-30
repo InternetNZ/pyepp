@@ -525,6 +525,8 @@ class CliFormatOutputTest(unittest.TestCase):
         output = self.cli_table.format_output(result)
         self.assertIn("[ EPP Response ]", output)
         self.assertIn("[ Domain Information: example.nz ]", output)
+        # Verify table titles are ANSI-colorized (cyan + bold)
+        self.assertIn("\x1b[36m", output)
         self.assertIn("| Property", output)
         self.assertIn("| Value", output)
         self.assertIn("domain_name", output)
