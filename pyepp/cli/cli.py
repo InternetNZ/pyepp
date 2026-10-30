@@ -20,6 +20,27 @@ def login_logout(func):
         if self.dry_run:
             return func(self, *args, **kwargs)
 
+        # In persistent session mode (e.g. interactive shell), reuse an already
+        # connected and authenticated EPP session without logging out after each command.
+        if getattr(self, "persistent_session", False):
+            epp_client = getattr(self, "epp", None)
+            if epp_client and epp_client.is_connected and epp_client.is_logged_in:
+                return func(self, *args, **kwargs)
+
+            connected = False
+            try:
+                self.connect()
+                connected = True
+                self.login()
+            except BaseException:
+                if connected:
+                    try:
+                        self.disconnect()
+                    except Exception as ex:
+                        logging.debug("Disconnect failed during cleanup: %s", ex)
+                raise
+            return func(self, *args, **kwargs)
+
         connected = False
         logged_in = False
         try:
@@ -58,6 +79,7 @@ class PyEppCli:
         dry_run=False,
         profile_name=None,
         config_file=None,
+        persistent_session=False,
     ):
         self.epp = EppCommunicator(server, port, client_cert, client_key, dry_run)
 
@@ -71,6 +93,7 @@ class PyEppCli:
         self.dry_run = dry_run
         self.profile_name = profile_name
         self.config_file = config_file
+        self.persistent_session = persistent_session
 
         self.registry_object = None
 
@@ -87,11 +110,30 @@ class PyEppCli:
         self.epp.logout()
 
     def hello(self):
-        # In dry-run mode, avoid establishing a live socket connection before hello
-        if not self.dry_run:
+        if self.dry_run:
+            return self.epp.hello()
+
+        # In a persistent session, reuse the open socket if already connected and
+        # authenticated so that the active session is not torn down.
+        if (
+            getattr(self, "persistent_session", False)
+            and self.epp.is_connected
+            and self.epp.is_logged_in
+        ):
+            return self.epp.hello()
+
+        connected = False
+        try:
             self.connect()
-        result = self.epp.hello()
-        return result
+            connected = True
+            return self.epp.hello()
+        finally:
+            # Always disconnect temporary unauthenticated connections opened solely for hello
+            if connected and not getattr(self.epp, "is_logged_in", False):
+                try:
+                    self.disconnect()
+                except Exception as ex:
+                    logging.debug("Disconnect failed during hello cleanup: %s", ex)
 
     def format_output(self, result: EppResultData):
         fmt = self.output_format.upper() if self.output_format else "XML"
@@ -140,6 +182,18 @@ class PyEppCli:
     @login_logout
     def execute(self, *args, **kwargs):
         result = self.epp.execute(*args, **kwargs)
+        # If a raw <login> command was executed via 'run', synchronize PyEppCli
+        # credentials with the updated EppCommunicator session state so prompt,
+        # status, and subsequent auto-reconnects reflect the authenticated user.
+        if getattr(self.epp, "is_logged_in", False):
+            if getattr(self.epp, "_user", None) is not None:
+                self.user = self.epp._user
+            if getattr(self.epp, "_password", None) is not None:
+                self.password = self.epp._password
+            if getattr(self.epp, "_extensions", None) is not None:
+                self.extensions = (
+                    tuple(self.epp._extensions) if self.epp._extensions else None
+                )
         return self.format_output(result)
 
     @login_logout

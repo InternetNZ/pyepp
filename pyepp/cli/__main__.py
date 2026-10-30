@@ -13,6 +13,7 @@ from pyepp.cli.contact import contact_group
 from pyepp.cli.domain import domain_group
 from pyepp.cli.poll import poll_group
 from pyepp.cli.profile import profile_group
+from pyepp.cli.shell import shell_command
 from pyepp.cli import utils
 
 logging.basicConfig(level=logging.ERROR)
@@ -113,7 +114,11 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
     try:
         prof = load_profile(active_profile or "default", config_file=config_file)
     except Exception as ex:  # pylint: disable=broad-exception-caught
-        if ctx.invoked_subcommand != "profile":
+        # Allow 'profile' commands and 'shell' (when no explicit profile was requested)
+        # to proceed even if a [default] profile does not exist in config.ini.
+        if ctx.invoked_subcommand != "profile" and not (
+            ctx.invoked_subcommand == "shell" and not active_profile
+        ):
             raise click.ClickException(str(ex)) from ex
         return current_values
 
@@ -279,7 +284,7 @@ def pyepp_cli(
         dry_run = resolved["dry_run"]
         no_pretty = resolved["no_pretty"]
 
-    if ctx.invoked_subcommand != "profile":
+    if ctx.invoked_subcommand not in ("profile", "shell"):
         missing = []
         if not server:
             missing.append("--server")
@@ -346,3 +351,4 @@ pyepp_cli.add_command(host_group)
 pyepp_cli.add_command(poll_group)
 pyepp_cli.add_command(hello)
 pyepp_cli.add_command(profile_group)
+pyepp_cli.add_command(shell_command)

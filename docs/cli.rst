@@ -50,6 +50,7 @@ To see the help page:
       poll     To manage registry service messages.
       profile  Manage and inspect EPP configuration profiles.
       run      Receive an XML file containing an EPP XML command and execute it.
+      shell    Start an interactive EPP shell session with a persistent connection.
 
 And to get help for a specific command:
 
@@ -441,3 +442,22 @@ To execute any command using a specific profile:
 .. code-block:: text
 
     sh> pyepp -p ote domain check example.nz
+
+shell
+^^^^^
+
+The ``shell`` command starts an interactive REPL session that connects and logs in once, reusing the
+persistent EPP session across commands. It supports Tab auto-completion for commands, subcommands,
+option flags, and profile names, as well as switching profiles mid-session:
+
+.. code-block:: text
+
+    sh> pyepp -p ote shell
+    Connected and logged in as test_registrar@epp.ote.registry.net.nz:700
+    pyepp [ote] (test_registrar@epp.ote.registry.net.nz)> domain check example.nz
+    pyepp [ote] (test_registrar@epp.ote.registry.net.nz)> set output-format TABLE
+    Output format set to TABLE.
+    pyepp [ote] (test_registrar@epp.ote.registry.net.nz)> use prod
+    Switched to profile 'prod'.
+    Connected and logged in as prod_registrar@epp.registry.net.nz:700
+    pyepp [prod] (prod_registrar@epp.registry.net.nz)> exit
