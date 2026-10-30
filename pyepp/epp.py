@@ -754,7 +754,7 @@ class EppCommunicator:
                 raise EppCommunicatorException(
                     "Connection closed by server before sending EPP greeting."
                 )
-            logging.debug("Received greeting from server :\n%s", self.greeting)
+            logging.debug("Received greeting from server:\n%s", self.greeting)
             return self.greeting
         except Exception as ex:
             self.disconnect()
@@ -929,7 +929,7 @@ class EppCommunicator:
             self.disconnect()
 
         self._sync_login_state(cmd, code)
-        logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
+        # logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
 
         return EppResultData(
             code=code,
