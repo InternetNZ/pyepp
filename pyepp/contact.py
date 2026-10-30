@@ -363,7 +363,12 @@ class Contact(BaseCommand):
 
         result_data = {
             "id": raw_response.find("id").text,
-            "status": [status.text for status in raw_response.find_all("status")],
+            # RFC 5733 §4.2: Contact status identifiers are stored in the 's' attribute
+            # (e.g. <contact:status s="linked"/>). Fall back to element text if 's' is missing.
+            "status": [
+                status.get("s") or status.text
+                for status in raw_response.find_all("status")
+            ],
             "create_date": raw_response.find("crDate").text,
             "create_client_id": raw_response.find("crID").text,
             "sponsoring_client_id": raw_response.find("clID").text,

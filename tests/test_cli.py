@@ -572,6 +572,7 @@ class CliFormatOutputTest(unittest.TestCase):
         self.assertIn("123 Main St", output)
         self.assertIn("+64.41234567", output)
         self.assertIn("email", output)
+        self.assertIn("ok", output)
 
     def test_table_format_host_data(self) -> None:
         """Verify TABLE output format renders Host Information sub-table with IP addresses."""
