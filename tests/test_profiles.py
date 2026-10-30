@@ -392,6 +392,40 @@ password = test_pass
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
 
+    @patch("pyepp.epp.ssl.create_default_context")
+    def test_epp_communicator_from_profile_with_cert_and_key_expanded(
+        self, mock_ssl: MagicMock
+    ) -> None:
+        """Verify EppCommunicator.from_profile uses expanded cert/key when connecting."""
+        ini_content = """[profile tls_test]
+server = epp.tls.test
+client_cert = ~/.pyepp/certs/client.crt
+client_key = ~/.pyepp/certs/client.key
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            epp = EppCommunicator.from_profile(
+                "tls_test", config_file=cfg_path, dry_run=False
+            )
+            expected_cert = os.path.expanduser("~/.pyepp/certs/client.crt")
+            expected_key = os.path.expanduser("~/.pyepp/certs/client.key")
+            self.assertEqual(epp._client_cert, expected_cert)
+            self.assertEqual(epp._client_key, expected_key)
+
+            mock_context = MagicMock()
+            mock_ssl.return_value = mock_context
+            epp._read = MagicMock(return_value=b"greeting")
+            epp.connect()
+            mock_context.load_cert_chain.assert_called_with(
+                certfile=expected_cert, keyfile=expected_key
+            )
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
     def test_epp_communicator_init_with_profile_param(self) -> None:
         """Verify EppCommunicator.__init__ accepts profile argument."""
         ini_content = """[profile prod]
@@ -503,6 +537,188 @@ password = Pāsswørd_€_123
         finally:
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
+
+    def test_client_cert_and_key_path_expansion(self) -> None:
+        """Verify ~ is expanded in client_cert and client_key paths."""
+        ini_content = """[profile cert_test]
+server = epp.test.net
+client_cert = ~/.pyepp/certs/client.crt
+client_key = ~/.pyepp/certs/client.key
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            prof = load_profile("cert_test", config_file=cfg_path)
+            expected_cert = os.path.expanduser("~/.pyepp/certs/client.crt")
+            expected_key = os.path.expanduser("~/.pyepp/certs/client.key")
+            self.assertEqual(prof.client_cert, expected_cert)
+            self.assertEqual(prof.client_key, expected_key)
+            self.assertEqual(prof["client_cert"], expected_cert)
+            self.assertEqual(prof["client_key"], expected_key)
+            kwargs = prof.to_communicator_kwargs()
+            self.assertEqual(kwargs["client_cert"], expected_cert)
+            self.assertEqual(kwargs["client_key"], expected_key)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_client_cert_and_key_hyphenated_keys_expansion(self) -> None:
+        """Verify ~ is expanded when using hyphenated client-cert and client-key."""
+        ini_content = """[profile hyphen_test]
+server = epp.test.net
+client-cert = ~/certs/my_client.crt
+client-key = ~/certs/my_client.key
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            prof = load_profile("hyphen_test", config_file=cfg_path)
+            expected_cert = os.path.expanduser("~/certs/my_client.crt")
+            expected_key = os.path.expanduser("~/certs/my_client.key")
+            self.assertEqual(prof.client_cert, expected_cert)
+            self.assertEqual(prof.client_key, expected_key)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_client_cert_and_key_empty_or_whitespace_resolves_to_none(self) -> None:
+        """Verify empty or whitespace strings for cert/key resolve to None."""
+        ini_content = """[profile empty_test]
+server = epp.test.net
+client_cert = 
+client_key =    
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            prof = load_profile("empty_test", config_file=cfg_path)
+            self.assertIsNone(prof.client_cert)
+            self.assertIsNone(prof.client_key)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_check_client_key_permissions_warning(self) -> None:
+        """Verify security warning is emitted on POSIX when client_key has open permissions."""
+        if os.name != "posix":
+            self.skipTest("Permission test only applies to POSIX systems")
+
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_key:
+            tf_key.write("FAKE KEY DATA")
+            key_path = tf_key.name
+
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_cfg:
+            tf_cfg.write(f"[default]\nserver=test\nclient_key={key_path}\n")
+            cfg_path = tf_cfg.name
+
+        try:
+            # Set secure permissions on config file to isolate key warning
+            os.chmod(cfg_path, 0o600)
+            # Set open permissions 0644 on key file
+            os.chmod(key_path, 0o644)
+            with patch("logging.warning") as mock_warn:
+                load_all_profiles(cfg_path)
+                mock_warn.assert_called_once()
+                self.assertIn("contains private key material but is accessible by other users", mock_warn.call_args[0][0])
+                self.assertEqual(mock_warn.call_args[0][1], key_path)
+
+            # Set secure permissions 0600 on key file
+            os.chmod(key_path, 0o600)
+            with patch("logging.warning") as mock_warn_secure:
+                load_all_profiles(cfg_path)
+                mock_warn_secure.assert_not_called()
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+            if os.path.exists(key_path):
+                os.remove(key_path)
+
+    def test_check_client_key_permissions_deduplication(self) -> None:
+        """Verify duplicate warnings are not emitted when multiple profiles inherit the same key."""
+        if os.name != "posix":
+            self.skipTest("Permission test only applies to POSIX systems")
+
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_key:
+            tf_key.write("FAKE KEY DATA")
+            key_path = tf_key.name
+
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_cfg:
+            tf_cfg.write(
+                f"[default]\nserver=test\nclient_key={key_path}\n\n"
+                f"[profile ote]\nserver=ote.test\n\n"
+                f"[profile prod]\nserver=prod.test\n"
+            )
+            cfg_path = tf_cfg.name
+
+        try:
+            os.chmod(cfg_path, 0o600)
+            os.chmod(key_path, 0o644)
+            with patch("logging.warning") as mock_warn:
+                load_all_profiles(cfg_path)
+                # Should be called exactly once despite 3 profile sections using the same key
+                mock_warn.assert_called_once()
+                self.assertIn("contains private key material", mock_warn.call_args[0][0])
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+            if os.path.exists(key_path):
+                os.remove(key_path)
+
+    def test_check_client_key_permissions_nonexistent_or_oserror(self) -> None:
+        """Verify nonexistent file and OSError during stat are handled gracefully."""
+        from pyepp.profiles import _check_client_key_permissions  # pylint: disable=import-outside-toplevel
+
+        # Non-existent file
+        with patch("logging.warning") as mock_warn:
+            _check_client_key_permissions("/nonexistent/path/to/key.pem")
+            mock_warn.assert_not_called()
+
+        # OSError during os.stat inside try-block
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_key:
+            tf_key.write("KEY")
+            key_path = tf_key.name
+
+        try:
+            with patch("os.path.isfile", return_value=True), patch(
+                "os.stat", side_effect=OSError("Disk error")
+            ):
+                with patch("logging.warning") as mock_warn:
+                    _check_client_key_permissions(key_path)
+                    mock_warn.assert_not_called()
+        finally:
+            if os.path.exists(key_path):
+                os.remove(key_path)
+
+    def test_build_profile_from_config_standalone_checked_keys_none(self) -> None:
+        """Verify _build_profile_from_config works with default checked_keys=None."""
+        from pyepp.profiles import _build_profile_from_config  # pylint: disable=import-outside-toplevel
+
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_key:
+            tf_key.write("KEY")
+            key_path = tf_key.name
+
+        try:
+            os.chmod(key_path, 0o600)
+            prof = _build_profile_from_config(
+                "standalone",
+                {
+                    "server": "epp.example.com",
+                    "client_cert": "~/cert.pem",
+                    "client_key": key_path,
+                },
+            )
+            self.assertEqual(prof.name, "standalone")
+            self.assertEqual(prof.client_cert, os.path.expanduser("~/cert.pem"))
+            self.assertEqual(prof.client_key, key_path)
+        finally:
+            if os.path.exists(key_path):
+                os.remove(key_path)
 
 
 if __name__ == "__main__":

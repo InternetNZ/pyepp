@@ -173,7 +173,11 @@ class Profile(Mapping[str, Any]):
         return Profile(**data)
 
 
-def _build_profile_from_config(name: str, config: dict[str, str]) -> Profile:
+def _build_profile_from_config(
+    name: str,
+    config: dict[str, str],
+    checked_keys: Optional[set[str]] = None,
+) -> Profile:
     """Construct a Profile instance from a merged configuration dictionary."""
     fmt = (
         config.get("output_format")
@@ -182,14 +186,40 @@ def _build_profile_from_config(name: str, config: dict[str, str]) -> Profile:
         or "XML"
     )
     ext_raw = config.get("extensions") or config.get("extension")
+
+    # Expand user home directory (~) for client certificate and key paths so they resolve
+    # reliably before being passed to ssl.SSLContext.load_cert_chain (which passes paths
+    # directly to OpenSSL without shell expansion). Stripping whitespace ensures clean
+    # path resolution, while empty/whitespace strings evaluate to None.
+    raw_cert = config.get("client_cert") or config.get("client-cert")
+    raw_key = config.get("client_key") or config.get("client-key")
+    client_cert = (
+        os.path.expanduser(str(raw_cert).strip())
+        if raw_cert and str(raw_cert).strip()
+        else None
+    )
+    client_key = (
+        os.path.expanduser(str(raw_key).strip())
+        if raw_key and str(raw_key).strip()
+        else None
+    )
+
+    # Inspect TLS private key file permissions on POSIX to protect private key material
+    # from unauthorized local users, checking each unique path once per profile load.
+    if client_key:
+        if checked_keys is None or client_key not in checked_keys:
+            _check_client_key_permissions(client_key)
+            if checked_keys is not None:
+                checked_keys.add(client_key)
+
     return Profile(
         name=name,
         server=config.get("server"),
         port=config.get("port", "700"),
         user=config.get("user"),
         password=config.get("password"),
-        client_cert=config.get("client_cert") or config.get("client-cert"),
-        client_key=config.get("client_key") or config.get("client-key"),
+        client_cert=client_cert,
+        client_key=client_key,
         extensions=_parse_extensions(ext_raw),
         output_format=fmt.strip().upper(),
         no_pretty=_parse_bool(config.get("no_pretty") or config.get("no-pretty")),
@@ -254,6 +284,28 @@ def _check_config_file_permissions(file_path: str) -> None:
             pass
 
 
+def _check_client_key_permissions(file_path: str) -> None:
+    """
+    Check and warn if client TLS private key file permissions are excessively permissive on POSIX.
+
+    Since client_key stores TLS private key material, files accessible by group or
+    world users (st_mode & 0o077) should emit a security warning advising more
+    restrictive permissions (e.g. 0600).
+    """
+    if os.name == "posix" and os.path.isfile(file_path):
+        try:
+            mode = os.stat(file_path).st_mode
+            if mode & 0o077:
+                logging.warning(
+                    "Client key file %s contains private key material but is accessible by other users "
+                    "(mode 0%o). Consider setting permissions to 0600.",
+                    file_path,
+                    mode & 0o777,
+                )
+        except OSError:
+            pass
+
+
 def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
     """
     Load all configuration profiles defined in the config.ini file.
@@ -275,13 +327,18 @@ def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
     default_config, has_pyepp_section = _load_base_default_config(parser)
 
     profiles: dict[str, Profile] = {}
+    checked_keys: set[str] = set()
 
     # 2. Build default profile
-    profiles["default"] = _build_profile_from_config("default", default_config)
+    profiles["default"] = _build_profile_from_config(
+        "default", default_config, checked_keys=checked_keys
+    )
 
     # Register 'pyepp' as a profile name if explicitly present in config
     if has_pyepp_section:
-        profiles["pyepp"] = _build_profile_from_config("pyepp", default_config)
+        profiles["pyepp"] = _build_profile_from_config(
+            "pyepp", default_config, checked_keys=checked_keys
+        )
 
     # 3. Build specific named profiles with normalized lowercase keys to prevent
     # duplicate entries differing only by case or prefix (e.g. [OTE] and [profile ote]).
@@ -300,7 +357,9 @@ def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
         for k, v in parser.items(sec):
             merged[k.lower()] = v
 
-        profiles[prof_name] = _build_profile_from_config(prof_name, merged)
+        profiles[prof_name] = _build_profile_from_config(
+            prof_name, merged, checked_keys=checked_keys
+        )
 
     return profiles
 
