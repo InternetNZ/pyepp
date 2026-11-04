@@ -2,6 +2,7 @@
 CLI Interactive Shell unit tests.
 """
 
+import logging
 import os
 import stat
 import tempfile
@@ -343,15 +344,21 @@ server = epp.incomplete.net.nz
         hello_opts = completer.get_candidates("hello --", "--")
         self.assertEqual(hello_opts, ["--help"])
 
-        # Built-in 'set' completions
+        # Built-in 'set' and 'unset' completions
         set_keys = completer.get_candidates("set ", "")
-        self.assertEqual(list(set_keys), ["output-format", "pretty", "dry-run"])
+        self.assertEqual(list(set_keys), ["output-format", "pretty", "dry-run", "debug"])
 
         set_fmt = completer.get_candidates("set output-format T", "T")
         self.assertEqual(set_fmt, ["TABLE"])
 
         set_pretty = completer.get_candidates("set pretty ", "")
         self.assertEqual(set_pretty, ["on", "off"])
+
+        set_debug = completer.get_candidates("set debug ", "")
+        self.assertEqual(set_debug, ["on", "off"])
+
+        unset_keys = completer.get_candidates("unset ", "")
+        self.assertEqual(unset_keys, ["debug", "dry-run", "pretty"])
 
         # Built-in 'help' completions
         help_cmds = completer.get_candidates("help c", "c")
@@ -368,6 +375,8 @@ server = epp.incomplete.net.nz
 
     def test_shell_builtins_and_settings(self) -> None:
         """Verify built-in commands (status, set, help, reconnect, clear, comments, empty lines)."""
+        root_logger = logging.getLogger()
+        self.addCleanup(root_logger.setLevel, root_logger.level)
         cli_obj = self._create_mock_cli(dry_run=True)
 
         # Empty line and comment
@@ -407,13 +416,59 @@ server = epp.incomplete.net.nz
         self.assertTrue(execute_shell_line(cli_obj, "set unknown_key val"))
         self.assertTrue(execute_shell_line(cli_obj, "set only_one_arg"))
 
+        # Set and unset debug mode
+        self.assertTrue(execute_shell_line(cli_obj, "set debug on"))
+        self.assertTrue(cli_obj.debug)
+        self.assertEqual(logging.getLogger().level, logging.DEBUG)
+
+        self.assertTrue(execute_shell_line(cli_obj, "set debug off"))
+        self.assertFalse(cli_obj.debug)
+        self.assertEqual(logging.getLogger().level, logging.ERROR)
+
+        self.assertTrue(execute_shell_line(cli_obj, "set debug"))
+        self.assertTrue(cli_obj.debug)
+        self.assertEqual(logging.getLogger().level, logging.DEBUG)
+
+        self.assertTrue(execute_shell_line(cli_obj, "unset debug"))
+        self.assertFalse(cli_obj.debug)
+        self.assertEqual(logging.getLogger().level, logging.ERROR)
+
+        self.assertTrue(execute_shell_line(cli_obj, "set debug invalid"))
+        self.assertTrue(execute_shell_line(cli_obj, "unset"))
+        self.assertTrue(execute_shell_line(cli_obj, "unset invalid_key"))
+        self.assertTrue(execute_shell_line(cli_obj, "unset dry-run"))
+        self.assertFalse(cli_obj.dry_run)
+
+        # Shorthand 1-arg 'set dry-run', 'unset pretty', 'set pretty'
+        self.assertTrue(execute_shell_line(cli_obj, "set dry-run"))
+        self.assertTrue(cli_obj.dry_run)
+        self.assertTrue(execute_shell_line(cli_obj, "unset pretty"))
+        self.assertTrue(cli_obj.no_pretty)
+        self.assertTrue(execute_shell_line(cli_obj, "set pretty"))
+        self.assertFalse(cli_obj.no_pretty)
+
+        # Disabling dry-run when already disabled and logged in preserves active session
+        cli_obj.dry_run = False
+        cli_obj.epp._logged_in = True
+        cli_obj.epp._ssl_socket = MagicMock()
+        cli_obj.epp.logout.reset_mock()
+        cli_obj.epp.connect.reset_mock()
+        self.assertTrue(execute_shell_line(cli_obj, "unset dry-run"))
+        cli_obj.epp.logout.assert_not_called()
+        cli_obj.epp.connect.assert_not_called()
+        cli_obj.dry_run = True
+
         # Reconnect and clear (clear only clears screen, preserving command history)
         with patch("click.clear") as mock_clear, patch(
             "pyepp.cli.shell._readline"
-        ) as mock_rl:
+        ) as mock_rl, patch("pyepp.cli.shell._supports_ansi_tty", return_value=True), patch(
+            "pyepp.cli.shell.sys.stdout"
+        ) as mock_stdout:
             self.assertTrue(execute_shell_line(cli_obj, "clear"))
             mock_clear.assert_called_once()
             mock_rl.clear_history.assert_not_called()
+            clear_writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
+            self.assertIn("\033[1;20r\033[20;1H", clear_writes)
 
         self.assertTrue(execute_shell_line(cli_obj, "reconnect"))
 
@@ -465,17 +520,29 @@ server = epp.incomplete.net.nz
             writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
             self.assertIn("● connected", writes)
             self.assertIn("─", writes)
-            self.assertIn("\r\033[2A", writes)
-            self.assertIn("\n\r\033[2K", writes)
+            self.assertIn("\033[1;20r", writes)
+            self.assertIn("\033[22;1H", writes)
+            self.assertIn("\033[24;1H\033[2K", writes)
+            self.assertIn("status", writes)
+            # Pressing Enter keeps the cursor on prompt_row (row 22) without inserting a blank
+            # newline into scroll_bottom until _flush_pending_command() runs on output.
+            self.assertNotIn("\033[20;1H\r\033[2K", writes)
+            from pyepp.cli.shell import _flush_pending_command
 
-        # Empty input clears both the bottom divider and status bar rows
+            mock_stdout.reset_mock()
+            _flush_pending_command()
+            flush_writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
+            self.assertIn("\033[20;1H\r\033[2K", flush_writes)
+            self.assertIn("status\n\r\033[2K", flush_writes)
+
+        # Empty input clears the prompt row and anchors cursor at scroll_bottom without echoing command
         with patch("pyepp.cli.shell.sys.stdout") as mock_stdout, patch.dict(
             os.environ, {"TERM": "xterm-256color"}, clear=False
         ), patch("builtins.input", return_value="   "):
             mock_stdout.isatty.return_value = True
             self.assertEqual(_read_line_with_status_bar(cli_obj), "   ")
             writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
-            self.assertIn("\r\033[2K\n\r\033[2K\033[A", writes)
+            self.assertIn("\033[20;1H\r\033[2K", writes)
 
         # Test TTY status bar cleanup when KeyboardInterrupt occurs during input()
         with patch("pyepp.cli.shell.sys.stdout") as mock_stdout, patch.dict(
@@ -485,7 +552,21 @@ server = epp.incomplete.net.nz
             with self.assertRaises(KeyboardInterrupt):
                 _read_line_with_status_bar(cli_obj)
             writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
-            self.assertIn("\n\r\033[2K\n\r\033[2K\033[A", writes)
+            self.assertIn("\033[20;1H\r\033[2K", writes)
+
+        # Test _enter_bottom_dock and _exit_bottom_dock reserve and release the 4-row dock
+        from pyepp.cli.shell import _enter_bottom_dock, _exit_bottom_dock
+
+        with patch("pyepp.cli.shell.sys.stdout") as mock_stdout, patch.dict(
+            os.environ, {"TERM": "xterm-256color"}, clear=False
+        ):
+            mock_stdout.isatty.return_value = True
+            _enter_bottom_dock()
+            _exit_bottom_dock()
+            dock_writes = "".join(c.args[0] for c in mock_stdout.write.call_args_list)
+            self.assertIn("\033[1;20r\033[20;1H", dock_writes)
+            self.assertIn("\033[r", dock_writes)
+            self.assertIn("\033[24;1H\033[2K", dock_writes)
 
         # Test status bar truncation to max_width so narrow terminals never wrap
         truncated_plain = format_status_bar(cli_obj, color=False, max_width=30)
@@ -619,18 +700,34 @@ server = epp.incomplete.net.nz
             mock_rl.__doc__ = "Importing this module enables command line editing using libedit readline."
             mock_rl.get_completer_delims.return_value = " \t\n\"\\'`@$><=;|&{(-"
             _configure_readline(completer)
-            mock_rl.parse_and_bind.assert_called_with("bind ^I rl_complete")
+            mock_rl.parse_and_bind.assert_any_call("bind ^I rl_complete")
+            mock_rl.parse_and_bind.assert_any_call("bind -k up ed-search-prev-history")
+            mock_rl.parse_and_bind.assert_any_call("bind -k down ed-search-next-history")
+            mock_rl.parse_and_bind.assert_any_call("bind ^[[A ed-search-prev-history")
+            mock_rl.parse_and_bind.assert_any_call("bind ^[[B ed-search-next-history")
+            mock_rl.parse_and_bind.assert_any_call("bind ^[OA ed-search-prev-history")
+            mock_rl.parse_and_bind.assert_any_call("bind ^[OB ed-search-next-history")
             self.assertNotIn("-", mock_rl.set_completer_delims.call_args[0][0])
 
             mock_rl.__doc__ = "GNU readline"
+            mock_rl.parse_and_bind.reset_mock()
             old_delims = _configure_readline(completer)
-            mock_rl.parse_and_bind.assert_called_with("tab: complete")
+            mock_rl.parse_and_bind.assert_any_call("tab: complete")
+            mock_rl.parse_and_bind.assert_any_call('"\\e[A": history-search-backward')
+            mock_rl.parse_and_bind.assert_any_call('"\\e[B": history-search-forward')
+            mock_rl.parse_and_bind.assert_any_call('"\\eOA": history-search-backward')
+            mock_rl.parse_and_bind.assert_any_call('"\\eOB": history-search-forward')
 
             from pyepp.cli.shell import _cleanup_readline
 
+            mock_rl.parse_and_bind.reset_mock()
             _cleanup_readline(old_delims)
             mock_rl.set_completer.assert_called_with(None)
             mock_rl.set_completer_delims.assert_called_with(old_delims)
+            mock_rl.parse_and_bind.assert_any_call('"\\e[A": previous-history')
+            mock_rl.parse_and_bind.assert_any_call('"\\e[B": next-history')
+            mock_rl.parse_and_bind.assert_any_call('"\\eOA": previous-history')
+            mock_rl.parse_and_bind.assert_any_call('"\\eOB": next-history')
             mock_rl.clear_history.assert_called_once()
 
     def test_sensitive_history_scrubbing(self) -> None:
@@ -971,7 +1068,7 @@ server = epp.incomplete.net.nz
         _load_persistent_history(fresh_cli, self.history_path)
         self.assertEqual(fresh_cli.session_history, ["domain check [31mexample.nz"])
 
-        # 4. Comment lines clear both Row 3 and Row 4 in _read_line_with_status_bar
+        # 4. Comment lines clear the prompt row and return cursor to scroll_bottom without echoing
         with (
             patch("pyepp.cli.shell._supports_ansi_tty", return_value=True),
             patch("builtins.input", return_value="# just a comment"),
@@ -979,7 +1076,181 @@ server = epp.incomplete.net.nz
         ):
             self.assertEqual(_read_line_with_status_bar(cli_obj), "# just a comment")
             writes = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
-            self.assertIn("\r\033[2K\n\r\033[2K\033[A", writes)
+            self.assertIn("\033[20;1H\r\033[2K", writes)
+            self.assertNotIn("# just a comment", writes)
+
+    def test_debug_mode_lifecycle_and_status_display(self) -> None:
+        """Verify setting and unsetting debug mode, status bar indicator, status output, and log levels."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        root_logger = logging.getLogger()
+        self.addCleanup(root_logger.setLevel, root_logger.level)
+
+        # Initially debug is False and not in status bar
+        self.assertFalse(getattr(cli_obj, "debug", False))
+        self.assertNotIn("debug: on", format_status_bar(cli_obj, color=False))
+
+        # 'status' output displays Debug: False
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "status"))
+            status_output = mock_echo.call_args[0][0]
+            self.assertIn("Debug:", status_output)
+            self.assertIn("False", status_output)
+
+        # Enable debug mode via 'set debug on'
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "set debug on"))
+            self.assertIn("Debug mode enabled.", mock_echo.call_args[0][0])
+        self.assertTrue(cli_obj.debug)
+        self.assertEqual(root_logger.level, logging.DEBUG)
+
+        # Status bar reflects debug mode
+        self.assertIn("debug: on", format_status_bar(cli_obj, color=False))
+        self.assertIn("debug: on", format_status_bar(cli_obj, color=True))
+
+        # 'status' output displays Debug: True
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "status"))
+            status_output = mock_echo.call_args[0][0]
+            self.assertIn("Debug:", status_output)
+            self.assertIn("True", status_output)
+
+        # Unset debug mode via 'unset debug'
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "unset debug"))
+            self.assertIn("Debug mode disabled.", mock_echo.call_args[0][0])
+        self.assertFalse(cli_obj.debug)
+        self.assertEqual(root_logger.level, logging.ERROR)
+        self.assertNotIn("debug: on", format_status_bar(cli_obj, color=False))
+
+        # Test shorthand 'set debug' enables debug mode
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "set debug"))
+            self.assertIn("Debug mode enabled.", mock_echo.call_args[0][0])
+        self.assertTrue(cli_obj.debug)
+
+        # Test 'set debug off' disables debug mode
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "set debug off"))
+            self.assertIn("Debug mode disabled.", mock_echo.call_args[0][0])
+        self.assertFalse(cli_obj.debug)
+
+        # Test boolean string aliases: true, 1, yes
+        for on_val in ("true", "1", "yes"):
+            self.assertTrue(execute_shell_line(cli_obj, f"set debug {on_val}"))
+            self.assertTrue(cli_obj.debug)
+
+        # Test boolean string aliases: false, 0, no
+        for off_val in ("false", "0", "no"):
+            self.assertTrue(execute_shell_line(cli_obj, f"set debug {off_val}"))
+            self.assertFalse(cli_obj.debug)
+
+        # Test verbose restoration: when verbose is True, unsetting debug restores level to INFO
+        cli_obj.verbose = True
+        self.assertTrue(execute_shell_line(cli_obj, "set debug on"))
+        self.assertEqual(root_logger.level, logging.DEBUG)
+        self.assertTrue(execute_shell_line(cli_obj, "unset debug"))
+        self.assertEqual(root_logger.level, logging.INFO)
+
+        # Test handler initialization when root logger has no handlers
+        with patch.object(root_logger, "handlers", []), patch("logging.basicConfig") as mock_basic:
+            from pyepp.cli.shell import _set_debug_mode
+            _set_debug_mode(cli_obj, True)
+            mock_basic.assert_called_once_with(level=logging.DEBUG)
+
+    def test_double_tab_completion_renders_above_status_bar(self) -> None:
+        """Verify double-Tab completion (completion_type == ord('?')) renders matches above redrawn status bar."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        completer = ShellCompleter(cli_obj)
+
+        with (
+            patch("pyepp.cli.shell._readline") as mock_rl,
+            patch("pyepp.cli.shell._supports_ansi_tty", return_value=True),
+            patch("pyepp.cli.shell._use_color", return_value=True),
+            patch("sys.stdout") as mock_stdout,
+        ):
+            mock_rl.get_line_buffer.return_value = "domain "
+            mock_rl.get_completion_type.return_value = ord("?")
+            mock_rl.get_endidx.return_value = 7
+
+            # Double-Tab returns None so native readline/libedit does not overwrite the status bar
+            self.assertIsNone(completer.complete("", 0))
+            writes = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            # Completion candidates are rendered
+            self.assertIn("check", writes)
+            self.assertIn("restore-report", writes)
+            # Status bar and prompt with current buffer are redrawn without \x01/\x02 markers
+            self.assertIn("dry-run", writes)
+            self.assertIn("domain ", writes)
+            self.assertNotIn("\x01", writes)
+            self.assertNotIn("\x02", writes)
+            mock_stdout.flush.assert_called()
+
+            # When cursor is in the middle of the buffer (get_endidx < len(line_buffer)),
+            # cursor is repositioned backward with \033[<N>D
+            mock_stdout.reset_mock()
+            mock_rl.get_line_buffer.return_value = "domain  example.nz"
+            mock_rl.get_endidx.return_value = 7
+            self.assertIsNone(completer.complete("", 0))
+            writes_mid = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            self.assertIn("\033[11D", writes_mid)
+
+            # Typing 'domain update' (no trailing space) + double-Tab:
+            # 1st Tab appends trailing space ('update ') and records expanded prefix;
+            # 2nd Tab displays 'domain update' option flags cleanly above the status bar.
+            mock_stdout.reset_mock()
+            mock_rl.get_line_buffer.return_value = "domain update"
+            mock_rl.get_endidx.return_value = 13
+            mock_rl.get_completion_type.return_value = ord("\t")
+            self.assertEqual(completer.complete("update", 0), "update ")
+            mock_rl.get_line_buffer.return_value = "domain update "
+            mock_rl.get_endidx.return_value = 14
+            self.assertIsNone(completer.complete("", 0))
+            writes_dom_upd = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            self.assertIn("--add-admin", writes_dom_upd)
+            self.assertIn("--remove-tech", writes_dom_upd)
+
+            # Direct '?' completion on 'domain update' (no trailing space) also resolves
+            # next-token options and renders above the status bar.
+            mock_stdout.reset_mock()
+            mock_rl.get_line_buffer.return_value = "domain update"
+            mock_rl.get_endidx.return_value = 13
+            mock_rl.get_completion_type.return_value = ord("?")
+            self.assertIsNone(completer.complete("update", 0))
+            writes_direct_q = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            self.assertIn("--add-admin", writes_direct_q)
+
+            # Typing 'domain update ' (with trailing space) + double-Tab:
+            # 1st Tab expands common prefix '--'; 2nd Tab immediately displays all flags.
+            mock_stdout.reset_mock()
+            mock_rl.get_line_buffer.return_value = "domain update "
+            mock_rl.get_endidx.return_value = 14
+            mock_rl.get_completion_type.return_value = ord("\t")
+            self.assertEqual(completer.complete("", 0), "--add-admin")
+            mock_rl.get_line_buffer.return_value = "domain update --"
+            mock_rl.get_endidx.return_value = 16
+            self.assertIsNone(completer.complete("--", 0))
+            writes_prefix_exp = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            self.assertIn("--add-admin", writes_prefix_exp)
+            self.assertIn("--registrant", writes_prefix_exp)
+
+            # Single-match command with no next-token candidates ('exit') on '?' still renders
+            # above the status bar instead of letting readline overwrite the status bar.
+            mock_stdout.reset_mock()
+            mock_rl.get_line_buffer.return_value = "exit"
+            mock_rl.get_endidx.return_value = 4
+            mock_rl.get_completion_type.return_value = ord("?")
+            self.assertIsNone(completer.complete("exit", 0))
+            writes_single = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            self.assertIn("exit", writes_single)
+
+            # display_matches_hook fallback renders above status bar
+            mock_stdout.reset_mock()
+            mock_rl.get_line_buffer.return_value = "domain update --"
+            mock_rl.get_endidx.return_value = 16
+            completer.display_matches_hook("--", ["--add-admin", "--help"], 11)
+            writes_hook = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            self.assertIn("--add-admin", writes_hook)
+            self.assertIn("--help", writes_hook)
 
 
 if __name__ == "__main__":

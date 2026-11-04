@@ -4,6 +4,7 @@ Interactive CLI Shell / REPL session module for PyEPP.
 Provides a persistent EPP session (`pyepp shell`) with ASCII startup banner,
 readline tab auto-completion, command history, and mid-session profile switching.
 """
+# pylint: disable=too-many-lines
 
 import logging
 import os
@@ -41,11 +42,12 @@ ASCII_BANNER = r"""
 
 VALID_OUTPUT_FORMATS = ("XML", "OBJECT", "MIN", "TABLE")
 SHELL_BUILTIN_COMMANDS = (
-    "use", "set", "status", "reconnect", "clear", "history", "last", "save", "help", "exit", "quit"
+    "use", "set", "unset", "status", "reconnect", "clear", "history", "last", "save", "help", "exit", "quit"
 )
 SHELL_ALIASES = {"?": "help", "q": "exit", "st": "status", "hist": "history"}
 MAX_HISTORY_ENTRIES = 500
-SET_KEYS = ("output-format", "pretty", "dry-run")
+SET_KEYS = ("output-format", "pretty", "dry-run", "debug")
+UNSET_KEYS = ("debug", "dry-run", "pretty")
 
 # Regex matching ANSI SGR escape sequences so readline prompt ignore markers (\x01/\x02) wrap color codes.
 _ANSI_ESCAPE_RE = re.compile(r"(\x1b\[[0-9;]*m)")
@@ -69,6 +71,8 @@ Session & Shell Commands:
   set output-format <FORMAT>       Set output format (XML, OBJECT, MIN, TABLE)
   set pretty <on|off>              Enable or disable pretty-printed output
   set dry-run <on|off>             Enable or disable dry-run mode
+  set debug <on|off>               Enable or disable debug logging
+  unset <debug|dry-run|pretty>     Disable debug logging, dry-run, or pretty output
   last [FORMAT]                    Re-display the last command response in XML, TABLE, MIN, or OBJECT
   save <file> [FORMAT]             Save the last command response to a file
   history [count] / hist           Show command history (use !! or !<N> to re-run a command)
@@ -306,7 +310,12 @@ def format_prompt(cli_obj, color: bool = False) -> str:
 
 
 def _append_telemetry_segments(cli_obj, segments: list[str], color: bool) -> None:
-    """Append optional poll queue badge and last command latency to status bar segments."""
+    """Append optional poll queue badge, debug indicator, and last command latency to status bar segments."""
+    # Display 'debug: on' badge in yellow when debug mode is enabled in the active session
+    if getattr(cli_obj, "debug", False):
+        dbg_text = "debug: on"
+        segments.append(click.style(dbg_text, fg="yellow", bold=True) if color else dbg_text)
+
     poll_count = getattr(cli_obj, "poll_queue_count", None)
     if isinstance(poll_count, int) and poll_count > 0:
         badge = f"✉ poll: {poll_count}"
@@ -368,38 +377,151 @@ def format_divider_line(width: int, color: bool = False) -> str:
     return click.style(rule, fg="bright_black") if color else rule
 
 
+def _get_dock_geometry() -> tuple[int, int, int, int, int, int]:
+    """
+    Compute terminal width and 1-based row coordinates for the scrollable output
+    region (`1..scroll_bottom`) and the pinned 4-row bottom dock (`H-3..H`).
+
+    Returns:
+        Tuple of (width, scroll_bottom, top_div_row, prompt_row, bot_div_row, status_row).
+    """
+    size = shutil.get_terminal_size((80, 24))
+    width = max(1, size.columns - 1)
+    lines = max(6, size.lines)
+    scroll_bottom = lines - 4
+    return width, scroll_bottom, lines - 3, lines - 2, lines - 1, lines
+
+
+class _ShellLoggingFilter(logging.Filter):  # pylint: disable=too-few-public-methods
+    """Flush pending shell command into the scrollable output region before emitting log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        _flush_pending_command()
+        return True
+
+
+def _enter_bottom_dock() -> None:
+    """Reserve the bottom 4 terminal rows for the prompt dock and activate the scroll region."""
+    if not _supports_ansi_tty():
+        return
+    _, scroll_bottom, _, _, _, _ = _get_dock_geometry()
+    # Push existing terminal lines up by 4 rows so the dock never overwrites prior content,
+    # then set DECSTBM (\033[1;<scroll_bottom>r) and anchor the cursor at scroll_bottom.
+    sys.stdout.write("\n" * 4 + f"\033[1;{scroll_bottom}r\033[{scroll_bottom};1H")
+    sys.stdout.flush()
+
+
+def _exit_bottom_dock() -> None:
+    """Reset the terminal scroll region to full screen and erase the 4-row bottom dock on exit."""
+    if not _supports_ansi_tty():
+        return
+    _, scroll_bottom, top_div_row, prompt_row, bot_div_row, status_row = _get_dock_geometry()
+    sys.stdout.write(
+        "\033[r"
+        f"\033[{top_div_row};1H\033[2K"
+        f"\033[{prompt_row};1H\033[2K"
+        f"\033[{bot_div_row};1H\033[2K"
+        f"\033[{status_row};1H\033[2K"
+        f"\033[{scroll_bottom};1H\r\033[2K"
+    )
+    sys.stdout.flush()
+
+
+def _flush_pending_command() -> None:
+    """
+    Transition a submitted command from the pinned bottom dock into the scrollable output
+    region right before the first line of command output is written (or after a silent command
+    completes).
+
+    Keeping the user's submitted command in place inside the bottom dock while a network
+    request is in flight prevents pressing Enter from inserting a visible blank line or
+    making the prompt dock jump before the response arrives.
+    """
+    pending_cmd = getattr(_flush_pending_command, "pending_command", None)
+    if pending_cmd is None:
+        return
+    _flush_pending_command.pending_command = None
+    if not _supports_ansi_tty():
+        return
+    width, scroll_bottom, top_div_row, prompt_row, bot_div_row, _ = _get_dock_geometry()
+    color = _use_color()
+    divider = format_divider_line(width, color=color)
+    sys.stdout.write(
+        f"\033[1;{scroll_bottom}r"
+        f"\033[{top_div_row};1H\033[2K{divider}"
+        f"\033[{prompt_row};1H\033[2K"
+        f"\033[{bot_div_row};1H\033[2K{divider}"
+        f"\033[{scroll_bottom};1H\r\033[2K{divider}\n\r\033[2K{pending_cmd}\n\r\033[2K"
+    )
+    sys.stdout.flush()
+
+
 def _read_line_with_status_bar(cli_obj) -> str:
-    """Render divider lines around the prompt and status bar below it, then read a command line."""
+    """Render the pinned 4-row bottom dock (dividers, prompt, status bar) and read a command line."""
     if not _supports_ansi_tty():
         return input(format_prompt(cli_obj, color=False))
 
+    _flush_pending_command()
     color = _use_color()
-    width = max(1, shutil.get_terminal_size((80, 24)).columns - 1)
+    width, scroll_bottom, top_div_row, prompt_row, bot_div_row, status_row = _get_dock_geometry()
     divider = format_divider_line(width, color=color)
-    # Truncate status bar to (columns - 1) so it never wraps onto a second row
-    # and corrupts the \r\033[2A vertical cursor return.
+    # Truncate status bar to (columns - 1) so it never wraps onto a second row.
     status_line = format_status_bar(cli_obj, color=color, max_width=width)
-    # Row 1: top divider (between previous result section and prompt)
-    # Row 2: prompt row (cursor returned here via \033[2A)
-    # Row 3: bottom divider (between prompt and status bar / upcoming result)
-    # Row 4: status bar
-    sys.stdout.write(f"\r\033[2K{divider}\n\033[2K\n\033[2K{divider}\n\033[2K{status_line}\r\033[2A")
+    # Lock scroll region to rows 1..scroll_bottom and render the 4-row dock at the bottom:
+    #   top_div_row (H-3): top divider
+    #   prompt_row  (H-2): input prompt
+    #   bot_div_row (H-1): bottom divider
+    #   status_row  (H):   status bar
+    sys.stdout.write(
+        f"\033[1;{scroll_bottom}r"
+        f"\033[{top_div_row};1H\033[2K{divider}"
+        f"\033[{prompt_row};1H\033[2K"
+        f"\033[{bot_div_row};1H\033[2K{divider}"
+        f"\033[{status_row};1H\033[2K{status_line}"
+        f"\033[{prompt_row};1H"
+    )
     sys.stdout.flush()
 
     try:
         line = input(format_prompt(cli_obj, color=color))
     except BaseException:
-        # Cursor is on Row 2 (prompt); clear Row 3 (divider) and Row 4 (status bar) below it.
-        sys.stdout.write("\n\r\033[2K\n\r\033[2K\033[A")
+        _flush_pending_command.pending_command = None
+        # Clear prompt row, restore bottom divider/status bar, and move cursor back into
+        # the bottom of the scrollable output region (scroll_bottom) for interrupt/exit messages.
+        sys.stdout.write(
+            f"\033[{top_div_row};1H\033[2K{divider}"
+            f"\033[{prompt_row};1H\033[2K"
+            f"\033[{bot_div_row};1H\033[2K{divider}"
+            f"\033[{status_row};1H\033[2K{status_line}"
+            f"\033[{scroll_bottom};1H\r\033[2K"
+        )
         sys.stdout.flush()
         raise
 
-    # Pressing Enter moved the cursor onto Row 3 (bottom divider).
-    # For executable commands, keep Row 3 as the divider between prompt and result and clear Row 4.
-    # For empty or comment lines, clear both Row 3 and Row 4 to avoid stacking duplicate dividers.
+    # Immediately restore bot_div_row (which readline's Enter newline moved onto) and keep the
+    # cursor at the end of the submitted command on prompt_row while the command executes.
+    # The command is scrolled into the output region only when output is emitted (or after
+    # execution completes), preventing any blank-line jump when pressing Enter.
     stripped = line.strip()
     has_output = bool(stripped and not stripped.startswith("#"))
-    sys.stdout.write("\n\r\033[2K" if has_output else "\r\033[2K\n\r\033[2K\033[A")
+    prompt_str = format_prompt(cli_obj, color=color).replace("\x01", "").replace("\x02", "")
+    if has_output:
+        _flush_pending_command.pending_command = f"{prompt_str}{line}"
+        sys.stdout.write(
+            f"\033[{top_div_row};1H\033[2K{divider}"
+            f"\033[{bot_div_row};1H\033[2K{divider}"
+            f"\033[{status_row};1H\033[2K{status_line}"
+            f"\033[{prompt_row};1H\033[2K{prompt_str}{line}"
+        )
+    else:
+        _flush_pending_command.pending_command = None
+        sys.stdout.write(
+            f"\033[{top_div_row};1H\033[2K{divider}"
+            f"\033[{prompt_row};1H\033[2K"
+            f"\033[{bot_div_row};1H\033[2K{divider}"
+            f"\033[{status_row};1H\033[2K{status_line}"
+            f"\033[{scroll_bottom};1H\r\033[2K"
+        )
     sys.stdout.flush()
     return line
 
@@ -422,6 +544,7 @@ def _print_status(cli_obj) -> None:
     fmt_label = click.style(_sanitize_display(cli_obj.output_format, "XML"), fg="magenta", bold=True)
     pretty_str = _style_bool(not cli_obj.no_pretty, false_color="yellow")
     dry_run_str = _style_bool(cli_obj.dry_run, true_color="yellow", false_color="green")
+    debug_str = _style_bool(getattr(cli_obj, "debug", False), true_color="yellow", false_color="green")
     lines = [
         f"{click.style('Profile:', fg='cyan', bold=True)}       {prof_str}",
         f"{click.style('Server:', fg='cyan', bold=True)}        {endpoint}",
@@ -432,6 +555,7 @@ def _print_status(cli_obj) -> None:
         f"{click.style('Output Format:', fg='cyan', bold=True)} {fmt_label}",
         f"{click.style('Pretty Print:', fg='cyan', bold=True)}  {pretty_str}",
         f"{click.style('Dry Run:', fg='cyan', bold=True)}       {dry_run_str}",
+        f"{click.style('Debug:', fg='cyan', bold=True)}         {debug_str}",
     ]
     poll_count = getattr(cli_obj, "poll_queue_count", None)
     if isinstance(poll_count, int):
@@ -443,50 +567,136 @@ def _print_status(cli_obj) -> None:
     utils.echo("\n".join(lines))
 
 
+def _set_debug_mode(cli_obj, enabled: bool) -> None:
+    """
+    Enable or disable debug logging mode on the active CLI session and root logger.
+
+    When enabled, the root logger level is set to DEBUG to emit raw XML payloads
+    and transport diagnostics. When disabled, the logger level is restored to INFO
+    (if verbose mode was specified at startup) or ERROR.
+    """
+    cli_obj.debug = enabled
+    root_logger = logging.getLogger()
+    if enabled:
+        # If no logging handler exists (e.g. standalone test execution), ensure basicConfig is initialized
+        if not root_logger.handlers:
+            logging.basicConfig(level=logging.DEBUG)
+        else:
+            root_logger.setLevel(logging.DEBUG)
+    else:
+        log_level = logging.INFO if getattr(cli_obj, "verbose", False) else logging.ERROR
+        root_logger.setLevel(log_level)
+
+
+def _set_output_format(cli_obj, val: str) -> None:
+    """Apply output-format setting."""
+    fmt = val.upper()
+    if fmt not in VALID_OUTPUT_FORMATS:
+        allowed = ", ".join(VALID_OUTPUT_FORMATS)
+        msg = f"Invalid output format '{val}'. Choose from: {allowed}"
+        utils.echo(click.style(msg, fg="red"), err=True)
+        return
+    cli_obj.output_format = fmt
+    utils.echo(click.style(f"Output format set to {fmt}.", fg="green"))
+
+
+def _set_pretty(cli_obj, val: str) -> None:
+    """Apply pretty-printing setting."""
+    if val.lower() in ("on", "true", "1", "yes"):
+        cli_obj.no_pretty = False
+        utils.echo(click.style("Pretty output enabled.", fg="green"))
+    elif val.lower() in ("off", "false", "0", "no"):
+        cli_obj.no_pretty = True
+        utils.echo(click.style("Pretty output disabled.", fg="yellow"))
+    else:
+        utils.echo(click.style("Usage: set pretty <on|off>", fg="yellow"), err=True)
+
+
+def _set_dry_run(cli_obj, val: str) -> None:
+    """Apply dry-run mode setting."""
+    if val.lower() in ("on", "true", "1", "yes"):
+        if not cli_obj.dry_run:
+            _safe_close_session(cli_obj)
+            cli_obj.dry_run = True
+            cli_obj.epp._dry_run = True  # pylint: disable=protected-access
+        utils.echo(click.style("Dry-run mode enabled.", fg="yellow"))
+    elif val.lower() in ("off", "false", "0", "no"):
+        # Only tear down and reconnect when transitioning out of dry-run mode or when disconnected,
+        # so disabling an already-disabled dry-run does not drop an active live EPP session.
+        was_dry_run = bool(cli_obj.dry_run)
+        cli_obj.dry_run = False
+        cli_obj.epp._dry_run = False  # pylint: disable=protected-access
+        utils.echo(click.style("Dry-run mode disabled.", fg="green"))
+        if was_dry_run or not getattr(cli_obj.epp, "is_logged_in", False):
+            _safe_close_session(cli_obj)
+            _connect_and_login(cli_obj)
+    else:
+        utils.echo(click.style("Usage: set dry-run <on|off>", fg="yellow"), err=True)
+
+
+def _set_debug(cli_obj, val: str) -> None:
+    """Apply debug logging mode setting."""
+    if val.lower() in ("on", "true", "1", "yes"):
+        _set_debug_mode(cli_obj, True)
+        utils.echo(click.style("Debug mode enabled.", fg="yellow"))
+    elif val.lower() in ("off", "false", "0", "no"):
+        _set_debug_mode(cli_obj, False)
+        utils.echo(click.style("Debug mode disabled.", fg="green"))
+    else:
+        utils.echo(click.style("Usage: set debug <on|off>", fg="yellow"), err=True)
+
+
 def _handle_set_command(cli_obj, args: list[str]) -> None:
     """Handle 'set <key> <value>' shell command to modify session settings on the fly."""
+    # Allow 'set <boolean-key>' without an explicit value as a natural shorthand to enable it
+    if len(args) == 1:
+        single_key = args[0].lower()
+        if single_key == "debug":
+            _set_debug(cli_obj, "on")
+            return
+        if single_key in ("dry-run", "dry_run"):
+            _set_dry_run(cli_obj, "on")
+            return
+        if single_key == "pretty":
+            _set_pretty(cli_obj, "on")
+            return
+
     if len(args) != 2:
         utils.echo(
-            click.style("Usage: set <output-format|pretty|dry-run> <value>", fg="yellow"),
+            click.style("Usage: set <output-format|pretty|dry-run|debug> <value>", fg="yellow"),
             err=True,
         )
         return
 
     key, val = args[0].lower(), args[1].strip()
     if key in ("output-format", "output_format", "format"):
-        fmt = val.upper()
-        if fmt not in VALID_OUTPUT_FORMATS:
-            allowed = ", ".join(VALID_OUTPUT_FORMATS)
-            msg = f"Invalid output format '{val}'. Choose from: {allowed}"
-            utils.echo(click.style(msg, fg="red"), err=True)
-            return
-        cli_obj.output_format = fmt
-        utils.echo(click.style(f"Output format set to {fmt}.", fg="green"))
+        _set_output_format(cli_obj, val)
     elif key == "pretty":
-        if val.lower() in ("on", "true", "1", "yes"):
-            cli_obj.no_pretty = False
-            utils.echo(click.style("Pretty output enabled.", fg="green"))
-        elif val.lower() in ("off", "false", "0", "no"):
-            cli_obj.no_pretty = True
-            utils.echo(click.style("Pretty output disabled.", fg="yellow"))
-        else:
-            utils.echo(click.style("Usage: set pretty <on|off>", fg="yellow"), err=True)
+        _set_pretty(cli_obj, val)
     elif key in ("dry-run", "dry_run"):
-        if val.lower() in ("on", "true", "1", "yes"):
-            _safe_close_session(cli_obj)
-            cli_obj.dry_run = True
-            cli_obj.epp._dry_run = True  # pylint: disable=protected-access
-            utils.echo(click.style("Dry-run mode enabled.", fg="yellow"))
-        elif val.lower() in ("off", "false", "0", "no"):
-            _safe_close_session(cli_obj)
-            cli_obj.dry_run = False
-            cli_obj.epp._dry_run = False  # pylint: disable=protected-access
-            utils.echo(click.style("Dry-run mode disabled.", fg="green"))
-            _connect_and_login(cli_obj)
-        else:
-            utils.echo(click.style("Usage: set dry-run <on|off>", fg="yellow"), err=True)
+        _set_dry_run(cli_obj, val)
+    elif key == "debug":
+        _set_debug(cli_obj, val)
     else:
         msg = f"Unknown setting '{key}'. Available settings: {', '.join(SET_KEYS)}"
+        utils.echo(click.style(msg, fg="red"), err=True)
+
+
+def _handle_unset_command(cli_obj, args: list[str]) -> None:
+    """Handle 'unset <key>' shell command to disable boolean settings (debug, dry-run, pretty)."""
+    if len(args) != 1:
+        utils.echo(click.style("Usage: unset <debug|dry-run|pretty>", fg="yellow"), err=True)
+        return
+
+    key = args[0].lower()
+    if key == "debug":
+        _set_debug(cli_obj, "off")
+    elif key in ("dry-run", "dry_run"):
+        _set_dry_run(cli_obj, "off")
+    elif key == "pretty":
+        _set_pretty(cli_obj, "off")
+    else:
+        msg = f"Unknown setting '{key}'. Available settings to unset: {', '.join(UNSET_KEYS)}"
         utils.echo(click.style(msg, fg="red"), err=True)
 
 
@@ -597,11 +807,14 @@ def _dispatch_click_command(cli_obj, tokens: list[str]) -> None:
         return
 
     record_latency = "--help" not in sub_args and "-h" not in sub_args
+    if not record_latency:
+        _flush_pending_command()
     start_t = time.perf_counter()
     try:
         cmd_obj.main(args=sub_args, prog_name=cmd_name, obj=cli_obj, standalone_mode=False)
     except click.ClickException as exc:
         record_latency = False
+        _flush_pending_command()
         exc.show()
     except click.Abort:
         record_latency = False
@@ -634,7 +847,12 @@ def _handle_builtin_command(cli_obj, cmd: str, args: list[str]) -> None:
         return
 
     if cmd == "clear":
+        _flush_pending_command.pending_command = None
         click.clear()
+        if _supports_ansi_tty():
+            _, scroll_bottom, _, _, _, _ = _get_dock_geometry()
+            sys.stdout.write(f"\033[1;{scroll_bottom}r\033[{scroll_bottom};1H")
+            sys.stdout.flush()
         return
 
     if cmd == "reconnect":
@@ -646,6 +864,7 @@ def _handle_builtin_command(cli_obj, cmd: str, args: list[str]) -> None:
         "status": lambda: _print_status(cli_obj),
         "use": lambda: _handle_use_command(cli_obj, args),
         "set": lambda: _handle_set_command(cli_obj, args),
+        "unset": lambda: _handle_unset_command(cli_obj, args),
         "history": lambda: _handle_history_command(cli_obj, args),
         "last": lambda: _handle_last_command(cli_obj, args),
         "save": lambda: _handle_save_command(cli_obj, args),
@@ -752,6 +971,7 @@ class ShellCompleter:
     def __init__(self, cli_obj) -> None:
         self.cli_obj = cli_obj
         self._matches: list[str] = []
+        self._last_prefix_expanded: Optional[str] = None
 
     def _get_profile_names(self) -> list[str]:
         """Return available profile names from configuration file."""
@@ -780,6 +1000,8 @@ class ShellCompleter:
             candidates = [p for p in self._get_profile_names() if p.lower().startswith(text.lower())]
         elif first == "set":
             candidates = [k for k in SET_KEYS if k.startswith(text.lower())]
+        elif first == "unset":
+            candidates = [k for k in UNSET_KEYS if k.startswith(text.lower())]
         elif first == "last":
             candidates = [f for f in VALID_OUTPUT_FORMATS if f.startswith(text.upper())]
         elif first in ("help", "?"):
@@ -809,7 +1031,7 @@ class ShellCompleter:
         if first == "set" and len(tokens) == 2:
             if second == "output-format":
                 candidates = [f for f in VALID_OUTPUT_FORMATS if f.startswith(text.upper())]
-            elif second in ("pretty", "dry-run"):
+            elif second in ("pretty", "dry-run", "debug"):
                 candidates = [v for v in ("on", "off") if v.startswith(text.lower())]
         elif first == "save" and len(tokens) == 2:
             candidates = [f for f in VALID_OUTPUT_FORMATS if f.startswith(text.upper())]
@@ -851,11 +1073,121 @@ class ShellCompleter:
 
         return self._complete_subsequent_tokens(tokens, text, cmd_groups)
 
+    def _format_completion_columns(self, matches: list[str], width: int) -> str:
+        """Format completion candidates into aligned multi-column rows that fit within `width`."""
+        col_width = min(max(1, width), max(len(m) for m in matches) + 4)
+        cols = max(1, width // col_width)
+        rows = (len(matches) + cols - 1) // cols
+        lines: list[str] = []
+        for row_idx in range(rows):
+            row_items: list[str] = []
+            for col_idx in range(cols):
+                idx = row_idx + col_idx * rows
+                if idx < len(matches):
+                    row_items.append(matches[idx].ljust(col_width))
+            lines.append("\r\033[2K" + "".join(row_items).rstrip())
+        return "\n".join(lines)
+
+    def _display_matches_with_status_bar(self, matches: list[str], line_buffer: str) -> None:
+        """
+        Render completion candidates inside the scrollable output region above the pinned
+        4-row bottom dock, then restore the prompt, current line buffer, and cursor position.
+        """
+        color = _use_color()
+        width, scroll_bottom, top_div_row, prompt_row, bot_div_row, status_row = _get_dock_geometry()
+        divider = format_divider_line(width, color=color)
+        status_line = format_status_bar(self.cli_obj, color=color, max_width=width)
+        grid = self._format_completion_columns(matches, width)
+        # Strip readline prompt ignore markers (\x01 / \x02) when writing directly to stdout
+        prompt_str = format_prompt(self.cli_obj, color=color).replace("\x01", "").replace("\x02", "")
+        endidx = (
+            _readline.get_endidx()
+            if _readline is not None and hasattr(_readline, "get_endidx")
+            else len(line_buffer)
+        )
+
+        # Print the current prompt line and completion grid at scroll_bottom (so they scroll
+        # upward in the scrollable region 1..scroll_bottom), then redraw the pinned 4-row dock
+        # at rows (H-3)..H and restore the active prompt + cursor offset on prompt_row (H-2).
+        sys.stdout.write(
+            f"\033[1;{scroll_bottom}r"
+            f"\033[{scroll_bottom};1H\r\033[2K{prompt_str}{line_buffer}\n{grid}\n\r\033[2K"
+            f"\033[{top_div_row};1H\033[2K{divider}"
+            f"\033[{bot_div_row};1H\033[2K{divider}"
+            f"\033[{status_row};1H\033[2K{status_line}"
+            f"\033[{prompt_row};1H\033[2K{prompt_str}{line_buffer}"
+        )
+        if len(line_buffer) > endidx:
+            sys.stdout.write(f"\033[{len(line_buffer) - endidx}D")
+        sys.stdout.flush()
+
+    def display_matches_hook(
+        self, _substitution: str, matches: list[str], _longest_match_length: int
+    ) -> None:
+        """Readline match-display hook ensuring native match lists never overwrite the status bar."""
+        if matches and _supports_ansi_tty():
+            full_buffer = _readline.get_line_buffer() if _readline is not None else ""
+            self._display_matches_with_status_bar(list(matches), full_buffer)
+
+    def _resolve_display_candidates(self, active_buffer: str, text: str) -> list[str]:
+        """Return candidates to display on double-Tab, advancing to next-token options if `text` is complete."""
+        if self._matches == [text]:
+            next_matches = self.get_candidates(active_buffer + " ", "")
+            if next_matches:
+                return next_matches
+        return self._matches
+
     def complete(self, text: str, state: int) -> Optional[str]:
         """Readline completer callback."""
         if state == 0:
-            line_buffer = _readline.get_line_buffer() if _readline is not None else text
-            self._matches = self.get_candidates(line_buffer, text)
+            full_buffer = _readline.get_line_buffer() if _readline is not None else text
+            endidx = (
+                _readline.get_endidx()
+                if _readline is not None and hasattr(_readline, "get_endidx")
+                else None
+            )
+            active_buffer = full_buffer[:endidx] if isinstance(endidx, int) else full_buffer
+            self._matches = self.get_candidates(active_buffer, text)
+            completion_type = (
+                _readline.get_completion_type()
+                if _readline is not None and hasattr(_readline, "get_completion_type")
+                else 0
+            )
+            # Detect when the second Tab of a double-Tab immediately follows an automatic
+            # common-prefix or trailing-space expansion from the first Tab (e.g. 'domain update'
+            # -> 'domain update ' or 'domain update ' -> 'domain update --').
+            is_second_tab_after_expand = (
+                self._last_prefix_expanded is not None
+                and active_buffer == self._last_prefix_expanded
+            )
+            self._last_prefix_expanded = None
+
+            # When readline requests a completion listing (double-Tab '?', or show-all '!'/'@')
+            # or on the second Tab immediately after prefix expansion in an interactive ANSI TTY,
+            # render the candidate list (including single-match or next-token candidates) above
+            # the redrawn prompt frame and status bar so readline never writes onto the status bar.
+            if (
+                completion_type in (ord("?"), ord("!"), ord("@")) or is_second_tab_after_expand
+            ) and _supports_ansi_tty():
+                display_list = self._resolve_display_candidates(active_buffer, text)
+                if display_list:
+                    self._display_matches_with_status_bar(display_list, full_buffer)
+                    self._matches = []
+                    return None
+
+            # When the token under cursor is already a complete match (e.g. 'domain' or
+            # 'domain update') and has next-token completions, append a space on the first Tab
+            # and record the expanded prefix so the second Tab lists next-token completions.
+            if self._matches == [text] and _supports_ansi_tty():
+                next_matches = self.get_candidates(active_buffer + " ", "")
+                if next_matches:
+                    self._matches = [text + " "]
+                    self._last_prefix_expanded = active_buffer + " "
+            elif len(self._matches) > 1 and _supports_ansi_tty():
+                common = os.path.commonprefix(self._matches)
+                if len(common) > len(text):
+                    prefix_len = len(active_buffer) - len(text)
+                    self._last_prefix_expanded = active_buffer[:prefix_len] + common
         if state < len(self._matches):
             return self._matches[state]
         return None
@@ -925,11 +1257,13 @@ def _scrub_sensitive_history(line: str) -> None:
 
 
 def _configure_readline(completer: ShellCompleter) -> Optional[str]:
-    """Configure readline tab auto-completion and word delimiters if available."""
+    """Configure readline tab auto-completion, prefix history search, and word delimiters."""
     if _readline is None:  # pragma: no cover
         return None
     old_delims = _readline.get_completer_delims()
     _readline.set_completer(completer.complete)
+    if hasattr(_readline, "set_completion_display_matches_hook"):
+        _readline.set_completion_display_matches_hook(completer.display_matches_hook)
     # Remove '-' from completer_delims so options like '--client-transaction-id'
     # and subcommands like 'restore-report' complete as a single token.
     delims = old_delims.replace("-", "")
@@ -937,8 +1271,24 @@ def _configure_readline(completer: ShellCompleter) -> Optional[str]:
     doc = getattr(_readline, "__doc__", "") or ""
     if "libedit" in doc:
         _readline.parse_and_bind("bind ^I rl_complete")
+        # macOS / BSD libedit: bind Up and Down arrow keys (symbolic -k and escape sequences)
+        # to prefix history search (ed-search-prev-history / ed-search-next-history).
+        _readline.parse_and_bind("bind -k up ed-search-prev-history")
+        _readline.parse_and_bind("bind -k down ed-search-next-history")
+        _readline.parse_and_bind("bind ^[[A ed-search-prev-history")
+        _readline.parse_and_bind("bind ^[[B ed-search-next-history")
+        _readline.parse_and_bind("bind ^[OA ed-search-prev-history")
+        _readline.parse_and_bind("bind ^[OB ed-search-next-history")
     else:
         _readline.parse_and_bind("tab: complete")
+        # GNU Readline: bind Up and Down arrow keys (standard ANSI and application cursor sequences)
+        # to prefix history search (history-search-backward / history-search-forward).
+        # When text is already typed (e.g. 'domain update'), pressing Up filters history entries
+        # matching that prefix; on an empty line, it steps sequentially through all history.
+        _readline.parse_and_bind('"\\e[A": history-search-backward')
+        _readline.parse_and_bind('"\\e[B": history-search-forward')
+        _readline.parse_and_bind('"\\eOA": history-search-backward')
+        _readline.parse_and_bind('"\\eOB": history-search-forward')
     return old_delims
 
 
@@ -948,8 +1298,23 @@ def _cleanup_readline(old_delims: Optional[str] = None) -> None:
         return
     try:
         _readline.set_completer(None)
+        if hasattr(_readline, "set_completion_display_matches_hook"):
+            _readline.set_completion_display_matches_hook(None)
         if old_delims is not None:
             _readline.set_completer_delims(old_delims)
+        doc = getattr(_readline, "__doc__", "") or ""
+        if "libedit" in doc:
+            _readline.parse_and_bind("bind -k up ed-prev-history")
+            _readline.parse_and_bind("bind -k down ed-next-history")
+            _readline.parse_and_bind("bind ^[[A ed-prev-history")
+            _readline.parse_and_bind("bind ^[[B ed-next-history")
+            _readline.parse_and_bind("bind ^[OA ed-prev-history")
+            _readline.parse_and_bind("bind ^[OB ed-next-history")
+        else:
+            _readline.parse_and_bind('"\\e[A": previous-history')
+            _readline.parse_and_bind('"\\e[B": next-history')
+            _readline.parse_and_bind('"\\eOA": previous-history')
+            _readline.parse_and_bind('"\\eOB": next-history')
         if hasattr(_readline, "clear_history"):
             _readline.clear_history()
     except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -963,37 +1328,51 @@ def shell_command(ctx) -> None:
     cli_obj = ctx.obj
     cli_obj.persistent_session = True
 
-    utils.echo(click.style(ASCII_BANNER.strip("\n"), fg="bright_cyan", bold=True))
-    welcome_msg = (
-        f"{click.style(f'Interactive EPP Shell (v{__version__})', fg='cyan', bold=True)} - "
-        f"Type {click.style('help', fg='yellow', bold=True)} for commands, "
-        f"{click.style('exit', fg='yellow', bold=True)} to quit.\n"
-    )
-    utils.echo(welcome_msg)
-
-    completer = ShellCompleter(cli_obj)
-    old_delims = _configure_readline(completer)
-    _load_persistent_history(cli_obj)
-
+    _enter_bottom_dock()
+    utils.PRE_ECHO_HOOK = _flush_pending_command
+    log_filter = _ShellLoggingFilter()
+    logging.getLogger().addFilter(log_filter)
+    for handler in logging.getLogger().handlers:
+        handler.addFilter(log_filter)
     try:
-        _connect_and_login(cli_obj)
-        while True:
-            try:
-                line = _read_line_with_status_bar(cli_obj)
-            except KeyboardInterrupt:
-                prefix = "" if _supports_ansi_tty() else "\n"
-                msg = f"{prefix}Interrupted. Type 'exit' or press Ctrl+D to quit."
-                utils.echo(click.style(msg, fg="yellow"))
-                continue
-            except EOFError:
-                prefix = "" if _supports_ansi_tty() else "\n"
-                utils.echo(click.style(f"{prefix}Exiting shell...", fg="cyan"))
-                break
+        utils.echo(click.style(ASCII_BANNER.strip("\n"), fg="bright_cyan", bold=True))
+        welcome_msg = (
+            f"{click.style(f'Interactive EPP Shell (v{__version__})', fg='cyan', bold=True)} - "
+            f"Type {click.style('help', fg='yellow', bold=True)} for commands, "
+            f"{click.style('exit', fg='yellow', bold=True)} to quit.\n"
+        )
+        utils.echo(welcome_msg)
 
-            if not execute_shell_line(cli_obj, line):
-                utils.echo(click.style("Exiting shell...", fg="cyan"))
-                break
+        completer = ShellCompleter(cli_obj)
+        old_delims = _configure_readline(completer)
+        _load_persistent_history(cli_obj)
+
+        try:
+            _connect_and_login(cli_obj)
+            while True:
+                try:
+                    line = _read_line_with_status_bar(cli_obj)
+                except KeyboardInterrupt:
+                    prefix = "" if _supports_ansi_tty() else "\n"
+                    msg = f"{prefix}Interrupted. Type 'exit' or press Ctrl+D to quit."
+                    utils.echo(click.style(msg, fg="yellow"))
+                    continue
+                except EOFError:
+                    prefix = "" if _supports_ansi_tty() else "\n"
+                    utils.echo(click.style(f"{prefix}Exiting shell...", fg="cyan"))
+                    break
+
+                if not execute_shell_line(cli_obj, line):
+                    utils.echo(click.style("Exiting shell...", fg="cyan"))
+                    break
+        finally:
+            _save_persistent_history(cli_obj)
+            _cleanup_readline(old_delims)
+            _safe_close_session(cli_obj)
     finally:
-        _save_persistent_history(cli_obj)
-        _cleanup_readline(old_delims)
-        _safe_close_session(cli_obj)
+        logging.getLogger().removeFilter(log_filter)
+        for handler in logging.getLogger().handlers:
+            handler.removeFilter(log_filter)
+        utils.PRE_ECHO_HOOK = None
+        _flush_pending_command.pending_command = None
+        _exit_bottom_dock()

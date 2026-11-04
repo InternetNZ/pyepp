@@ -193,6 +193,7 @@ PyEPP also has a command line interface that allows the user to interact with th
       poll     To manage registry service messages.
       profile  Manage and inspect EPP configuration profiles.
       run      Receive an XML file containing an EPP XML command and execute it.
+      shell    Start an interactive EPP shell session with a persistent connection.
 
 Configuration Profiles
 ----------------------
@@ -222,6 +223,9 @@ You can inspect and execute commands with profiles directly:
 
     # Run commands with a profile
     pyepp -p ote domain check example.nz
+
+    # Or launch an interactive shell session with persistent connection
+    pyepp -p ote shell
 
 .. toctree::
    :maxdepth: 2

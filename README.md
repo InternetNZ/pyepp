@@ -149,6 +149,7 @@ Commands:
   poll     To manage registry service messages.
   profile  Manage and inspect EPP configuration profiles.
   run      Receive an XML file containing an EPP XML command and execute it.
+  shell    Start an interactive PyEPP shell session with persistent...
 ```
 
 ### Configuration Profiles (`~/.pyepp/config.ini`)
@@ -189,6 +190,29 @@ pyepp profile show ote --show-secrets
 
 # Run commands using a profile without needing --server, --user, or --password flags
 pyepp -p ote domain check example.nz
+```
+
+### Interactive Shell (`pyepp shell`)
+
+PyEPP provides an interactive REPL shell (`pyepp shell`) that connects and authenticates once, reusing the persistent TLS/TCP session across all commands without reconnecting on every invocation.
+
+Key features include:
+
+- **Pinned Bottom Dock & Scrollable Viewport**: Keeps the `pyepp> ` input prompt and live status bar docked to the bottom rows of the terminal, while command outputs scroll smoothly in the upper terminal region with full native scrollback preservation (`DECSTBM`).
+- **Live Status Bar**: Displays real-time connection state (`● connected`, `○ disconnected`, `● dry-run`), active profile, `user@server:port`, output format, pretty-print mode, pending poll queue count (`✉ poll: <N>`), and round-trip execution latency (`last: <N>ms`).
+- **Interactive Tab Auto-Completion**: Readline Tab and double-Tab auto-completion for commands, subcommands, profile names, flags, and options rendered cleanly above the dock.
+- **Prefix History Search**: Up and Down arrow keys filter command history matching the currently typed prefix. History is persisted across sessions in `~/.pyepp/history` with automatic password scrubbing.
+- **Mid-Session Profile Switching**: Switch registry endpoints on the fly using `use <profile>` or `profile use <profile>`.
+- **Runtime Session Settings**: Adjust active settings dynamically using `set output-format <XML|OBJECT|MIN|TABLE>`, `set pretty <on|off>`, `set dry-run <on|off>`, `set debug <on|off>`, and `unset <debug|dry-run|pretty>`.
+- **Response Inspection & File Export**: Re-render the last response without re-querying using `last [FORMAT]`, or save it to disk using `save <filepath> [FORMAT]`.
+- **Session Control**: `status` (or `st`) for diagnostics, `reconnect` to re-authenticate, `clear` to clear the screen, and `exit` / `quit` / `q` to quit.
+
+```sh
+# Start interactive shell using a profile
+pyepp -p ote shell
+
+# Or connect in dry-run mode
+pyepp -p ote --dry-run shell
 ```
 
 ### Enable shell autocomplete

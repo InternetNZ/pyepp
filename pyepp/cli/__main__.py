@@ -313,6 +313,8 @@ def pyepp_cli(
         dry_run,
         profile_name=active_profile,
         config_file=config_file,
+        debug=debug,
+        verbose=verbose,
     )
 
     if verbose:

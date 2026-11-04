@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 import click
 
 OUTPUT_FILE = None
+PRE_ECHO_HOOK = None
 
 # Fields excluded when displaying the top-level EPP Envelope in table/TSV format
 ENVELOPE_EXCLUDED_FIELDS = {"raw_response", "parsed_xml", "result_data"}
@@ -604,5 +605,7 @@ def echo(
             message = click.unstyle(message).encode("utf-8")
         elif not isinstance(message, (bytes, bytearray)):
             message = click.unstyle(str(message)).encode("utf-8")
+    elif PRE_ECHO_HOOK is not None:
+        PRE_ECHO_HOOK()  # pylint: disable=not-callable
 
     click.echo(message, file=OUTPUT_FILE, nl=new_line, err=err, color=color)

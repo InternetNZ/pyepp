@@ -80,6 +80,8 @@ class PyEppCli:
         profile_name=None,
         config_file=None,
         persistent_session=False,
+        debug=False,
+        verbose=False,
     ):
         self.epp = EppCommunicator(server, port, client_cert, client_key, dry_run)
 
@@ -94,6 +96,8 @@ class PyEppCli:
         self.profile_name = profile_name
         self.config_file = config_file
         self.persistent_session = persistent_session
+        self.debug = debug
+        self.verbose = verbose
 
         self.registry_object = None
         self.last_result = None
