@@ -10,7 +10,12 @@ import pprint
 import click
 
 from pyepp.helper import xml_pretty
-from pyepp import EppCommunicator, EppResultData
+from pyepp import (
+    EppCommunicator,
+    EppCommunicatorException,
+    EppResultCode,
+    EppResultData,
+)
 from pyepp.cli.utils import format_table, format_tsv
 
 
@@ -25,13 +30,30 @@ def login_logout(func):
         if getattr(self, "persistent_session", False):
             epp_client = getattr(self, "epp", None)
             if epp_client and epp_client.is_connected and epp_client.is_logged_in:
-                return func(self, *args, **kwargs)
+                # Guard command execution against interrupts (Ctrl+C / click.Abort) to prevent
+                # leaving partially consumed response bytes on the wire that would poison future commands.
+                try:
+                    return func(self, *args, **kwargs)
+                except (KeyboardInterrupt, click.Abort):
+                    try:
+                        self.disconnect()
+                    except Exception as ex:
+                        logging.debug("Disconnect failed on interrupt: %s", ex)
+                    raise
 
             connected = False
             try:
                 self.connect()
                 connected = True
                 self.login()
+                return func(self, *args, **kwargs)
+            except (KeyboardInterrupt, click.Abort):
+                if connected:
+                    try:
+                        self.disconnect()
+                    except Exception as ex:
+                        logging.debug("Disconnect failed on interrupt: %s", ex)
+                raise
             except BaseException:
                 if connected:
                     try:
@@ -39,27 +61,44 @@ def login_logout(func):
                     except Exception as ex:
                         logging.debug("Disconnect failed during cleanup: %s", ex)
                 raise
-            return func(self, *args, **kwargs)
 
         connected = False
         logged_in = False
+        has_error = False
         try:
             self.connect()
             connected = True
             self.login()
             logged_in = True
-            return func(self, *args, **kwargs)
+            try:
+                return func(self, *args, **kwargs)
+            except BaseException:
+                has_error = True
+                raise
+        except BaseException:
+            has_error = True
+            raise
         finally:
             if logged_in:
                 try:
                     self.logout()
                 except Exception as ex:
-                    logging.debug("Logout failed during cleanup: %s", ex)
+                    self.last_logout_error = ex
+                    epp_client = getattr(self, "epp", None)
+                    if epp_client is not None and hasattr(epp_client, "_last_logout_error"):
+                        epp_client._last_logout_error = ex  # pylint: disable=protected-access
+                    if not has_error:
+                        logging.warning("Logout failed during cleanup: %s", ex)
+                    else:
+                        logging.debug("Logout failed during cleanup: %s", ex)
             elif connected:
                 try:
                     self.disconnect()
                 except Exception as ex:
-                    logging.debug("Disconnect failed during cleanup: %s", ex)
+                    if not has_error:
+                        logging.warning("Disconnect failed during cleanup: %s", ex)
+                    else:
+                        logging.debug("Disconnect failed during cleanup: %s", ex)
 
     return wrapper
 
@@ -103,6 +142,7 @@ class PyEppCli:
         self.last_result = None
         self.last_latency_ms = None
         self.poll_queue_count = None
+        self.last_logout_error = None
         self.session_history = []
 
     def connect(self):
@@ -115,7 +155,21 @@ class PyEppCli:
         self.epp.login(self.user, self.password, extensions=self.extensions)
 
     def logout(self):
-        self.epp.logout()
+        """Cleanly log out of the EPP server, validating the result code.
+
+        Raises:
+            EppCommunicatorException: If the server returns a non-success response code.
+        """
+        res = self.epp.logout()
+        code = getattr(res, "code", None)
+        if isinstance(code, int) and code not in (
+            EppResultCode.SUCCESS_END_SESSION.value,
+            EppResultCode.SUCCESS.value,
+        ):
+            reason = f" - {res.reason}" if getattr(res, "reason", None) else ""
+            msg = getattr(res, "message", "Command failed")
+            raise EppCommunicatorException(f"Logout failed with code {code}: {msg}{reason}")
+        return res
 
     def hello(self):
         if self.dry_run:
@@ -128,7 +182,14 @@ class PyEppCli:
             and self.epp.is_connected
             and self.epp.is_logged_in
         ):
-            return self.epp.hello()
+            try:
+                return self.epp.hello()
+            except (KeyboardInterrupt, click.Abort):
+                try:
+                    self.disconnect()
+                except Exception as ex:
+                    logging.debug("Disconnect failed on interrupt: %s", ex)
+                raise
 
         connected = False
         try:

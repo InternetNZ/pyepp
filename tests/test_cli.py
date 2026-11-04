@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+import click
 from click.testing import CliRunner
 
 from pyepp import (
@@ -30,12 +31,18 @@ from pyepp.epp import EppCommunicatorException
 class DummyCli:
     """Dummy CLI class to test the login_logout decorator."""
 
-    def __init__(self, dry_run=False):
+    def __init__(self, dry_run=False, persistent_session=False):
         self.dry_run = dry_run
+        self.persistent_session = persistent_session
         self.connect = MagicMock()
         self.disconnect = MagicMock()
         self.login = MagicMock()
         self.logout = MagicMock()
+        self.last_logout_error = None
+        self.epp = MagicMock()
+        self.epp.is_connected = False
+        self.epp.is_logged_in = False
+        self.epp._last_logout_error = None
 
     @login_logout
     def execute_command(self, *args, **kwargs):
@@ -198,6 +205,138 @@ class CliDecoratorTest(unittest.TestCase):
             any("Disconnect failed during cleanup: Socket error during disconnect" in msg
                 for msg in log_capture.output)
         )
+
+    def test_login_logout_persistent_session_active_interrupt_disconnects(self) -> None:
+        """Verify that KeyboardInterrupt or click.Abort in an active persistent session disconnects before raising."""
+        class InterruptedCli(DummyCli):
+            @login_logout
+            def execute_command(self, *args, **kwargs):
+                raise KeyboardInterrupt()
+
+        interrupted_cli = InterruptedCli(persistent_session=True)
+        interrupted_cli.epp.is_connected = True
+        interrupted_cli.epp.is_logged_in = True
+
+        with self.assertRaises(KeyboardInterrupt):
+            interrupted_cli.execute_command()
+
+        interrupted_cli.disconnect.assert_called_once()
+
+        class AbortedCli(DummyCli):
+            @login_logout
+            def execute_command(self, *args, **kwargs):
+                raise click.Abort()
+
+        aborted_cli = AbortedCli(persistent_session=True)
+        aborted_cli.epp.is_connected = True
+        aborted_cli.epp.is_logged_in = True
+
+        with self.assertRaises(click.Abort):
+            aborted_cli.execute_command()
+
+        aborted_cli.disconnect.assert_called_once()
+
+    def test_login_logout_persistent_session_reconnect_interrupt_disconnects(self) -> None:
+        """Verify that an interrupt during reconnect in a persistent session disconnects the socket."""
+        class InterruptedReconnectCli(DummyCli):
+            @login_logout
+            def execute_command(self, *args, **kwargs):
+                raise click.Abort()
+
+        cli = InterruptedReconnectCli(persistent_session=True)
+        cli.epp.is_connected = False
+        cli.epp.is_logged_in = False
+
+        with self.assertRaises(click.Abort):
+            cli.execute_command()
+
+        cli.connect.assert_called_once()
+        cli.login.assert_called_once()
+        cli.disconnect.assert_called_once()
+
+    def test_login_logout_cleanup_records_last_logout_error_and_warns(self) -> None:
+        """Verify that logout failures during normal cleanup set last_logout_error and log a warning."""
+        cli = DummyCli(dry_run=False)
+        cli.logout.side_effect = RuntimeError("Logout timeout")
+
+        with self.assertLogs(level=logging.WARNING) as log_capture:
+            result = cli.execute_command()
+
+        self.assertEqual(result, "command_result")
+        self.assertIsInstance(cli.last_logout_error, RuntimeError)
+        self.assertIsInstance(cli.epp._last_logout_error, RuntimeError)
+        self.assertTrue(
+            any("Logout failed during cleanup: Logout timeout" in msg for msg in log_capture.output)
+        )
+
+
+class PyEppCliSessionTest(unittest.TestCase):
+    """Test suite for PyEppCli session management, logout validation, and hello."""
+
+    def test_pyepp_cli_logout_validates_result_code(self) -> None:
+        """Verify logout accepts codes 1500 and 1000, and raises on non-success codes."""
+        cli = PyEppCli(
+            "localhost", "700", None, None, "user", "pass", [], output_format="XML", no_pretty=False
+        )
+        mock_epp = MagicMock()
+        cli.epp = mock_epp
+
+        # Code 1500 (SUCCESS_END_SESSION)
+        res_1500 = EppResultData(
+            code=1500,
+            message="Command completed successfully; ending session",
+            raw_response="<epp/>",
+            result_data={},
+        )
+        mock_epp.logout.return_value = res_1500
+        self.assertEqual(cli.logout(), res_1500)
+
+        # Code 1000 (SUCCESS)
+        res_1000 = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response="<epp/>",
+            result_data={},
+        )
+        mock_epp.logout.return_value = res_1000
+        self.assertEqual(cli.logout(), res_1000)
+
+        # Code 2000 (Unknown command or failure)
+        res_2000 = EppResultData(
+            code=2000,
+            message="Command syntax error",
+            reason="Invalid tag",
+            raw_response="<epp/>",
+            result_data={},
+        )
+        mock_epp.logout.return_value = res_2000
+        with self.assertRaises(EppCommunicatorException) as ctx:
+            cli.logout()
+        self.assertIn("Logout failed with code 2000", str(ctx.exception))
+        self.assertIn("Command syntax error - Invalid tag", str(ctx.exception))
+
+    def test_pyepp_cli_hello_interrupt_disconnects(self) -> None:
+        """Verify hello() disconnects on KeyboardInterrupt or click.Abort in persistent session."""
+        cli = PyEppCli(
+            "localhost", "700", None, None, "user", "pass", [], output_format="XML", no_pretty=False
+        )
+        cli.persistent_session = True
+        mock_epp = MagicMock()
+        mock_epp.is_connected = True
+        mock_epp.is_logged_in = True
+        cli.epp = mock_epp
+
+        mock_epp.hello.side_effect = KeyboardInterrupt()
+        with patch.object(cli, "disconnect") as mock_disc:
+            with self.assertRaises(KeyboardInterrupt):
+                cli.hello()
+            mock_disc.assert_called_once()
+
+        mock_epp.hello.side_effect = click.Abort()
+        with patch.object(cli, "disconnect") as mock_disc:
+            with self.assertRaises(click.Abort):
+                cli.hello()
+            mock_disc.assert_called_once()
 
 
 class CliFormatOutputTest(unittest.TestCase):

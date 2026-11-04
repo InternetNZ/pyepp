@@ -125,21 +125,41 @@ def _get_command_groups() -> dict[str, click.Command]:
     }
 
 
-def _safe_close_session(cli_obj) -> None:
-    """Safely log out and disconnect an active session without raising exceptions."""
+def _safe_close_session(cli_obj, has_active_exception: Optional[bool] = None) -> None:
+    """
+    Safely log out and disconnect an active session without raising exceptions.
+
+    Preserves the teardown contract from EppCommunicator.__exit__:
+    - Validates logout response code via cli_obj.logout().
+    - Records any logout exception in cli_obj.last_logout_error and cli_obj.epp._last_logout_error.
+    - Warns during normal cleanup (exc_type is None) and logs at DEBUG when handling an active exception.
+    - Always disconnects the transport afterward.
+    """
     epp = getattr(cli_obj, "epp", None)
     if epp is None:
         return
+    if has_active_exception is None:
+        has_active_exception = sys.exc_info()[0] is not None
+
     try:
         if getattr(epp, "is_logged_in", False) and not getattr(cli_obj, "dry_run", False):
             cli_obj.logout()
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logging.debug("Logout failed during shell session cleanup: %s", exc)
+        cli_obj.last_logout_error = exc
+        if hasattr(epp, "_last_logout_error"):
+            epp._last_logout_error = exc  # pylint: disable=protected-access
+        if not has_active_exception:
+            logging.warning("Logout failed during shell session cleanup: %s", exc)
+        else:
+            logging.debug("Logout failed during shell session cleanup while handling exception: %s", exc)
     finally:
         try:
             cli_obj.disconnect()
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            logging.debug("Disconnect failed during shell session cleanup: %s", exc)
+            if not has_active_exception:
+                logging.warning("Disconnect failed during shell session cleanup: %s", exc)
+            else:
+                logging.debug("Disconnect failed during shell session cleanup while handling exception: %s", exc)
 
 
 def _connect_and_login(cli_obj) -> bool:
@@ -456,6 +476,53 @@ def _flush_pending_command() -> None:
     sys.stdout.flush()
 
 
+def _format_input_viewport(
+    prompt: str, buffer: str, cursor_pos: int, max_cols: int
+) -> tuple[str, int]:
+    """
+    Format prompt and command buffer to strictly fit within a single terminal row.
+
+    When the combined length exceeds `max_cols`, computes a horizontally scrolled viewport
+    window containing `cursor_pos` with '<' and/or '>' scroll markers. This prevents long
+    commands from wrapping onto subsequent rows and corrupting the bottom divider or status bar.
+
+    Args:
+        prompt: Prompt string (may contain ANSI color styling).
+        buffer: Full unformatted input buffer.
+        cursor_pos: Zero-based cursor character offset in buffer.
+        max_cols: Maximum terminal columns available on the prompt row (width - 1).
+
+    Returns:
+        tuple of (rendered_prompt_row_text, backward_cursor_offset)
+        where `backward_cursor_offset` is the number of columns to move left from the
+        end of `rendered_prompt_row_text` to reach `cursor_pos` (for `\033[<N>D`).
+    """
+    cursor_pos = max(0, min(cursor_pos, len(buffer)))
+    plain_prompt = click.unstyle(prompt)
+    if len(plain_prompt) + len(buffer) <= max_cols:
+        return f"{prompt}{buffer}", len(buffer) - cursor_pos
+
+    # Available character width allocated for the command buffer slice
+    avail = max(10, max_cols - len(plain_prompt))
+    if cursor_pos < avail - 1:
+        # Cursor is near the start; show head of buffer with trailing '>' indicator
+        slice_text = buffer[: avail - 1] + ">"
+        shift = len(slice_text) - cursor_pos
+    else:
+        # Cursor is scrolled right; show window containing cursor with '<' / '>' markers
+        end = min(len(buffer), cursor_pos + 2)
+        prefix = "<"
+        suffix = ">" if end < len(buffer) else ""
+        slice_len = avail - len(prefix) - len(suffix)
+        start = max(0, end - slice_len)
+        slice_text = prefix + buffer[start:end] + suffix
+        cur_pos_in_slice = len(prefix) + (cursor_pos - start)
+        shift = len(slice_text) - cur_pos_in_slice
+
+    rendered = f"{prompt}{slice_text}"
+    return rendered, max(0, shift)
+
+
 def _read_line_with_status_bar(cli_obj) -> str:
     """Render the pinned 4-row bottom dock (dividers, prompt, status bar) and read a command line."""
     if not _supports_ansi_tty():
@@ -507,11 +574,12 @@ def _read_line_with_status_bar(cli_obj) -> str:
     prompt_str = format_prompt(cli_obj, color=color).replace("\x01", "").replace("\x02", "")
     if has_output:
         _flush_pending_command.pending_command = f"{prompt_str}{line}"
+        disp_cmd, _ = _format_input_viewport(prompt_str, line, len(line), width - 1)
         sys.stdout.write(
             f"\033[{top_div_row};1H\033[2K{divider}"
             f"\033[{bot_div_row};1H\033[2K{divider}"
             f"\033[{status_row};1H\033[2K{status_line}"
-            f"\033[{prompt_row};1H\033[2K{prompt_str}{line}"
+            f"\033[{prompt_row};1H\033[2K{disp_cmd}"
         )
     else:
         _flush_pending_command.pending_command = None
@@ -722,7 +790,14 @@ def _format_last_result(cli_obj, fmt_override: Optional[str] = None) -> Optional
     try:
         cli_obj.output_format = target_fmt
         rendered = cli_obj.format_output(last_res)
-        return "" if rendered is None else str(rendered)
+        if rendered is None:
+            return ""
+        # When pretty-printing is disabled, format_output returns raw XML as bytes.
+        # Decode bytes as UTF-8 so the shell displays and saves clean XML text
+        # rather than Python's b'...' string representation.
+        if isinstance(rendered, (bytes, bytearray)):
+            return rendered.decode("utf-8", errors="replace")
+        return str(rendered)
     finally:
         cli_obj.output_format = orig_fmt
 
@@ -786,7 +861,16 @@ def _handle_history_command(cli_obj, args: list[str]) -> None:
     utils.echo("\n".join(out_lines))
 
 
-def _dispatch_click_command(cli_obj, tokens: list[str]) -> None:
+def _cleanup_unexpected_arg_history(cli_obj, raw_line: str, exc: click.UsageError) -> None:
+    """Defensively scrub command from session and readline history if rejected due to extra arguments."""
+    if "unexpected extra argument" in str(exc).lower() and not _is_sensitive_line(raw_line):
+        history = getattr(cli_obj, "session_history", None)
+        if raw_line and history and history[-1] == raw_line:
+            history.pop()
+        _scrub_last_readline_history_item()
+
+
+def _dispatch_click_command(cli_obj, tokens: list[str], raw_line: str = "") -> None:
     """Invoke a registered Click command or group within the persistent shell session."""
     cmd_groups = _get_command_groups()
     cmd_name = tokens[0].lower()
@@ -812,6 +896,11 @@ def _dispatch_click_command(cli_obj, tokens: list[str]) -> None:
     start_t = time.perf_counter()
     try:
         cmd_obj.main(args=sub_args, prog_name=cmd_name, obj=cli_obj, standalone_mode=False)
+    except click.UsageError as exc:
+        record_latency = False
+        _flush_pending_command()
+        _cleanup_unexpected_arg_history(cli_obj, raw_line, exc)
+        exc.show()
     except click.ClickException as exc:
         record_latency = False
         _flush_pending_command()
@@ -874,9 +963,78 @@ def _handle_builtin_command(cli_obj, cmd: str, args: list[str]) -> None:
         handler()
 
 
+def _has_positional_or_extra_credentials(tokens: list[str]) -> bool:
+    """Return True if tokens contain a positional password or extra arguments on a password-capable command.
+
+    In EPP, passwords/authInfo can be provided positionally (e.g. `domain transfer <domain> <password>`)
+    or mistakenly typed positionally without the `--password` flag (e.g. `domain update example.nz <password>`).
+    We parse arguments using Click's command parser to accurately identify positional credentials and
+    accidental extra positional arguments on password-accepting commands, preventing credential leakage
+    into shell history even when syntax errors occur.
+    """
+    cmd_tokens = list(tokens)
+    if cmd_tokens and cmd_tokens[0].lower() == "pyepp":
+        cmd_tokens = cmd_tokens[1:]
+    if len(cmd_tokens) < 2 or any(t in ("-h", "--help") for t in cmd_tokens):
+        return False
+
+    grp_name = cmd_tokens[0].lower()
+    sub_name = cmd_tokens[1].lower()
+    grp = _get_command_groups().get(grp_name)
+    sub_cmd = grp.commands.get(sub_name) if isinstance(grp, click.Group) else None
+    if sub_cmd is None:
+        return False
+
+    try:
+        parser = sub_cmd.make_parser(click.Context(sub_cmd))
+        opts, extra_args, _ = parser.parse_args(cmd_tokens[2:])
+    except Exception:  # pylint: disable=broad-exception-caught
+        return False
+
+    # Check 1: positional password argument (e.g. domain transfer <domain> <password>)
+    pwd = opts.get("password")
+    if isinstance(pwd, str) and pwd.strip():
+        return True
+
+    # Check 2: extra positional arguments on any command accepting a password parameter
+    # (e.g. accidental omission of '--password' in 'domain update <domain> <password>')
+    has_pwd_param = any(
+        getattr(p, "name", "").lower() in ("password", "auth_info", "authinfo", "auth")
+        for p in getattr(sub_cmd, "params", [])
+    )
+    return bool(extra_args and has_pwd_param)
+
+
 def _is_sensitive_line(line: str) -> bool:
-    """Return True if a command line contains password/secret flags that must not be stored in history."""
-    return bool(_SENSITIVE_LINE_RE.search(line))
+    """Return True if a command line contains passwords, secrets, or auth-info that
+    must not be stored in readline/session history or persisted to disk.
+
+    Handles quoted password flags (e.g. `"--password"`), positional transfer passwords
+    (`domain transfer <domain> <password>`), accidental positional credentials on
+    password-capable commands (`domain update <domain> <password>`), and malformed/unbalanced input.
+    """
+    if not line or not line.strip():
+        return False
+
+    # Fast-path regex check for unquoted password/secrets flags
+    if _SENSITIVE_LINE_RE.search(line):
+        return True
+
+    # Parse tokens to handle quoted flags (e.g. "--password") and positional credentials
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        # On malformed/unbalanced input (e.g. unclosed quotes), conservatively scrub if
+        # any sensitive keyword or auth pattern appears in the input.
+        lower = line.lower()
+        return any(kw in lower for kw in ("pass", "secret", "auth", "transfer"))
+
+    # Check for sensitive flags in parsed tokens (handles quotes like "--password" or '--show-secrets')
+    if any(tok.lower().startswith(("--pass", "--show-secrets")) for tok in tokens):
+        return True
+
+    # Check for positional credentials or accidental extra positional arguments on password-capable commands
+    return _has_positional_or_extra_credentials(tokens)
 
 
 def _expand_history_reference(cli_obj, stripped: str) -> Optional[str]:
@@ -960,7 +1118,7 @@ def execute_shell_line(cli_obj, line: str) -> bool:
         except Exception as exc:  # pylint: disable=broad-exception-caught
             utils.echo(click.style(f"Error: {exc}", fg="red"), err=True)
     else:
-        _dispatch_click_command(cli_obj, tokens)
+        _dispatch_click_command(cli_obj, tokens, raw_line=stripped)
 
     return True
 
@@ -1094,7 +1252,8 @@ class ShellCompleter:
         4-row bottom dock, then restore the prompt, current line buffer, and cursor position.
         """
         color = _use_color()
-        width, scroll_bottom, top_div_row, prompt_row, bot_div_row, status_row = _get_dock_geometry()
+        geom = _get_dock_geometry()
+        width = geom[0]
         divider = format_divider_line(width, color=color)
         status_line = format_status_bar(self.cli_obj, color=color, max_width=width)
         grid = self._format_completion_columns(matches, width)
@@ -1106,19 +1265,20 @@ class ShellCompleter:
             else len(line_buffer)
         )
 
+        disp_cmd, shift = _format_input_viewport(prompt_str, line_buffer, endidx, width - 1)
         # Print the current prompt line and completion grid at scroll_bottom (so they scroll
         # upward in the scrollable region 1..scroll_bottom), then redraw the pinned 4-row dock
         # at rows (H-3)..H and restore the active prompt + cursor offset on prompt_row (H-2).
         sys.stdout.write(
-            f"\033[1;{scroll_bottom}r"
-            f"\033[{scroll_bottom};1H\r\033[2K{prompt_str}{line_buffer}\n{grid}\n\r\033[2K"
-            f"\033[{top_div_row};1H\033[2K{divider}"
-            f"\033[{bot_div_row};1H\033[2K{divider}"
-            f"\033[{status_row};1H\033[2K{status_line}"
-            f"\033[{prompt_row};1H\033[2K{prompt_str}{line_buffer}"
+            f"\033[1;{geom[1]}r"
+            f"\033[{geom[1]};1H\r\033[2K{prompt_str}{line_buffer}\n{grid}\n\r\033[2K"
+            f"\033[{geom[2]};1H\033[2K{divider}"
+            f"\033[{geom[4]};1H\033[2K{divider}"
+            f"\033[{geom[5]};1H\033[2K{status_line}"
+            f"\033[{geom[3]};1H\033[2K{disp_cmd}"
         )
-        if len(line_buffer) > endidx:
-            sys.stdout.write(f"\033[{len(line_buffer) - endidx}D")
+        if shift > 0:
+            sys.stdout.write(f"\033[{shift}D")
         sys.stdout.flush()
 
     def display_matches_hook(
@@ -1243,9 +1403,9 @@ def _save_persistent_history(cli_obj, history_file: Optional[str] = None) -> Non
         logging.debug("Could not save persistent shell history: %s", exc)
 
 
-def _scrub_sensitive_history(line: str) -> None:
-    """Remove the most recent readline history entry if the line contains a password flag."""
-    if _readline is None or not _is_sensitive_line(line):
+def _scrub_last_readline_history_item() -> None:
+    """Unconditionally remove the most recent readline history entry."""
+    if _readline is None:
         return
     try:
         if hasattr(_readline, "get_current_history_length") and hasattr(_readline, "remove_history_item"):
@@ -1253,7 +1413,13 @@ def _scrub_sensitive_history(line: str) -> None:
             if length > 0:
                 _readline.remove_history_item(length - 1)
     except Exception as exc:  # pylint: disable=broad-exception-caught
-        logging.debug("Could not scrub sensitive history item: %s", exc)
+        logging.debug("Could not scrub last readline history item: %s", exc)
+
+
+def _scrub_sensitive_history(line: str) -> None:
+    """Remove the most recent readline history entry if the line contains sensitive credentials."""
+    if _is_sensitive_line(line):
+        _scrub_last_readline_history_item()
 
 
 def _configure_readline(completer: ShellCompleter) -> Optional[str]:
@@ -1268,6 +1434,12 @@ def _configure_readline(completer: ShellCompleter) -> Optional[str]:
     # and subcommands like 'restore-report' complete as a single token.
     delims = old_delims.replace("-", "")
     _readline.set_completer_delims(delims)
+    # Enable horizontal scrolling so input editing stays strictly on the prompt row
+    # and does not wrap over the bottom divider or status bar when commands exceed screen width.
+    try:
+        _readline.parse_and_bind("set horizontal-scroll-mode on")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logging.debug("Could not enable horizontal-scroll-mode in readline: %s", exc)
     doc = getattr(_readline, "__doc__", "") or ""
     if "libedit" in doc:
         _readline.parse_and_bind("bind ^I rl_complete")

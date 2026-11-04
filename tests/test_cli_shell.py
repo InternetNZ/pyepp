@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
+import click
 from click.testing import CliRunner
 
 from pyepp import EppResultData, EppCommunicatorException
@@ -24,10 +25,17 @@ from pyepp.cli.shell import (
     format_status_bar,
     get_default_history_path,
     switch_profile,
+    _cleanup_unexpected_arg_history,
     _configure_readline,
+    _format_input_viewport,
+    _format_last_result,
+    _has_positional_or_extra_credentials,
+    _is_sensitive_line,
     _load_persistent_history,
     _read_line_with_status_bar,
+    _safe_close_session,
     _save_persistent_history,
+    _scrub_last_readline_history_item,
 )
 
 
@@ -1251,6 +1259,218 @@ server = epp.incomplete.net.nz
             writes_hook = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
             self.assertIn("--add-admin", writes_hook)
             self.assertIn("--help", writes_hook)
+
+    def test_sensitive_history_scrubbing_transfer_and_quoted_flags(self) -> None:
+        """Verify positional transfer credentials, quoted password flags, and malformed input are scrubbed."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+
+        # Positional domain transfer credentials are scrubbed
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            mock_rl.get_current_history_length.return_value = 2
+            with patch.object(cli_obj, "transfer", return_value="ok"):
+                execute_shell_line(cli_obj, "domain transfer example.nz SecretAuth123")
+            mock_rl.remove_history_item.assert_called_once_with(1)
+
+        # 'domain transfer --help' does not provide credentials and is NOT scrubbed
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            execute_shell_line(cli_obj, "domain transfer example.nz --help")
+            mock_rl.remove_history_item.assert_not_called()
+
+        # Quoted flags e.g. "--password" or '--pass=...' are scrubbed
+        self.assertTrue(_is_sensitive_line('domain info example.nz "--password" Secret123'))
+        self.assertTrue(_is_sensitive_line("domain info example.nz '--pass=Secret123'"))
+        self.assertTrue(_is_sensitive_line('profile show default "--show-secrets"'))
+
+        # Malformed / unbalanced quotes with auth/secret/pass keywords are conservatively scrubbed
+        self.assertTrue(_is_sensitive_line("domain transfer 'unclosed auth secret"))
+        self.assertTrue(_is_sensitive_line('domain info example.nz "unclosed pass'))
+
+        # Normal commands without sensitive flags return False
+        self.assertFalse(_is_sensitive_line("domain check example.nz"))
+        self.assertFalse(_is_sensitive_line("domain info example.nz"))
+        self.assertFalse(_is_sensitive_line(""))
+
+        # Accidental positional credentials on password-capable commands are detected as sensitive
+        self.assertTrue(_is_sensitive_line("domain update example.nz securepassword12"))
+        self.assertFalse(_is_sensitive_line("domain update example.nz --registrant CONTACT-1"))
+        self.assertTrue(_is_sensitive_line("domain update example.nz --add-admin CONTACT-1 securepassword12"))
+        self.assertTrue(_is_sensitive_line("contact update contact-1 securepassword12"))
+        self.assertFalse(_is_sensitive_line("contact update contact-1 --name John"))
+        self.assertTrue(_is_sensitive_line("contact create contact-1 securepassword12"))
+        self.assertFalse(_is_sensitive_line("contact info contact-1"))
+        self.assertTrue(_is_sensitive_line("pyepp domain update example.nz securepassword12"))
+
+    def test_accidental_positional_password_not_recorded_in_history(self) -> None:
+        """Verify wrong commands with accidental positional password are not saved to history."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        cli_obj.session_history = ["domain check example.nz"]
+
+        # 'domain update example.nz securepassword12' is rejected by Click (unexpected extra arg),
+        # identified as sensitive by _is_sensitive_line, and never added to session history.
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            mock_rl.get_current_history_length.return_value = 2
+            execute_shell_line(cli_obj, "domain update example.nz securepassword12")
+            mock_rl.remove_history_item.assert_called_once_with(1)
+
+        self.assertEqual(cli_obj.session_history, ["domain check example.nz"])
+
+    def test_unexpected_extra_arguments_scrubbed_from_history(self) -> None:
+        """Verify invalid extra arguments on commands are defensively scrubbed from history."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        cli_obj.session_history = ["domain check example.nz"]
+
+        # If a non-sensitive command fails due to unexpected extra argument, the reactive
+        # exception handler pops it from session history and scrubs readline.
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            mock_rl.get_current_history_length.return_value = 2
+            execute_shell_line(cli_obj, "domain info example.nz unexpected_extra_arg")
+            mock_rl.remove_history_item.assert_called_once_with(1)
+
+        self.assertEqual(cli_obj.session_history, ["domain check example.nz"])
+
+    def test_cleanup_unexpected_arg_history_helper(self) -> None:
+        """Verify _cleanup_unexpected_arg_history pops matching session history and scrubs readline."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        cli_obj.session_history = ["domain check example.nz", "domain check example.nz badarg"]
+        usage_err = click.UsageError("Got unexpected extra argument (badarg)")
+
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            mock_rl.get_current_history_length.return_value = 2
+            _cleanup_unexpected_arg_history(cli_obj, "domain check example.nz badarg", usage_err)
+            mock_rl.remove_history_item.assert_called_once_with(1)
+
+        self.assertEqual(cli_obj.session_history, ["domain check example.nz"])
+
+        # Non-matching error message does not pop or scrub
+        other_err = click.UsageError("Missing parameter: domain_name")
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            _cleanup_unexpected_arg_history(cli_obj, "domain check", other_err)
+            mock_rl.remove_history_item.assert_not_called()
+
+        self.assertEqual(cli_obj.session_history, ["domain check example.nz"])
+
+    def test_safe_close_session_records_last_logout_error_and_bifurcated_logging(self) -> None:
+        """Verify _safe_close_session records logout error, bifurcates warning vs debug, and disconnects."""
+        cli_obj = self._create_mock_cli(dry_run=False)
+        cli_obj.epp._logged_in = True
+        cli_obj.epp._last_logout_error = None
+        cli_obj.last_logout_error = None
+        cli_obj.disconnect = MagicMock()
+
+        # 1. Normal cleanup (has_active_exception=False): logout failure is logged at WARNING
+        logout_err = EppCommunicatorException("Logout failed with code 2000")
+        with patch.object(cli_obj, "logout", side_effect=logout_err):
+            with self.assertLogs(level=logging.WARNING) as log_capture:
+                _safe_close_session(cli_obj, has_active_exception=False)
+
+        self.assertEqual(cli_obj.last_logout_error, logout_err)
+        self.assertEqual(cli_obj.epp._last_logout_error, logout_err)
+        cli_obj.disconnect.assert_called_once()
+        self.assertTrue(
+            any("Logout failed during shell session cleanup" in msg for msg in log_capture.output)
+        )
+
+        # 2. Active exception cleanup (has_active_exception=True): logged at DEBUG
+        cli_obj.disconnect.reset_mock()
+        cli_obj.last_logout_error = None
+        cli_obj.epp._last_logout_error = None
+        with patch.object(cli_obj, "logout", side_effect=logout_err):
+            with self.assertLogs(level=logging.DEBUG) as log_capture:
+                _safe_close_session(cli_obj, has_active_exception=True)
+
+        self.assertEqual(cli_obj.last_logout_error, logout_err)
+        self.assertEqual(cli_obj.epp._last_logout_error, logout_err)
+        cli_obj.disconnect.assert_called_once()
+        self.assertTrue(
+            any("Logout failed during shell session cleanup while handling exception" in msg
+                for msg in log_capture.output)
+        )
+
+        # 3. Disconnect failure on normal cleanup logs warning
+        cli_obj.disconnect.side_effect = RuntimeError("Disconnect socket drop")
+        with patch.object(cli_obj, "logout", return_value=None):
+            with self.assertLogs(level=logging.WARNING) as log_capture:
+                _safe_close_session(cli_obj, has_active_exception=False)
+        self.assertTrue(
+            any("Disconnect failed during shell session cleanup" in msg for msg in log_capture.output)
+        )
+
+    def test_last_and_save_commands_with_no_pretty_bytes_response(self) -> None:
+        """Verify 'last XML' and 'save <file> XML' decode raw bytes as UTF-8 string when pretty-printing is disabled."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        cli_obj.no_pretty = True
+
+        raw_bytes = b"<epp><response><result code='1000'><msg>OK</msg></result></response></epp>"
+        check_res = EppResultData(
+            code=1000,
+            message="OK",
+            raw_response=raw_bytes,
+            result_data={"example.nz": {"avail": True}},
+            dry_run=True,
+        )
+        cli_obj.last_result = check_res
+
+        # Test _format_last_result directly
+        rendered = _format_last_result(cli_obj, fmt_override="XML")
+        self.assertIsInstance(rendered, str)
+        self.assertNotIn("b'", rendered)
+        self.assertIn("<result code='1000'>", rendered)
+
+        # Test 'last XML' shell command output
+        with patch("pyepp.cli.utils.echo") as mock_echo:
+            self.assertTrue(execute_shell_line(cli_obj, "last XML"))
+            out = mock_echo.call_args[0][0]
+            self.assertIsInstance(out, str)
+            self.assertNotIn("b'", out)
+            self.assertIn("<result code='1000'>", out)
+
+        # Test 'save <filepath> XML' exports clean string
+        out_file = os.path.join(self.tmp_history_dir, "saved_no_pretty.xml")
+        try:
+            self.assertTrue(execute_shell_line(cli_obj, f"save {out_file} XML"))
+            with open(out_file, "r", encoding="utf-8") as f_in:
+                saved_text = f_in.read()
+            self.assertNotIn("b'", saved_text)
+            self.assertIn("<result code='1000'>", saved_text)
+        finally:
+            if os.path.exists(out_file):
+                os.remove(out_file)
+
+    def test_format_input_viewport_scrolling_and_dock_protection(self) -> None:
+        """Verify _format_input_viewport keeps long input on a single row without wrapping."""
+        prompt = "pyepp [default]> "
+        max_cols = 30
+
+        # Short buffer fits within max_cols without scrolling
+        short_buf = "domain check"
+        rendered, shift = _format_input_viewport(prompt, short_buf, len(short_buf), max_cols)
+        self.assertEqual(rendered, f"{prompt}{short_buf}")
+        self.assertEqual(shift, 0)
+
+        # Long buffer exceeds max_cols and truncates with '>' scroll indicator
+        long_buf = "domain update example.nz --add-admin CONTACT-12345 --remove-tech CONTACT-99999"
+        rendered_start, shift_start = _format_input_viewport(prompt, long_buf, 0, max_cols)
+        self.assertTrue(rendered_start.endswith(">"))
+        self.assertLessEqual(len(click.unstyle(rendered_start)), max_cols)
+
+        # Cursor scrolled near the end shows '<' indicator
+        rendered_end, shift_end = _format_input_viewport(prompt, long_buf, len(long_buf), max_cols)
+        self.assertTrue("<" in rendered_end)
+        self.assertEqual(shift_end, 0)
+        self.assertLessEqual(len(click.unstyle(rendered_end)), max_cols)
+
+        # Cursor in the middle shows both '<' and '>' indicators
+        mid_pos = len(long_buf) // 2
+        rendered_mid, shift_mid = _format_input_viewport(prompt, long_buf, mid_pos, max_cols)
+        self.assertTrue("<" in rendered_mid and ">" in rendered_mid)
+        self.assertLessEqual(len(click.unstyle(rendered_mid)), max_cols)
+
+        # Verify readline configuration enables horizontal-scroll-mode
+        completer = ShellCompleter(self._create_mock_cli(dry_run=True))
+        with patch("pyepp.cli.shell._readline") as mock_rl:
+            mock_rl.get_completer_delims.return_value = " \t\n\"\\'`@$><=;|&{("
+            _configure_readline(completer)
+            mock_rl.parse_and_bind.assert_any_call("set horizontal-scroll-mode on")
 
 
 if __name__ == "__main__":
