@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 import click
 
 OUTPUT_FILE = None
+PRE_ECHO_HOOK = None
 
 # Fields excluded when displaying the top-level EPP Envelope in table/TSV format
 ENVELOPE_EXCLUDED_FIELDS = {"raw_response", "parsed_xml", "result_data"}
@@ -130,7 +131,9 @@ def _render_ascii_table(
     table_lines.append(border)
     table_str = "\n".join(table_lines)
     if title:
-        return f"[ {title} ]\n{table_str}"
+        # Colorize table section titles (e.g. [ EPP Response ], [ ServiceMessageQueueData ])
+        styled_title = click.style(f"[ {title} ]", fg="cyan", bold=True)
+        return f"{styled_title}\n{table_str}"
     return table_str
 
 
@@ -594,13 +597,15 @@ def echo(
         default, Click will remove color if the output does not look like
         an interactive terminal.
     """
-    # Convert the string to bytes if writing to a file
+    # Convert the string to bytes if writing to a file (stripping any ANSI color codes)
     if OUTPUT_FILE:
         if message is None:
             message = b""
         elif isinstance(message, str):
-            message = message.encode("utf-8")
+            message = click.unstyle(message).encode("utf-8")
         elif not isinstance(message, (bytes, bytearray)):
-            message = str(message).encode("utf-8")
+            message = click.unstyle(str(message)).encode("utf-8")
+    elif PRE_ECHO_HOOK is not None:
+        PRE_ECHO_HOOK()  # pylint: disable=not-callable
 
     click.echo(message, file=OUTPUT_FILE, nl=new_line, err=err, color=color)

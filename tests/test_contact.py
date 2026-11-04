@@ -389,7 +389,7 @@ class ContactTest(unittest.TestCase):
                             "organization": None,
                         }
                     ),
-                    status=[""],
+                    status=["linked"],
                     phone=None,
                     fax=None,
                     password="PassWord",
@@ -408,6 +408,57 @@ class ContactTest(unittest.TestCase):
         result = contact.info("inz-contact-1")
 
         self.assertEqual(result, expected_result)
+
+    def test_info_parses_multiple_statuses_and_fallback(self) -> None:
+        """Verify contact.info extracts multiple 's' attributes and falls back to text if 's' is missing."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        raw_xml = (
+            "<response>\n"
+            '<result code="1000">\n'
+            "<msg>Command completed successfully</msg>\n"
+            "</result>\n"
+            "<resData>\n"
+            "<contact:infData>\n"
+            "<contact:id>sh8013</contact:id>\n"
+            "<contact:roid>SH8013-REP</contact:roid>\n"
+            '<contact:status s="linked"/>\n'
+            '<contact:status s="clientDeleteProhibited"/>\n'
+            "<contact:status>customStatus</contact:status>\n"
+            '<contact:postalInfo type="loc">\n'
+            "<contact:name>John Doe</contact:name>\n"
+            "<contact:addr>\n"
+            "<contact:street>123 Main St</contact:street>\n"
+            "<contact:city>Wellington</contact:city>\n"
+            "<contact:cc>NZ</contact:cc>\n"
+            "</contact:addr>\n"
+            "</contact:postalInfo>\n"
+            "<contact:email>jdoe@example.nz</contact:email>\n"
+            "<contact:clID>ClientY</contact:clID>\n"
+            "<contact:crID>ClientX</contact:crID>\n"
+            "<contact:crDate>2023-01-01T00:00:00.000Z</contact:crDate>\n"
+            "</contact:infData>\n"
+            "</resData>\n"
+            "<trID>\n"
+            "<clTRID>ABC-123</clTRID>\n"
+            "<svTRID>SRV-456</svTRID>\n"
+            "</trID>\n"
+            "</response>"
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=raw_xml,
+            client_transaction_id="ABC-123",
+            server_transaction_id="SRV-456",
+            result_data=None,
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("sh8013")
+        self.assertEqual(
+            result.result_data.status,
+            ["linked", "clientDeleteProhibited", "customStatus"],
+        )
 
     def test_create(self) -> None:
         expected_result = EppResultData(
