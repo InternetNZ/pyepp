@@ -1,0 +1,402 @@
+"""
+Profile configuration module for PyEPP.
+
+Provides support for user-defined configuration profiles in config.ini (AWS CLI style):
+- A [default] section holds shared/general application configurations.
+- Named profiles are defined via [profile <name>] or [<name>].
+- Profiles inherit default values from [default].
+- Legacy [pyepp] section is supported as a fallback for backward compatibility.
+"""
+
+from collections.abc import Iterator, Mapping
+from configparser import RawConfigParser
+from dataclasses import dataclass, field
+import logging
+import os
+from typing import Any, Optional, TYPE_CHECKING
+import click
+
+if TYPE_CHECKING:
+    from pyepp.epp import EppCommunicator
+
+
+APP_NAME = "pyepp"
+
+
+class ProfileNotFoundError(Exception):
+    """Raised when a requested configuration profile is not found."""
+
+
+def _parse_bool(val: Optional[str], default: bool = False) -> bool:
+    """Parse a boolean value from configuration string."""
+    if val is None:
+        return default
+    return val.strip().lower() in ("true", "1", "yes", "on")
+
+
+def _parse_extensions(raw: Optional[str]) -> list[str]:
+    """Parse extension URIs from comma-, newline-, or space-separated string."""
+    if not raw:
+        return []
+    cleaned = raw.replace(",", " ").replace("\n", " ").replace("\r", " ")
+    return [ext.strip() for ext in cleaned.split() if ext.strip()]
+
+
+def get_default_config_path() -> str:
+    """Return OS-dependent default path for config.ini."""
+    return os.path.join(
+        click.get_app_dir(APP_NAME, roaming=False, force_posix=True), "config.ini"
+    )
+
+
+def normalize_profile_name(section_name: str) -> str:
+    """
+    Normalize section name to profile name.
+
+    E.g. 'profile ote' -> 'ote', 'Profile PROD' -> 'PROD', 'default' -> 'default'.
+    """
+    s = section_name.strip()
+    if s.lower().startswith("profile "):
+        return s[8:].strip()
+    return s
+
+
+# pylint: disable=too-many-instance-attributes
+@dataclass
+class Profile(Mapping[str, Any]):
+    """
+    Represents an EPP configuration profile.
+
+    Implements the Mapping protocol so it can be unpacked directly into
+    EppCommunicator(**profile).
+    """
+
+    name: str
+    server: Optional[str] = None
+    port: Optional[str] = "700"
+    user: Optional[str] = None
+    # Exclude password and raw_config from __repr__ to avoid leaking sensitive
+    # credentials in logs, exception tracebacks, or debugger inspections.
+    password: Optional[str] = field(default=None, repr=False)
+    client_cert: Optional[str] = None
+    client_key: Optional[str] = None
+    extensions: list[str] = field(default_factory=list)
+    output_format: str = "XML"
+    no_pretty: bool = False
+    dry_run: bool = False
+    raw_config: dict[str, str] = field(default_factory=dict, repr=False)
+
+    _COMMUNICATOR_KEYS = (
+        "server",
+        "port",
+        "client_cert",
+        "client_key",
+        "dry_run",
+        "user",
+        "password",
+        "extensions",
+    )
+
+    def __getitem__(self, key: str) -> Any:
+        if key in self._COMMUNICATOR_KEYS:
+            val = getattr(self, key, None)
+            if val is not None:
+                return val
+        if key in self.raw_config:
+            return self.raw_config[key]
+        raise KeyError(key)
+
+    def __iter__(self) -> Iterator[str]:
+        for key in self._COMMUNICATOR_KEYS:
+            val = getattr(self, key, None)
+            if val is not None:
+                yield key
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def __contains__(self, key: object) -> bool:
+        if not isinstance(key, str):
+            return False
+        if key in self._COMMUNICATOR_KEYS and getattr(self, key, None) is not None:
+            return True
+        return key in self.raw_config
+
+    def to_communicator_kwargs(self, **overrides: Any) -> dict[str, Any]:
+        """Return dictionary of parameters suitable for EppCommunicator(**kwargs)."""
+        # Ensure extensions is consistently included as a list (matching Profile.__getitem__
+        # and the Mapping protocol) rather than being stripped when empty.
+        kwargs: dict[str, Any] = {
+            "server": self.server,
+            "port": self.port,
+            "client_cert": self.client_cert,
+            "client_key": self.client_key,
+            "dry_run": self.dry_run,
+            "user": self.user,
+            "password": self.password,
+            "extensions": list(self.extensions) if self.extensions is not None else [],
+        }
+        result = {k: v for k, v in kwargs.items() if v is not None}
+        result.update(overrides)
+        return result
+
+    def create_communicator(self, **overrides: Any) -> "EppCommunicator":
+        """Instantiate an EppCommunicator initialized with this profile's configuration."""
+        from pyepp.epp import EppCommunicator  # pylint: disable=import-outside-toplevel
+
+        kwargs = self.to_communicator_kwargs(**overrides)
+        return EppCommunicator(**kwargs)
+
+    def to_dict(self, communicator_only: bool = False) -> dict[str, Any]:
+        """Return dictionary representation of the profile."""
+        if communicator_only:
+            return self.to_communicator_kwargs()
+        return {
+            "name": self.name,
+            "server": self.server,
+            "port": self.port,
+            "user": self.user,
+            "password": self.password,
+            "client_cert": self.client_cert,
+            "client_key": self.client_key,
+            "extensions": list(self.extensions),
+            "output_format": self.output_format,
+            "no_pretty": self.no_pretty,
+            "dry_run": self.dry_run,
+            "raw_config": dict(self.raw_config),
+        }
+
+    def copy(self, **overrides: Any) -> "Profile":
+        """Create a shallow copy of the profile with optional overrides."""
+        data = self.to_dict(communicator_only=False)
+        data.update(overrides)
+        return Profile(**data)
+
+
+def _build_profile_from_config(
+    name: str,
+    config: dict[str, str],
+    checked_keys: Optional[set[str]] = None,
+) -> Profile:
+    """Construct a Profile instance from a merged configuration dictionary."""
+    fmt = (
+        config.get("output_format")
+        or config.get("output-format")
+        or config.get("format")
+        or "XML"
+    )
+    ext_raw = config.get("extensions") or config.get("extension")
+
+    # Expand user home directory (~) for client certificate and key paths so they resolve
+    # reliably before being passed to ssl.SSLContext.load_cert_chain (which passes paths
+    # directly to OpenSSL without shell expansion). Stripping whitespace ensures clean
+    # path resolution, while empty/whitespace strings evaluate to None.
+    raw_cert = config.get("client_cert") or config.get("client-cert")
+    raw_key = config.get("client_key") or config.get("client-key")
+    client_cert = (
+        os.path.expanduser(str(raw_cert).strip())
+        if raw_cert and str(raw_cert).strip()
+        else None
+    )
+    client_key = (
+        os.path.expanduser(str(raw_key).strip())
+        if raw_key and str(raw_key).strip()
+        else None
+    )
+
+    # Inspect TLS private key file permissions on POSIX to protect private key material
+    # from unauthorized local users, checking each unique path once per profile load.
+    if client_key:
+        if checked_keys is None or client_key not in checked_keys:
+            _check_client_key_permissions(client_key)
+            if checked_keys is not None:
+                checked_keys.add(client_key)
+
+    return Profile(
+        name=name,
+        server=config.get("server"),
+        port=config.get("port", "700"),
+        user=config.get("user"),
+        password=config.get("password"),
+        client_cert=client_cert,
+        client_key=client_key,
+        extensions=_parse_extensions(ext_raw),
+        output_format=fmt.strip().upper(),
+        no_pretty=_parse_bool(config.get("no_pretty") or config.get("no-pretty")),
+        dry_run=_parse_bool(config.get("dry_run") or config.get("dry-run")),
+        raw_config=dict(config),
+    )
+
+
+def _load_base_default_config(
+    parser: RawConfigParser,
+) -> tuple[dict[str, str], bool]:
+    """
+    Extract base default configuration from parser defaults and default sections.
+
+    Legacy [pyepp] / [profile pyepp] sections are loaded first so that modern
+    [default] sections take precedence regardless of their order in the config file.
+    Normalizing section names ensures [profile default] is treated identically to [default].
+    """
+    default_config: dict[str, str] = {}
+    for k, v in parser.defaults().items():
+        default_config[k.lower()] = v
+
+    has_pyepp_section = False
+    for sec in parser.sections():
+        if normalize_profile_name(sec).lower() == "pyepp":
+            has_pyepp_section = True
+            for k, v in parser.items(sec):
+                default_config[k.lower()] = v
+
+    for sec in parser.sections():
+        if normalize_profile_name(sec).lower() == "default":
+            for k, v in parser.items(sec):
+                default_config[k.lower()] = v
+
+    if "port" not in default_config:
+        default_config["port"] = "700"
+    if "output_format" not in default_config and "format" not in default_config:
+        default_config["output_format"] = "XML"
+
+    return default_config, has_pyepp_section
+
+
+def _check_config_file_permissions(file_path: str) -> None:
+    """
+    Check and warn if configuration file permissions are excessively permissive on POSIX.
+
+    Since config.ini typically stores plaintext registrar credentials, files accessible
+    by group or world users (st_mode & 0o077) should emit a security warning advising
+    more restrictive permissions (e.g. 0600).
+    """
+    if os.name == "posix" and os.path.isfile(file_path):
+        try:
+            mode = os.stat(file_path).st_mode
+            if mode & 0o077:
+                logging.warning(
+                    "Config file %s contains credentials but is accessible by other users "
+                    "(mode 0%o). Consider setting permissions to 0600.",
+                    file_path,
+                    mode & 0o777,
+                )
+        except OSError:
+            pass
+
+
+def _check_client_key_permissions(file_path: str) -> None:
+    """
+    Check and warn if client TLS private key file permissions are excessively permissive on POSIX.
+
+    Since client_key stores TLS private key material, files accessible by group or
+    world users (st_mode & 0o077) should emit a security warning advising more
+    restrictive permissions (e.g. 0600).
+    """
+    if os.name == "posix" and os.path.isfile(file_path):
+        try:
+            mode = os.stat(file_path).st_mode
+            if mode & 0o077:
+                logging.warning(
+                    "Client key file %s contains private key material but is accessible by other users "
+                    "(mode 0%o). Consider setting permissions to 0600.",
+                    file_path,
+                    mode & 0o777,
+                )
+        except OSError:
+            pass
+
+
+def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
+    """
+    Load all configuration profiles defined in the config.ini file.
+
+    Inherits base settings from [default] (or legacy [pyepp]).
+
+    :param config_file: Optional path to config file. Defaults to ~/.pyepp/config.ini.
+    :return: Dictionary mapping profile names to Profile instances.
+    """
+    cfg_path = config_file or get_default_config_path()
+    parser = RawConfigParser()
+    if os.path.exists(cfg_path):
+        _check_config_file_permissions(cfg_path)
+        # Always read configuration with explicit UTF-8 encoding to prevent
+        # character corruption on non-UTF-8 platform locales.
+        parser.read([cfg_path], encoding="utf-8")
+
+    # 1. Gather base defaults with strict precedence ([default] over legacy [pyepp])
+    default_config, has_pyepp_section = _load_base_default_config(parser)
+
+    profiles: dict[str, Profile] = {}
+    checked_keys: set[str] = set()
+
+    # 2. Build default profile
+    profiles["default"] = _build_profile_from_config(
+        "default", default_config, checked_keys=checked_keys
+    )
+
+    # Register 'pyepp' as a profile name if explicitly present in config
+    if has_pyepp_section:
+        profiles["pyepp"] = _build_profile_from_config(
+            "pyepp", default_config, checked_keys=checked_keys
+        )
+
+    # 3. Build specific named profiles with normalized lowercase keys to prevent
+    # duplicate entries differing only by case or prefix (e.g. [OTE] and [profile ote]).
+    for sec in parser.sections():
+        prof_name = normalize_profile_name(sec).lower()
+        if prof_name in ("default", "pyepp"):
+            continue
+
+        # If profile was already encountered under another case/alias, merge with
+        # its current settings; otherwise inherit base default_config.
+        if prof_name in profiles:
+            merged = dict(profiles[prof_name].raw_config)
+        else:
+            merged = dict(default_config)
+
+        for k, v in parser.items(sec):
+            merged[k.lower()] = v
+
+        profiles[prof_name] = _build_profile_from_config(
+            prof_name, merged, checked_keys=checked_keys
+        )
+
+    return profiles
+
+
+def list_profiles(config_file: Optional[str] = None) -> list[str]:
+    """
+    List all available profile names in the configuration file.
+
+    :param config_file: Optional path to config file.
+    :return: Sorted list of profile names with 'default' first.
+    """
+    profiles = load_all_profiles(config_file)
+    names = sorted(list(profiles.keys()))
+    if "default" in names:
+        names.remove("default")
+        names.insert(0, "default")
+    return names
+
+
+def load_profile(
+    name: str = "default", config_file: Optional[str] = None
+) -> Profile:
+    """
+    Load a specific configuration profile by name.
+
+    :param name: Profile name (e.g. 'default', 'ote', 'prod'). Case-insensitive.
+    :param config_file: Optional path to config file.
+    :return: The resolved Profile instance.
+    :raises ProfileNotFoundError: If profile does not exist.
+    """
+    profiles = load_all_profiles(config_file)
+    target = normalize_profile_name(name).lower()
+
+    if target in profiles:
+        return profiles[target]
+
+    available = ", ".join(list_profiles(config_file))
+    raise ProfileNotFoundError(
+        f"Profile '{name}' not found. Available profiles: {available}"
+    )

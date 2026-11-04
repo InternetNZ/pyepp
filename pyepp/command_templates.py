@@ -29,7 +29,13 @@ LOGIN_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         <svcExtension>
           <extURI>urn:ietf:params:xml:ns:secDNS-1.1</extURI>
           {% for extension in extensions %}
+          {% if extension != 'secDNS-1.1' and extension != 'urn:ietf:params:xml:ns:secDNS-1.1' %}
+          {% if extension.startswith('urn:') or '://' in extension %}
+          <extURI>{{ extension }}</extURI>
+          {% else %}
           <extURI>urn:ietf:params:xml:ns:{{ extension }}</extURI>
+          {% endif %}
+          {% endif %}
           {% endfor %}
         </svcExtension>
       </svcs>
@@ -82,7 +88,7 @@ CONTACT_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
             <contact:name>{{ name }}</contact:name>
             {% if organization %} <contact:org>{{ organization }}</contact:org> {% endif %}
             <contact:addr>
-              <contact:street>{{ street_1 }}</contact:street>
+              {% if street_1 %} <contact:street>{{ street_1 }}</contact:street> {% endif %}
               {% if street_2 %} <contact:street>{{ street_2 }}</contact:street> {% endif %}
               {% if street_3 %} <contact:street>{{ street_3 }}</contact:street> {% endif %}
               <contact:city>{{ city }}</contact:city>
@@ -98,9 +104,16 @@ CONTACT_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
            <contact:pw>{{ password }}</contact:pw>
          </contact:authInfo>
          {% if privacy %}
+         {# RFC 5733 §4: name, org, and addr require type="loc" or type="int"; voice, fax, email have no attributes #}
          <contact:disclose flag="0">
            {% for element in privacy %}
-           <contact:{{ element }}/>
+           {% if element.type is defined and element.type %}
+           <contact:{{ element.name }} type="{{ element.type }}"/>
+           {% elif element in ['name', 'org', 'addr'] %}
+           <contact:{{ element }} type="{{ postal_type or type or 'loc' }}"/>
+           {% else %}
+           <contact:{{ element.name if element.name is defined else element }}/>
+           {% endif %}
            {% endfor %}
          </contact:disclose>
          {% endif %}
@@ -130,14 +143,15 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         <contact:id>{{ id }}</contact:id>
         {% if add_status %}
         <contact:add>
-            <contact:status s={{ add_status }}/>
+            <contact:status s="{{ add_status }}"/>
         </contact:add>
         {% endif %}
         {% if remove_status %}
         <contact:rem>
-            <contact:status s={{ remove_status }}/>
+            <contact:status s="{{ remove_status }}"/>
         </contact:rem>
         {% endif %}
+        {% if postalinfo_change or phone or fax or email or password or privacy %}
         <contact:chg>
          {% if postalinfo_change %}
           <contact:postalInfo type="{{ type or 'loc' }}">
@@ -145,9 +159,9 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
             {% if organization %} <contact:org>{{ organization }}</contact:org> {% endif %}
             {% if address_change %}
             <contact:addr>
-                {% if street_1 %} <contact:street>{{ street_1 }}</contact:street> {% endif %}
-                {% if street_2 %} <contact:street>{{ street_2 }}</contact:street> {% endif %}
-                {% if street_3 %} <contact:street>{{ street_3 }}</contact:street> {% endif %}
+                {% if street_1 is defined and street_1 is not none %} <contact:street>{{ street_1 }}</contact:street> {% endif %}
+                {% if street_2 is defined and street_2 is not none %} <contact:street>{{ street_2 }}</contact:street> {% endif %}
+                {% if street_3 is defined and street_3 is not none %} <contact:street>{{ street_3 }}</contact:street> {% endif %}
                 <contact:city>{{ city }}</contact:city>
                 {% if province %} <contact:sp>{{ province }}</contact:sp> {% endif %}
                 {% if postal_code %} <contact:pc>{{ postal_code }}</contact:pc> {% endif %}
@@ -165,13 +179,21 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
          </contact:authInfo>
          {% endif %}
          {% if privacy %}
+         {# RFC 5733 §4: name, org, and addr require type="loc" or type="int"; voice, fax, email have no attributes #}
          <contact:disclose flag="0">
            {% for element in privacy %}
-           <contact:{{ element }}/>
+           {% if element.type is defined and element.type %}
+           <contact:{{ element.name }} type="{{ element.type }}"/>
+           {% elif element in ['name', 'org', 'addr'] %}
+           <contact:{{ element }} type="{{ postal_type or type or 'loc' }}"/>
+           {% else %}
+           <contact:{{ element.name if element.name is defined else element }}/>
+           {% endif %}
            {% endfor %}
          </contact:disclose>
          {% endif %}
         </contact:chg>
+        {% endif %}
        </contact:update>
     </update>
     <clTRID>{{ client_transaction_id }}</clTRID>

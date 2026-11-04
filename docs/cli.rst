@@ -20,15 +20,18 @@ To see the help page:
       A command line interface to work with PyEpp library.
 
     Options:
-      --server TEXT                   [required]
-      --port TEXT                     [required]
-      --user TEXT                     [required]
-      --password TEXT                 [required]
+      -p, --profile TEXT              Configuration profile name from config.ini
+                                      (e.g. ote, prod).
+      -c, --config-file PATH          Explicit path to config.ini file.
+      --server TEXT
+      --port TEXT
+      --user TEXT
+      --password TEXT
       --client-cert TEXT
       --client-key TEXT
       --extension TEXT                The extension to be loaded for the EPP
                                       command.
-      -o, --output-format [XML|OBJECT|MIN]
+      -o, --output-format [XML|OBJECT|MIN|TABLE]
                                       [default: XML]
       --no-pretty
       --dry-run
@@ -45,6 +48,7 @@ To see the help page:
       hello    Sends a hello command to the server and receives the Greeting...
       host     To work with Host objects in the registry.
       poll     To manage registry service messages.
+      profile  Manage and inspect EPP configuration profiles.
       run      Receive an XML file containing an EPP XML command and execute it.
 
 And to get help for a specific command:
@@ -141,6 +145,7 @@ this way you don't have to pass the parameters for running each command.
     PYEPP_PASSWORD=SecurePassWord
     PYEPP_CLIENT_CERT=/path/to/epp.crt
     PYEPP_CLIENT_KEY=/path/to/epp.key.pem
+    PYEPP_OUTPUT_FORMAT=XML
 
 Config file
 ^^^^^^^^^^^
@@ -164,7 +169,8 @@ Then add the below lines to the file:
     user = epp_user
     password = SecurePassWord
     client_cert = /path/to/epp.crt
-    client_key = /path/to/epp.key.pem 
+    client_key = /path/to/epp.key.pem
+    output_format = XML 
 
 Examples
 ---------------
@@ -236,6 +242,19 @@ contact
                       client_transaction_id='32ebe5a8-225b-4829-a8e0-aa1a10602138',
                       server_transaction_id='CIRA-000232306101-0000000002',
                       repository_object_id=None)
+
+.. code-block:: text
+
+    # Standard contact update (omitted streets are not sent):
+    sh> pyepp contact update sh8014 --street-1 "123 Main St" --city Dulles --country-code US
+
+    # Explicitly clearing secondary street lines in registries requiring empty tags (e.g. CentralNic):
+    sh> pyepp contact update sh8014 --street-1 "123 Main St" --street-2 "" --street-3 "" --city Dulles --country-code US
+
+.. note::
+   Street options in CLI are strictly positional. You cannot pass ``--street-2`` or ``--street-3``
+   if the preceding street lines are omitted. To modify or clear a later line, always supply
+   the preceding lines as well.
 
 domain
 ^^^^^^^^^^^
@@ -375,3 +394,50 @@ poll
           </trID>
          </response>
         </epp>
+
+profile
+^^^^^^^
+
+Configuration profiles allow defining registry connections and credentials in ``~/.pyepp/config.ini``
+(similar to AWS CLI profiles). Settings in ``[default]`` are inherited by named profiles (``[profile <name>]``
+or ``[<name>]``).
+
+To list all configured profiles:
+
+.. code-block:: text
+
+    sh> pyepp profile list
+    Profile  Server                   Port  User            Output Format
+    ---------------------------------------------------------------------
+    default  -                        700   -               TABLE
+    ote      epp.ote.registry.net.nz  700   test_registrar  TABLE
+    prod     epp.registry.net.nz      700   prod_registrar  XML
+
+To inspect profile settings (passwords are masked by default):
+
+.. code-block:: text
+
+    sh> pyepp profile show ote
+    Profile: ote
+      Server:        epp.ote.registry.net.nz
+      Port:          700
+      User:          test_registrar
+      Password:      ********
+      Client Cert:   None
+      Client Key:    None
+      Extensions:    urn:ietf:params:xml:ns:secDNS-1.1
+      Output Format: TABLE
+      No Pretty:     False
+      Dry Run:       False
+
+To display cleartext secrets, pass ``--show-secrets``:
+
+.. code-block:: text
+
+    sh> pyepp profile show ote --show-secrets
+
+To execute any command using a specific profile:
+
+.. code-block:: text
+
+    sh> pyepp -p ote domain check example.nz

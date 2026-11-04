@@ -68,6 +68,16 @@ def contact_delete(ctx, contact_id, client_transaction_id) -> None:
 @click.option("--add-status")
 @click.option("--remove-status")
 @click.option(
+    "--privacy",
+    multiple=True,
+    type=click.Choice(
+        ["name", "org", "addr", "voice", "fax", "email"],
+        case_sensitive=False,
+    ),
+    help="Contact elements to redact from disclosure (Whois/RDAP). "
+    "Can be repeated for multiple elements: name, org, addr, voice, fax, email.",
+)
+@click.option(
     "--type",
     "postal_type",
     type=click.Choice(["loc", "int"], case_sensitive=False),
@@ -95,6 +105,7 @@ def contact_update(
     password,
     add_status,
     remove_status,
+    privacy,
     client_transaction_id,
 ) -> None:
     """Updates contact's details.
@@ -102,7 +113,8 @@ def contact_update(
     CONTACT_ID: Contact id
     """
     has_address_fields = any(
-        [
+        x is not None
+        for x in [
             street_1,
             street_2,
             street_3,
@@ -113,7 +125,9 @@ def contact_update(
         ]
     )
     has_name_or_org = any([name, organization])
-    has_postal_update = any([postal_type, has_name_or_org, has_address_fields])
+    has_postal_fields = any([has_name_or_org, has_address_fields])
+    # Distinguish full postal update from a privacy-only update carrying --type (e.g. --privacy name --type int)
+    has_postal_update = has_postal_fields or (postal_type and not privacy)
 
     postal_info = None
     if has_postal_update:
@@ -129,6 +143,14 @@ def contact_update(
 
         address = None
         if has_address_fields or postal_type == "int":
+            if street_1 is None and (street_2 is not None or street_3 is not None):
+                raise click.UsageError(
+                    "Cannot specify --street-2 or --street-3 when preceding street lines are omitted."
+                )
+            if street_2 is None and street_3 is not None:
+                raise click.UsageError(
+                    "Cannot specify --street-3 when --street-2 is omitted."
+                )
             address = AddressData(
                 street_1=street_1,
                 street_2=street_2,
@@ -145,6 +167,14 @@ def contact_update(
             type=postal_type or "loc",
             address=address,
         )
+    elif postal_type and privacy:
+        # Carry intended postal type for disclosure tags without creating an address update payload
+        postal_info = PostalInfoData(
+            name=None,
+            organization=None,
+            type=postal_type,
+            address=None,
+        )
 
     contact_to_update = ContactData(
         id=contact_id,
@@ -153,6 +183,7 @@ def contact_update(
         fax=fax,
         password=password,
         postal_info=postal_info,
+        privacy=list(privacy) if privacy else None,
     )
 
     result = ctx.obj.update(
@@ -184,6 +215,16 @@ def contact_update(
 @click.option("--phone")
 @click.option("--fax")
 @click.option("--password")
+@click.option(
+    "--privacy",
+    multiple=True,
+    type=click.Choice(
+        ["name", "org", "addr", "voice", "fax", "email"],
+        case_sensitive=False,
+    ),
+    help="Contact elements to redact from disclosure (Whois/RDAP). "
+    "Can be repeated for multiple elements: name, org, addr, voice, fax, email.",
+)
 @click.option("--client-transaction-id")
 @click.pass_context
 # pylint: disable=too-many-arguments, too-many-locals, too-many-positional-arguments
@@ -204,18 +245,37 @@ def contact_create(
     fax,
     email,
     password,
+    privacy,
     client_transaction_id,
 ) -> None:
     """Creates a new contact in the registry.
 
     CONTACT_ID: A unique contact id
     """
+    if street_1 is None and (street_2 is not None or street_3 is not None):
+        raise click.UsageError(
+            "Cannot specify --street-2 or --street-3 when preceding street lines are omitted."
+        )
+    if street_2 is None and street_3 is not None:
+        raise click.UsageError(
+            "Cannot specify --street-3 when --street-2 is omitted."
+        )
+    if street_1 == "" and (street_2 or street_3):
+        raise click.UsageError(
+            "Cannot specify --street-2 or --street-3 when --street-1 is empty."
+        )
+    if street_2 == "" and street_3:
+        raise click.UsageError(
+            "Cannot specify --street-3 when --street-2 is empty."
+        )
+
     contact_to_create = ContactData(
         id=contact_id,
         email=email,
         phone=phone,
         fax=fax,
         password=password,
+        privacy=list(privacy) if privacy else None,
         postal_info=PostalInfoData(
             name=name,
             organization=organization,

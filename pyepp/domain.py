@@ -183,16 +183,32 @@ class Domain(BaseCommand):
 
         raw_response = result.parsed_xml
 
+        # Per RFC 5731 §3.1.2, elements like registrant, contacts, and authInfo
+        # are optional and often omitted or redacted by registries when the domain
+        # is queried by a non-sponsoring registrar. Safe null checks prevent
+        # AttributeError when parsing responses for external domains.
         result_data = {
-            "domain_name": raw_response.find("name").text,
-            "sponsoring_client_id": raw_response.find("clID").text,
+            "domain_name": (
+                raw_response.find("name").text
+                if raw_response.find("name")
+                else None
+            ),
+            "sponsoring_client_id": (
+                raw_response.find("clID").text
+                if raw_response.find("clID")
+                else None
+            ),
             "status": [status.get("s") for status in raw_response.find_all("status")],
             "host": (
                 [host.text for host in raw_response.find_all("hostObj")]
                 if raw_response.find("ns")
                 else None
             ),
-            "registrant": raw_response.find("registrant").text,
+            "registrant": (
+                raw_response.find("registrant").text
+                if raw_response.find("registrant")
+                else None
+            ),
             "admin": (
                 raw_response.find("contact", {"type": "admin"}).text
                 if raw_response.find("contact", {"type": "admin"})

@@ -7,7 +7,7 @@ from typing import Any, Optional
 import uuid
 
 from dataclasses import dataclass
-from html import escape
+from markupsafe import escape
 
 from jinja2 import Template
 
