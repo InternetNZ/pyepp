@@ -270,6 +270,14 @@ def _supports_ansi_tty() -> bool:
     return bool(is_tty and term != "dumb")
 
 
+def _supports_dock() -> bool:
+    """Return True if stdout supports ANSI sequences and has sufficient dimensions for the 4-row dock."""
+    if not _supports_ansi_tty():
+        return False
+    size = shutil.get_terminal_size((80, 24))
+    return size.lines >= 6 and size.columns >= 12
+
+
 def _use_color() -> bool:
     """Return True if ANSI colors should be emitted (respects NO_COLOR and TERM=dumb)."""
     return _supports_ansi_tty() and not bool(os.environ.get("NO_COLOR"))
@@ -422,7 +430,7 @@ class _ShellLoggingFilter(logging.Filter):  # pylint: disable=too-few-public-met
 
 def _enter_bottom_dock() -> None:
     """Reserve the bottom 4 terminal rows for the prompt dock and activate the scroll region."""
-    if not _supports_ansi_tty():
+    if not _supports_dock():
         return
     _, scroll_bottom, _, _, _, _ = _get_dock_geometry()
     # Push existing terminal lines up by 4 rows so the dock never overwrites prior content,
@@ -434,6 +442,12 @@ def _enter_bottom_dock() -> None:
 def _exit_bottom_dock() -> None:
     """Reset the terminal scroll region to full screen and erase the 4-row bottom dock on exit."""
     if not _supports_ansi_tty():
+        return
+    if not _supports_dock():
+        # Even if the terminal was resized smaller than the dock threshold during the session,
+        # always reset DECSTBM (\033[r) on an ANSI TTY so the scroll region is never left stranded.
+        sys.stdout.write("\033[r")
+        sys.stdout.flush()
         return
     _, scroll_bottom, top_div_row, prompt_row, bot_div_row, status_row = _get_dock_geometry()
     sys.stdout.write(
@@ -461,7 +475,7 @@ def _flush_pending_command() -> None:
     if pending_cmd is None:
         return
     _flush_pending_command.pending_command = None
-    if not _supports_ansi_tty():
+    if not _supports_dock():
         return
     width, scroll_bottom, top_div_row, prompt_row, bot_div_row, _ = _get_dock_geometry()
     color = _use_color()
@@ -497,35 +511,53 @@ def _format_input_viewport(
         where `backward_cursor_offset` is the number of columns to move left from the
         end of `rendered_prompt_row_text` to reach `cursor_pos` (for `\033[<N>D`).
     """
+    if max_cols <= 0:
+        return "", 0
+
     cursor_pos = max(0, min(cursor_pos, len(buffer)))
     plain_prompt = click.unstyle(prompt)
     if len(plain_prompt) + len(buffer) <= max_cols:
         return f"{prompt}{buffer}", len(buffer) - cursor_pos
 
-    # Available character width allocated for the command buffer slice
-    avail = max(10, max_cols - len(plain_prompt))
-    if cursor_pos < avail - 1:
+    # In narrow viewports, truncate the prompt if it leaves fewer than 3 columns for the buffer
+    if len(plain_prompt) >= max_cols - 2 and max_cols > 3:
+        prompt = _truncate_ansi(prompt, max_cols - 3)
+        plain_prompt = click.unstyle(prompt)
+    elif max_cols <= 3:
+        prompt = ""
+        plain_prompt = ""
+
+    # Available character width strictly bounded by actual remaining columns
+    avail = max(1, max_cols - len(plain_prompt))
+    if not buffer:
+        slice_text = ""
+        shift = 0
+    elif avail == 1:
+        slice_text = ">" if cursor_pos < len(buffer) else "<"
+        shift = 0
+    elif cursor_pos < avail - 1:
         # Cursor is near the start; show head of buffer with trailing '>' indicator
         slice_text = buffer[: avail - 1] + ">"
         shift = len(slice_text) - cursor_pos
     else:
         # Cursor is scrolled right; show window containing cursor with '<' / '>' markers
-        end = min(len(buffer), cursor_pos + 2)
         prefix = "<"
-        suffix = ">" if end < len(buffer) else ""
-        slice_len = avail - len(prefix) - len(suffix)
-        start = max(0, end - slice_len)
+        suffix = ">" if cursor_pos + 1 < len(buffer) else ""
+        span = max(1, avail - len(prefix) - len(suffix))
+        end = min(len(buffer), cursor_pos + 1)
+        start = max(0, end - span)
         slice_text = prefix + buffer[start:end] + suffix
-        cur_pos_in_slice = len(prefix) + (cursor_pos - start)
-        shift = len(slice_text) - cur_pos_in_slice
+        if len(slice_text) > avail:
+            slice_text = slice_text[:avail]
+        shift = len(slice_text) - (len(prefix) + cursor_pos - start)
 
     rendered = f"{prompt}{slice_text}"
-    return rendered, max(0, shift)
+    return rendered, max(0, min(len(slice_text), shift))
 
 
 def _read_line_with_status_bar(cli_obj) -> str:
     """Render the pinned 4-row bottom dock (dividers, prompt, status bar) and read a command line."""
-    if not _supports_ansi_tty():
+    if not _supports_dock():
         return input(format_prompt(cli_obj, color=False))
 
     _flush_pending_command()
@@ -938,7 +970,7 @@ def _handle_builtin_command(cli_obj, cmd: str, args: list[str]) -> None:
     if cmd == "clear":
         _flush_pending_command.pending_command = None
         click.clear()
-        if _supports_ansi_tty():
+        if _supports_dock():
             _, scroll_bottom, _, _, _, _ = _get_dock_geometry()
             sys.stdout.write(f"\033[1;{scroll_bottom}r\033[{scroll_bottom};1H")
             sys.stdout.flush()
@@ -970,12 +1002,12 @@ def _has_positional_or_extra_credentials(tokens: list[str]) -> bool:
     or mistakenly typed positionally without the `--password` flag (e.g. `domain update example.nz <password>`).
     We parse arguments using Click's command parser to accurately identify positional credentials and
     accidental extra positional arguments on password-accepting commands, preventing credential leakage
-    into shell history even when syntax errors occur.
+    into shell history even when syntax errors occur or when `--help` is requested with arguments.
     """
     cmd_tokens = list(tokens)
     if cmd_tokens and cmd_tokens[0].lower() == "pyepp":
         cmd_tokens = cmd_tokens[1:]
-    if len(cmd_tokens) < 2 or any(t in ("-h", "--help") for t in cmd_tokens):
+    if len(cmd_tokens) < 2:
         return False
 
     grp_name = cmd_tokens[0].lower()
@@ -985,23 +1017,27 @@ def _has_positional_or_extra_credentials(tokens: list[str]) -> bool:
     if sub_cmd is None:
         return False
 
+    # Check whether the subcommand accepts a password or auth-info argument/option
+    has_pwd_param = any(
+        getattr(p, "name", "").lower() in ("password", "auth_info", "authinfo", "auth")
+        for p in getattr(sub_cmd, "params", [])
+    )
+
     try:
         parser = sub_cmd.make_parser(click.Context(sub_cmd))
         opts, extra_args, _ = parser.parse_args(cmd_tokens[2:])
     except Exception:  # pylint: disable=broad-exception-caught
-        return False
+        # On option parsing errors (e.g. missing option value like '--period', or unknown options),
+        # treat lines on password-capable commands as sensitive to prevent leaking positional credentials.
+        return bool(has_pwd_param)
 
-    # Check 1: positional password argument (e.g. domain transfer <domain> <password>)
+    # Check 1: positional password argument (e.g. domain transfer <domain> <password> [--help])
     pwd = opts.get("password")
     if isinstance(pwd, str) and pwd.strip():
         return True
 
     # Check 2: extra positional arguments on any command accepting a password parameter
     # (e.g. accidental omission of '--password' in 'domain update <domain> <password>')
-    has_pwd_param = any(
-        getattr(p, "name", "").lower() in ("password", "auth_info", "authinfo", "auth")
-        for p in getattr(sub_cmd, "params", [])
-    )
     return bool(extra_args and has_pwd_param)
 
 
@@ -1285,7 +1321,7 @@ class ShellCompleter:
         self, _substitution: str, matches: list[str], _longest_match_length: int
     ) -> None:
         """Readline match-display hook ensuring native match lists never overwrite the status bar."""
-        if matches and _supports_ansi_tty():
+        if matches and _supports_dock():
             full_buffer = _readline.get_line_buffer() if _readline is not None else ""
             self._display_matches_with_status_bar(list(matches), full_buffer)
 
@@ -1323,12 +1359,12 @@ class ShellCompleter:
             self._last_prefix_expanded = None
 
             # When readline requests a completion listing (double-Tab '?', or show-all '!'/'@')
-            # or on the second Tab immediately after prefix expansion in an interactive ANSI TTY,
+            # or on the second Tab immediately after prefix expansion in an interactive ANSI TTY with dock,
             # render the candidate list (including single-match or next-token candidates) above
             # the redrawn prompt frame and status bar so readline never writes onto the status bar.
             if (
                 completion_type in (ord("?"), ord("!"), ord("@")) or is_second_tab_after_expand
-            ) and _supports_ansi_tty():
+            ) and _supports_dock():
                 display_list = self._resolve_display_candidates(active_buffer, text)
                 if display_list:
                     self._display_matches_with_status_bar(display_list, full_buffer)
@@ -1338,12 +1374,12 @@ class ShellCompleter:
             # When the token under cursor is already a complete match (e.g. 'domain' or
             # 'domain update') and has next-token completions, append a space on the first Tab
             # and record the expanded prefix so the second Tab lists next-token completions.
-            if self._matches == [text] and _supports_ansi_tty():
+            if self._matches == [text] and _supports_dock():
                 next_matches = self.get_candidates(active_buffer + " ", "")
                 if next_matches:
                     self._matches = [text + " "]
                     self._last_prefix_expanded = active_buffer + " "
-            elif len(self._matches) > 1 and _supports_ansi_tty():
+            elif len(self._matches) > 1 and _supports_dock():
                 common = os.path.commonprefix(self._matches)
                 if len(common) > len(text):
                     prefix_len = len(active_buffer) - len(text)
@@ -1428,7 +1464,9 @@ def _configure_readline(completer: ShellCompleter) -> Optional[str]:
         return None
     old_delims = _readline.get_completer_delims()
     _readline.set_completer(completer.complete)
-    if hasattr(_readline, "set_completion_display_matches_hook"):
+    # Install custom display hook only when the ANSI bottom dock is supported.
+    # On plain/dumb terminals, leaving this unset lets readline fall back to its native completion listing.
+    if hasattr(_readline, "set_completion_display_matches_hook") and _supports_dock():
         _readline.set_completion_display_matches_hook(completer.display_matches_hook)
     # Remove '-' from completer_delims so options like '--client-transaction-id'
     # and subcommands like 'restore-report' complete as a single token.
@@ -1525,12 +1563,12 @@ def shell_command(ctx) -> None:
                 try:
                     line = _read_line_with_status_bar(cli_obj)
                 except KeyboardInterrupt:
-                    prefix = "" if _supports_ansi_tty() else "\n"
+                    prefix = "" if _supports_dock() else "\n"
                     msg = f"{prefix}Interrupted. Type 'exit' or press Ctrl+D to quit."
                     utils.echo(click.style(msg, fg="yellow"))
                     continue
                 except EOFError:
-                    prefix = "" if _supports_ansi_tty() else "\n"
+                    prefix = "" if _supports_dock() else "\n"
                     utils.echo(click.style(f"{prefix}Exiting shell...", fg="cyan"))
                     break
 

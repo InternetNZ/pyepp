@@ -27,6 +27,7 @@ from pyepp.cli.shell import (
     switch_profile,
     _cleanup_unexpected_arg_history,
     _configure_readline,
+    _exit_bottom_dock,
     _format_input_viewport,
     _format_last_result,
     _has_positional_or_extra_credentials,
@@ -36,6 +37,7 @@ from pyepp.cli.shell import (
     _safe_close_session,
     _save_persistent_history,
     _scrub_last_readline_history_item,
+    _supports_dock,
 )
 
 
@@ -1471,6 +1473,139 @@ server = epp.incomplete.net.nz
             mock_rl.get_completer_delims.return_value = " \t\n\"\\'`@$><=;|&{("
             _configure_readline(completer)
             mock_rl.parse_and_bind.assert_any_call("set horizontal-scroll-mode on")
+
+    def test_transfer_password_with_help_flag_scrubbed_from_history(self) -> None:
+        """Verify that transfer commands containing passwords with --help are scrubbed, while clean help remains."""
+        # Transfer with domain, password, and --help flag contains authInfo: must be scrubbed
+        self.assertTrue(_is_sensitive_line("domain transfer example.nz Z8v2R9 --help"))
+        self.assertTrue(_is_sensitive_line("pyepp domain transfer example.nz Z8v2R9 --help"))
+        self.assertTrue(_is_sensitive_line("domain update example.nz MySecretPassword --help"))
+
+        # Help on transfer or update without credentials is clean and not sensitive
+        self.assertFalse(_is_sensitive_line("domain transfer example.nz --help"))
+        self.assertFalse(_is_sensitive_line("domain transfer --help"))
+        self.assertFalse(_is_sensitive_line("domain update --help"))
+        self.assertFalse(_is_sensitive_line("domain update example.nz --help"))
+        self.assertFalse(_is_sensitive_line("contact update --help"))
+
+    def test_malformed_credential_commands_scrubbed_from_history(self) -> None:
+        """Verify parser errors on password-capable commands are treated as sensitive to prevent leaks."""
+        # Missing option argument or unknown option on transfer command with password
+        self.assertTrue(_is_sensitive_line("domain transfer example.nz Z8v2R9 --period"))
+        self.assertTrue(_is_sensitive_line("domain transfer example.nz Z8v2R9 --unknown-flag"))
+        self.assertTrue(_is_sensitive_line("domain update example.nz secret123 --unknown-flag"))
+        self.assertTrue(_is_sensitive_line("contact update contact-1 secret123 --unknown-flag"))
+
+        # Non-password commands with parsing errors are not treated as sensitive
+        self.assertFalse(_is_sensitive_line("domain check example.nz --period"))
+        self.assertFalse(_is_sensitive_line("domain check example.nz --unknown-flag"))
+        self.assertFalse(_is_sensitive_line("domain info example.nz --unknown-flag"))
+        self.assertFalse(_is_sensitive_line("host info ns1.example.nz --unknown-flag"))
+
+    def test_viewport_narrow_terminals_no_wrapping(self) -> None:
+        """Verify _format_input_viewport bounds viewport to actual remaining columns in narrow terminals."""
+        prompt = "pyepp> "  # length 7
+        buf = "domain transfer example.nz Z8v2R9"
+
+        # max_cols = 14: 7 cols for prompt, 7 cols for viewport, exactly 14 cols total (never 17)
+        rendered_end, shift_end = _format_input_viewport(prompt, buf, len(buf), 14)
+        self.assertLessEqual(len(click.unstyle(rendered_end)), 14)
+        self.assertEqual(shift_end, 0)
+
+        rendered_start, shift_start = _format_input_viewport(prompt, buf, 0, 14)
+        self.assertLessEqual(len(click.unstyle(rendered_start)), 14)
+        self.assertLessEqual(shift_start, 14)
+
+        # Very narrow terminal (max_cols = 8): prompt is truncated, total <= 8
+        rendered_narrow, _ = _format_input_viewport(prompt, buf, len(buf), 8)
+        self.assertLessEqual(len(click.unstyle(rendered_narrow)), 8)
+
+        # Zero or negative max_cols returns empty string even when prompt and buffer are empty
+        self.assertEqual(_format_input_viewport("", "", 0, 0), ("", 0))
+        self.assertEqual(_format_input_viewport("", "", 0, -5), ("", 0))
+
+        # Check across all widths 1..35 and all cursor positions that visible width <= max_cols
+        for w in range(1, 36):
+            for c in (0, 5, len(buf) // 2, len(buf)):
+                r, s = _format_input_viewport(prompt, buf, c, w)
+                plain = click.unstyle(r)
+                self.assertLessEqual(len(plain), w)
+                self.assertGreaterEqual(s, 0)
+                self.assertLessEqual(s, len(plain))
+
+    def test_undocked_fallback_when_dimensions_insufficient(self) -> None:
+        """Verify shell uses undocked fallback when terminal has insufficient dimensions or lacks ANSI."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+
+        # Not an ANSI tty -> _supports_dock is False
+        with patch("pyepp.cli.shell._supports_ansi_tty", return_value=False):
+            self.assertFalse(_supports_dock())
+            with patch("builtins.input", return_value="domain check example.nz") as mock_input:
+                self.assertEqual(_read_line_with_status_bar(cli_obj), "domain check example.nz")
+                mock_input.assert_called_once_with(format_prompt(cli_obj, color=False))
+
+        # lines < 6 -> _supports_dock is False, and _exit_bottom_dock still resets DECSTBM (\033[r) on ANSI TTY
+        with (
+            patch("pyepp.cli.shell._supports_ansi_tty", return_value=True),
+            patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 5))),
+        ):
+            self.assertFalse(_supports_dock())
+            with patch("builtins.input", return_value="status") as mock_input:
+                self.assertEqual(_read_line_with_status_bar(cli_obj), "status")
+                mock_input.assert_called_once_with(format_prompt(cli_obj, color=False))
+            with patch("sys.stdout") as mock_stdout:
+                _exit_bottom_dock()
+                mock_stdout.write.assert_called_once_with("\033[r")
+
+        # columns < 12 -> _supports_dock is False
+        with (
+            patch("pyepp.cli.shell._supports_ansi_tty", return_value=True),
+            patch("shutil.get_terminal_size", return_value=os.terminal_size((10, 24))),
+        ):
+            self.assertFalse(_supports_dock())
+
+        # lines >= 6 and columns >= 12 -> _supports_dock is True
+        with (
+            patch("pyepp.cli.shell._supports_ansi_tty", return_value=True),
+            patch("shutil.get_terminal_size", return_value=os.terminal_size((80, 24))),
+        ):
+            self.assertTrue(_supports_dock())
+
+    def test_readline_completion_dumb_terminal_fallback(self) -> None:
+        """Verify custom completion hook is not installed on plain/dumb terminals and native rendering is preserved."""
+        cli_obj = self._create_mock_cli(dry_run=True)
+        completer = ShellCompleter(cli_obj)
+
+        # On plain terminal / dumb terminal (_supports_dock is False):
+        with (
+            patch("pyepp.cli.shell._readline") as mock_rl,
+            patch("pyepp.cli.shell._supports_dock", return_value=False),
+        ):
+            mock_rl.get_completer_delims.return_value = " \t\n\"\\'`@$><=;|&{("
+            _configure_readline(completer)
+            # Hook should NOT be set, letting readline use native match display
+            mock_rl.set_completion_display_matches_hook.assert_not_called()
+
+        # In complete() with _supports_dock False, double-Tab does not intercept or return None
+        with (
+            patch("pyepp.cli.shell._readline") as mock_rl,
+            patch("pyepp.cli.shell._supports_dock", return_value=False),
+        ):
+            mock_rl.get_line_buffer.return_value = "domain "
+            mock_rl.get_completion_type.return_value = ord("?")
+            mock_rl.get_endidx.return_value = 7
+            # Does not return None, returns matching candidate normally for native readline
+            result = completer.complete("", 0)
+            self.assertIsNotNone(result)
+
+        # On ANSI terminal with dock (_supports_dock is True):
+        with (
+            patch("pyepp.cli.shell._readline") as mock_rl,
+            patch("pyepp.cli.shell._supports_dock", return_value=True),
+        ):
+            mock_rl.get_completer_delims.return_value = " \t\n\"\\'`@$><=;|&{("
+            _configure_readline(completer)
+            mock_rl.set_completion_display_matches_hook.assert_called_once_with(completer.display_matches_hook)
 
 
 if __name__ == "__main__":
