@@ -20,10 +20,13 @@ To see the help page:
       A command line interface to work with PyEpp library.
 
     Options:
-      --server TEXT                   [required]
-      --port TEXT                     [required]
-      --user TEXT                     [required]
-      --password TEXT                 [required]
+      -p, --profile TEXT              Configuration profile name from config.ini
+                                      (e.g. ote, prod).
+      -c, --config-file PATH          Explicit path to config.ini file.
+      --server TEXT
+      --port TEXT
+      --user TEXT
+      --password TEXT
       --client-cert TEXT
       --client-key TEXT
       --extension TEXT                The extension to be loaded for the EPP
@@ -45,7 +48,9 @@ To see the help page:
       hello    Sends a hello command to the server and receives the Greeting...
       host     To work with Host objects in the registry.
       poll     To manage registry service messages.
+      profile  Manage and inspect EPP configuration profiles.
       run      Receive an XML file containing an EPP XML command and execute it.
+      shell    Start an interactive EPP shell session with a persistent connection.
 
 And to get help for a specific command:
 
@@ -390,3 +395,143 @@ poll
           </trID>
          </response>
         </epp>
+
+profile
+^^^^^^^
+
+Configuration profiles allow defining registry connections and credentials in ``~/.pyepp/config.ini``
+(similar to AWS CLI profiles). Settings in ``[default]`` are inherited by named profiles (``[profile <name>]``
+or ``[<name>]``).
+
+To list all configured profiles:
+
+.. code-block:: text
+
+    sh> pyepp profile list
+    Profile  Server                   Port  User            Output Format
+    ---------------------------------------------------------------------
+    default  -                        700   -               TABLE
+    ote      epp.ote.registry.net.nz  700   test_registrar  TABLE
+    prod     epp.registry.net.nz      700   prod_registrar  XML
+
+To inspect profile settings (passwords are masked by default):
+
+.. code-block:: text
+
+    sh> pyepp profile show ote
+    Profile: ote
+      Server:        epp.ote.registry.net.nz
+      Port:          700
+      User:          test_registrar
+      Password:      ********
+      Client Cert:   None
+      Client Key:    None
+      Extensions:    urn:ietf:params:xml:ns:secDNS-1.1
+      Output Format: TABLE
+      No Pretty:     False
+      Dry Run:       False
+
+To display cleartext secrets, pass ``--show-secrets``:
+
+.. code-block:: text
+
+    sh> pyepp profile show ote --show-secrets
+
+To execute any command using a specific profile:
+
+.. code-block:: text
+
+    sh> pyepp -p ote domain check example.nz
+
+shell
+^^^^^
+
+The ``shell`` command starts a colorized interactive REPL session that connects and logs in once, reusing the
+persistent EPP session across commands.
+
+Terminal Layout & Navigation
+""""""""""""""""""""""""""""
+
+The interactive shell features a pinned 4-row bottom dock framed by horizontal divider lines:
+
+- **Pinned Bottom Dock**: Keeps the input prompt (``pyepp>``) and live status bar anchored to the bottom rows of the terminal screen at all times.
+- **Scrollable Output Viewport**: Uses standard VT100/ANSI scrolling margins (``DECSTBM``) so that all command outputs scroll upward in the upper terminal region with full native terminal scrollback preservation.
+- **Smooth Execution Transitions**: Pressing ``Enter`` executes commands in-place without cursor jumps or extra blank lines while network requests are in flight, transitioning output into the scrollable viewport as responses arrive.
+- **Live Status Bar**: Displays real-time session diagnostics:
+
+  - Connection indicator: ``● connected`` (green), ``○ disconnected`` (red), or ``● dry-run`` (yellow)
+  - Active profile name (``profile: <name>``)
+  - Endpoint and credentials (``user@server:port``)
+  - Active output format (``format: XML|OBJECT|MIN|TABLE``)
+  - Pretty-print status (``pretty: on|off``)
+  - Optional telemetry badges: ``debug: on`` when debug logging is active, pending poll queue count (``✉ poll: <N>``), and round-trip execution latency (``last: <N>ms``).
+
+Built-in Shell Features & Commands
+""""""""""""""""""""""""""""""""""
+
+- **Interactive Tab Auto-Completion**: Readline Tab and double-Tab auto-completion for top-level commands, subcommands, profile names (``use <TAB>``, ``profile use <TAB>``), option flags (e.g. ``domain update --<TAB>``), and settings. Candidate listings are rendered cleanly above the dock inside the scrollable region without disrupting the prompt or status bar.
+- **Prefix History Search & Bang Expansion**: Up and Down arrow keys perform prefix-aware history searches (e.g. typing ``domain`` and pressing Up filters prior ``domain`` commands), while an empty prompt navigates history sequentially. Built-in ``history [count]`` (alias ``hist``), ``!!`` (re-run previous command), and ``!<N>`` (re-run command by index). Non-sensitive history is persisted in ``~/.pyepp/history`` (owner-only ``0600`` permissions) with automatic scrubbing of ``--password``, ``--pass``, and ``--show-secrets``.
+- **Mid-Session Profile Switching**: Switch registry endpoints on the fly via ``use <profile>`` or ``profile use <profile>``. The shell cleanly logs out of the current registry, validates the target profile, connects, authenticates, and updates the status bar atomically.
+- **Runtime Session Settings**:
+
+  - ``set output-format <XML|OBJECT|MIN|TABLE>``: Change response format for subsequent commands.
+  - ``set pretty <on|off>``: Toggle XML pretty-printing.
+  - ``set dry-run <on|off>``: Dynamically toggle dry-run mode (switches between simulated execution and a live authenticated connection).
+  - ``set debug <on|off>``: Toggle debug logging and raw XML payload diagnostics on the fly.
+  - ``unset <debug|dry-run|pretty>``: Convenience command to disable boolean session settings.
+
+- **Response Re-Formatting & Export**:
+
+  - ``last [XML|OBJECT|MIN|TABLE]``: Re-display the most recent command response in any supported format without re-querying the registry.
+  - ``save <filepath> [XML|OBJECT|MIN|TABLE]``: Save the last response to a file on disk.
+
+- **Session Control & Diagnostics**:
+
+  - ``status`` (alias ``st``): Display detailed session parameters, connection health, loaded EPP extensions, poll queue count, and execution latency.
+  - ``reconnect``: Reconnect and re-authenticate the active session after network drops or timeouts.
+  - ``clear``: Clear the upper terminal screen buffer and re-anchor the bottom dock while retaining command history.
+  - ``help [command]`` or ``? [command]``: Display shell overview or detailed subcommand help.
+  - ``exit``, ``quit``, or ``q`` (or ``Ctrl+D``): Safely log out and terminate the shell session.
+
+Example Shell Session
+""""""""""""""""""""""
+
+.. code-block:: text
+
+    sh> pyepp -p ote shell
+      ____        _____ ____  ____
+     |  _ \ _   _| ____|  _ \|  _ \
+     | |_) | | | |  _| | |_) | |_) |
+     |  __/| |_| | |___|  __/|  __/
+     |_|    \__, |_____|_|   |_|
+            |___/
+
+    Interactive EPP Shell (v0.5.0) - Type help for commands, exit to quit.
+
+    Connected and logged in as test_registrar@epp.ote.registry.net.nz:700
+
+    ────────────────────────────────────────────────────────────────────────────────
+    pyepp> domain check example.nz
+    ────────────────────────────────────────────────────────────────────────────────
+     ● connected │ profile: ote │ test_registrar@epp.ote.registry.net.nz:700 │ format: TABLE │ pretty: on │ last: 42ms
+
+    +------------+-----------+--------+
+    | Domain     | Available | Reason |
+    +------------+-----------+--------+
+    | example.nz | True      | None   |
+    +------------+-----------+--------+
+
+    ────────────────────────────────────────────────────────────────────────────────
+    pyepp> last XML
+    ────────────────────────────────────────────────────────────────────────────────
+     ● connected │ profile: ote │ test_registrar@epp.ote.registry.net.nz:700 │ format: TABLE │ pretty: on │ last: 42ms
+
+    pyepp> save /tmp/check_example.xml XML
+    Saved last response to /tmp/check_example.xml.
+
+    pyepp> use prod
+    Switched to profile 'prod'.
+    Connected and logged in as prod_registrar@epp.registry.net.nz:700
+
+    pyepp> exit
+    Exiting shell...

@@ -2,7 +2,7 @@
 PyEPP Package
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.1"
 
 from pyepp.epp import (
     EppCommunicator,
@@ -31,3 +31,11 @@ from pyepp.domain import (
 from pyepp.host import Host, HostData, IPAddressData
 
 from pyepp.poll import Poll, ServiceMessageQueueData, ServiceMessageData
+from pyepp.profiles import (
+    Profile,
+    ProfileNotFoundError,
+    load_profile,
+    list_profiles,
+    load_all_profiles,
+    get_default_config_path,
+)

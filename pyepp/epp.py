@@ -1,6 +1,7 @@
 """
 EPP Communicator Module
 """
+# pylint: disable=too-many-lines
 
 import copy
 import ssl
@@ -314,18 +315,20 @@ class EppCommunicator:
     An EPP client for connecting to EPP server.
     """
 
-    # pylint: disable=too-many-instance-attributes,too-many-arguments
+    # pylint: disable=too-many-instance-attributes,too-many-arguments,too-many-positional-arguments
     def __init__(
         self,
-        server: str,
-        port: str,
+        server: Optional[str] = None,
+        port: Optional[Union[str, int]] = None,
         client_cert: Optional[str] = None,
         client_key: Optional[str] = None,
-        dry_run: Optional[bool] = False,
+        dry_run: Optional[bool] = None,
         max_message_size: int = DEFAULT_MAX_MESSAGE_SIZE,
         user: Optional[str] = None,
         password: Optional[str] = None,
         extensions: Optional[list[str]] = None,
+        profile: Optional[Union[str, Any]] = None,
+        config_file: Optional[str] = None,
     ) -> None:
         """
         :param server: EPP server to connect to.
@@ -337,16 +340,50 @@ class EppCommunicator:
         :param user: Optional EPP username for automatic login in context manager
         :param password: Optional EPP password for automatic login in context manager
         :param extensions: Optional list of extension URIs for login
+        :param profile: Optional profile name or Profile instance to load configuration from
+        :param config_file: Optional path to config.ini file for profile lookup
         """
+        prof_obj = None
+        if profile is not None:
+            if isinstance(profile, str):
+                from pyepp.profiles import load_profile  # pylint: disable=import-outside-toplevel
+
+                prof_obj = load_profile(profile, config_file=config_file)
+            else:
+                prof_obj = profile
+
+            if server is None and getattr(prof_obj, "server", None):
+                server = prof_obj.server
+            # Only use profile port if port was not explicitly specified by the caller.
+            # Defaulting port parameter to None allows callers to explicitly pass
+            # port="700" (or port=700) to override profiles that configure non-700 ports.
+            if port is None and getattr(prof_obj, "port", None):
+                port = prof_obj.port
+            if user is None and getattr(prof_obj, "user", None):
+                user = prof_obj.user
+            if password is None and getattr(prof_obj, "password", None):
+                password = prof_obj.password
+            if client_cert is None and getattr(prof_obj, "client_cert", None):
+                client_cert = prof_obj.client_cert
+            if client_key is None and getattr(prof_obj, "client_key", None):
+                client_key = prof_obj.client_key
+            if extensions is None and getattr(prof_obj, "extensions", None):
+                extensions = list(prof_obj.extensions)
+            # Defaulting dry_run to None allows callers to explicitly pass dry_run=False
+            # to override profiles where dry_run is configured as True.
+            if dry_run is None and getattr(prof_obj, "dry_run", False):
+                dry_run = prof_obj.dry_run
+
+        self.profile = prof_obj
         self._server = server
-        self._port = port
+        self._port = str(port) if port else "700"
         self._user = user
         self._password = password
         self._extensions = extensions or []
         self._client_cert = client_cert
         self._client_key = client_key
 
-        self._dry_run = dry_run
+        self._dry_run = bool(dry_run)
         self._max_message_size = max_message_size
 
         self._format_32 = get_format_32()
@@ -357,6 +394,26 @@ class EppCommunicator:
         self.greeting = None
         self._logged_in = False
         self._last_logout_error: Optional[Exception] = None
+
+    @classmethod
+    def from_profile(
+        cls,
+        profile_name: str = "default",
+        config_file: Optional[str] = None,
+        **overrides: Any,
+    ) -> "EppCommunicator":
+        """
+        Create an EppCommunicator instance configured from a profile in config.ini.
+
+        :param profile_name: Name of profile (e.g. 'default', 'ote', 'prod').
+        :param config_file: Optional explicit path to config.ini file.
+        :param overrides: Keyword argument overrides for EppCommunicator.
+        :return: Configured EppCommunicator instance.
+        """
+        from pyepp.profiles import load_profile  # pylint: disable=import-outside-toplevel
+
+        profile = load_profile(profile_name, config_file=config_file)
+        return profile.create_communicator(**overrides)
 
     def __repr__(self) -> str:
         """Safe string representation masking sensitive credentials."""
@@ -671,6 +728,11 @@ class EppCommunicator:
             )
             return self.greeting
 
+        if not self._server:
+            raise EppCommunicatorException(
+                "EPP server hostname is required to connect. Specify server or use a configured profile."
+            )
+
         try:
             self._context = ssl.create_default_context()
             self._context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -692,7 +754,7 @@ class EppCommunicator:
                 raise EppCommunicatorException(
                     "Connection closed by server before sending EPP greeting."
                 )
-            logging.debug("Received greeting from server :\n%s", self.greeting)
+            logging.debug("Received greeting from server:\n%s", self.greeting)
             return self.greeting
         except Exception as ex:
             self.disconnect()
@@ -867,7 +929,7 @@ class EppCommunicator:
             self.disconnect()
 
         self._sync_login_state(cmd, code)
-        logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
+        # logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
 
         return EppResultData(
             code=code,

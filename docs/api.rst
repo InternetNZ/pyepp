@@ -60,3 +60,20 @@ pyepp.host module
    :undoc-members:
    :show-inheritance:
 
+pyepp.poll module
+-----------------
+
+.. automodule:: pyepp.poll
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+pyepp.profiles module
+---------------------
+
+.. automodule:: pyepp.profiles
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+

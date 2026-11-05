@@ -42,6 +42,11 @@ with EppCommunicator(**config, user="user_name", password="password") as epp:
     contact = Contact(epp)
     contact_check = contact.check(['contact-1', 'contact-2'])
 
+# Or using Configuration Profiles (AWS CLI style, loaded from ~/.pyepp/config.ini):
+with EppCommunicator.from_profile("ote") as epp:
+    contact = Contact(epp)
+    contact_check = contact.check(['contact-1', 'contact-2'])
+
 # Or using manual sequence management:
 epp = EppCommunicator(**config)
 
@@ -114,15 +119,18 @@ Usage: pyepp [OPTIONS] COMMAND [ARGS]...
   A command line interface to work with PyEpp library.
 
 Options:
-  --server TEXT                   [required]
-  --port TEXT                     [required]
-  --user TEXT                     [required]
-  --password TEXT                 [required]
+  -p, --profile TEXT              Configuration profile name from config.ini
+                                  (e.g. ote, prod).
+  -c, --config-file PATH          Explicit path to config.ini file.
+  --server TEXT
+  --port TEXT
+  --user TEXT
+  --password TEXT
   --client-cert TEXT
   --client-key TEXT
   --extension TEXT                The extension to be loaded for the EPP
                                   command.
-  -o, --output-format [xml|object|min]
+  -o, --output-format [XML|OBJECT|MIN|TABLE]
                                   [default: XML]
   --no-pretty
   --dry-run
@@ -139,7 +147,72 @@ Commands:
   hello    Sends a hello command to the server and receives the Greeting...
   host     To work with Host objects in the registry.
   poll     To manage registry service messages.
+  profile  Manage and inspect EPP configuration profiles.
   run      Receive an XML file containing an EPP XML command and execute it.
+  shell    Start an interactive PyEPP shell session with persistent...
+```
+
+### Configuration Profiles (`~/.pyepp/config.ini`)
+
+PyEPP supports user-defined configuration profiles (similar to AWS CLI profiles). Settings defined in `[default]` are shared globally and inherited by named profile sections (`[profile <name>]` or `[<name>]`):
+
+```ini
+[default]
+port = 700
+output_format = TABLE
+no_pretty = false
+dry_run = false
+
+[profile ote]
+server = epp.ote.registry.net.nz
+user = test_registrar
+password = secret_ote_pass
+extensions = urn:ietf:params:xml:ns:secDNS-1.1
+
+[profile prod]
+server = epp.registry.net.nz
+user = prod_registrar
+password = secret_prod_pass
+client_cert = ~/.pyepp/certs/client.crt
+client_key = ~/.pyepp/certs/client.key
+extensions = urn:ietf:params:xml:ns:secDNS-1.1
+```
+
+Using profiles with the CLI:
+
+```sh
+# List all configured profiles
+pyepp profile list
+
+# Show details of a profile (passwords masked by default)
+pyepp profile show ote
+pyepp profile show ote --show-secrets
+
+# Run commands using a profile without needing --server, --user, or --password flags
+pyepp -p ote domain check example.nz
+```
+
+### Interactive Shell (`pyepp shell`)
+
+PyEPP provides an interactive REPL shell (`pyepp shell`) that connects and authenticates once, reusing the persistent TLS/TCP session across all commands without reconnecting on every invocation.
+
+Key features include:
+
+- **Pinned Bottom Dock & Scrollable Viewport**: Keeps the `pyepp> ` input prompt and live status bar docked to the bottom rows of the terminal, while command outputs scroll smoothly in the upper terminal region with full native scrollback preservation (`DECSTBM`).
+- **Live Status Bar**: Displays real-time connection state (`● connected`, `○ disconnected`, `● dry-run`), active profile, `user@server:port`, output format, pretty-print mode, pending poll queue count (`✉ poll: <N>`), and round-trip execution latency (`last: <N>ms`).
+- **Interactive Tab Auto-Completion**: Readline Tab and double-Tab auto-completion for commands, subcommands, profile names, flags, and options rendered cleanly above the dock.
+- **Prefix History Search**: Up and Down arrow keys filter command history matching the currently typed prefix. History is persisted across sessions in `~/.pyepp/history` with automatic password scrubbing.
+- **Mid-Session Profile Switching**: Switch registry endpoints on the fly using `use <profile>` or `profile use <profile>`.
+- **Runtime Session Settings**: Adjust active settings dynamically using `set output-format <XML|OBJECT|MIN|TABLE>`, `set pretty <on|off>`, `set dry-run <on|off>`, `set debug <on|off>`, and `unset <debug|dry-run|pretty>`.
+- **Response Inspection & File Export**: Re-render the last response without re-querying using `last [FORMAT]`, or save it to disk using `save <filepath> [FORMAT]`.
+- **Session Control**: `status` (or `st`) for diagnostics, `reconnect` to re-authenticate, `clear` to clear the screen, and `exit` / `quit` / `q` to quit.
+
+```sh
+# Start interactive shell using a profile
+pyepp -p ote shell
+
+# Or connect in dry-run mode
+pyepp -p ote --dry-run shell
 ```
 
 ### Enable shell autocomplete

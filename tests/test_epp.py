@@ -492,7 +492,7 @@ class EppCommunicatorTest(unittest.TestCase):
         epp._read = MagicMock(return_value=b'greeting')
         with self.assertLogs(level='DEBUG') as log:
             epp.connect()
-            self.assertTrue(any("DEBUG:root:Received greeting from server :\n" in msg for msg in log.output))
+            self.assertTrue(any("DEBUG:root:Received greeting from server:\n" in msg for msg in log.output))
 
     def test_execute_command_masks_passwords_in_debug_logs(self):
         self.epp._write = MagicMock()
