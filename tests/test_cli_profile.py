@@ -10,12 +10,14 @@ from click.testing import CliRunner
 
 from pyepp import EppResultData
 from pyepp.cli.__main__ import pyepp_cli, load_config
+from pyepp.profiles import _clear_warned_permission_paths
 
 
 class CliProfileTest(unittest.TestCase):
     """Test suite for CLI profile subcommands and CLI profile flag integration."""
 
     def setUp(self) -> None:
+        _clear_warned_permission_paths()
         self.runner = CliRunner()
         self.ini_content = """[default]
 port = 700
@@ -46,6 +48,7 @@ client_key = /path/to/key.pem
         if os.path.exists(self.cfg_path):
             os.remove(self.cfg_path)
         load_config()
+        _clear_warned_permission_paths()
 
     def test_cli_profile_list(self) -> None:
         """Verify 'pyepp profile list' outputs a formatted table of configured profiles."""
@@ -477,6 +480,64 @@ no_pretty = false
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
             load_config()
+
+    def test_cli_warns_on_permissive_config_file_permissions(self) -> None:
+        """Verify CLI warns on stderr when config file has open permissions without -v/-d."""
+        if os.name != "posix":
+            self.skipTest("Permission test only applies to POSIX systems")
+
+        _clear_warned_permission_paths()
+        ini_content = "[default]\nserver = epp.default.net\n"
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            os.chmod(cfg_path, 0o644)
+            result = self.runner.invoke(
+                pyepp_cli,
+                ["-c", cfg_path, "profile", "list"],
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Warning: Config file", result.output)
+            self.assertIn("accessible by other users", result.output)
+            # Verify deduplication: warning should only appear once in output
+            self.assertEqual(result.output.count("accessible by other users"), 1)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_cli_warns_on_permissive_client_key_permissions(self) -> None:
+        """Verify CLI warns on stderr when client key file has open permissions without -v/-d."""
+        if os.name != "posix":
+            self.skipTest("Permission test only applies to POSIX systems")
+
+        _clear_warned_permission_paths()
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_key:
+            tf_key.write("FAKE KEY DATA")
+            key_path = tf_key.name
+
+        ini_content = f"[default]\nserver = epp.default.net\nclient_key = {key_path}\n"
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_cfg:
+            tf_cfg.write(ini_content)
+            cfg_path = tf_cfg.name
+
+        try:
+            os.chmod(cfg_path, 0o600)
+            os.chmod(key_path, 0o644)
+            result = self.runner.invoke(
+                pyepp_cli,
+                ["-c", cfg_path, "profile", "list"],
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Warning: Client key file", result.output)
+            self.assertIn("contains private key material", result.output)
+            self.assertEqual(result.output.count("contains private key material"), 1)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+            if os.path.exists(key_path):
+                os.remove(key_path)
 
 
 if __name__ == "__main__":

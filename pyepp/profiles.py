@@ -22,6 +22,15 @@ if TYPE_CHECKING:
 
 APP_NAME = "pyepp"
 
+# Track file paths that have already emitted user-facing permission warnings
+# to prevent duplicate output when profiles are loaded multiple times in one CLI command.
+_WARNED_PERMISSION_PATHS: set[str] = set()
+
+
+def _clear_warned_permission_paths() -> None:
+    """Clear cached warned permission paths (primarily for testing)."""
+    _WARNED_PERMISSION_PATHS.clear()
+
 
 class ProfileNotFoundError(Exception):
     """Raised when a requested configuration profile is not found."""
@@ -280,6 +289,23 @@ def _check_config_file_permissions(file_path: str) -> None:
                     file_path,
                     mode & 0o777,
                 )
+                # Emit user-facing warning on stderr regardless of root logger level
+                # (which defaults to logging.ERROR in pyepp.cli.__main__), ensuring operators
+                # receive immediate security feedback on insecure file permissions without
+                # polluting structured stdout output. Paths are canonicalized to prevent
+                # duplicate warning lines across multiple profile load passes in a single run.
+                canonical_path = os.path.abspath(file_path)
+                if canonical_path not in _WARNED_PERMISSION_PATHS:
+                    _WARNED_PERMISSION_PATHS.add(canonical_path)
+                    click.echo(
+                        click.style(
+                            f"Warning: Config file {file_path} contains credentials but is "
+                            f"accessible by other users (mode 0{mode & 0o777:o}). "
+                            "Consider setting permissions to 0600.",
+                            fg="yellow",
+                        ),
+                        err=True,
+                    )
         except OSError:
             pass
 
@@ -302,6 +328,23 @@ def _check_client_key_permissions(file_path: str) -> None:
                     file_path,
                     mode & 0o777,
                 )
+                # Emit user-facing warning on stderr regardless of root logger level
+                # (which defaults to logging.ERROR in pyepp.cli.__main__), ensuring operators
+                # receive immediate security feedback on insecure file permissions without
+                # polluting structured stdout output. Paths are canonicalized to prevent
+                # duplicate warning lines across multiple profile load passes in a single run.
+                canonical_path = os.path.abspath(file_path)
+                if canonical_path not in _WARNED_PERMISSION_PATHS:
+                    _WARNED_PERMISSION_PATHS.add(canonical_path)
+                    click.echo(
+                        click.style(
+                            f"Warning: Client key file {file_path} contains private key material but is "
+                            f"accessible by other users (mode 0{mode & 0o777:o}). "
+                            "Consider setting permissions to 0600.",
+                            fg="yellow",
+                        ),
+                        err=True,
+                    )
         except OSError:
             pass
 
