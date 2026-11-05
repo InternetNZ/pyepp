@@ -2,6 +2,7 @@
 Unit tests for pyepp.profiles module.
 """
 
+import logging
 import os
 import tempfile
 import unittest
@@ -17,6 +18,7 @@ from pyepp import (
     load_all_profiles,
     get_default_config_path,
 )
+from pyepp.profiles import _clear_warned_permission_paths
 
 
 class ProfilesModuleTest(unittest.TestCase):
@@ -517,6 +519,7 @@ password = Pāsswørd_€_123
         if os.name != "posix":
             self.skipTest("Permission test only applies to POSIX systems")
 
+        _clear_warned_permission_paths()
         with tempfile.NamedTemporaryFile("w", delete=False) as tf:
             tf.write("[default]\nserver=test\n")
             cfg_path = tf.name
@@ -524,16 +527,28 @@ password = Pāsswørd_€_123
         try:
             # Set open permissions 0644 (world-readable)
             os.chmod(cfg_path, 0o644)
-            with patch("logging.warning") as mock_warn:
+            with patch("logging.warning") as mock_warn, patch("click.echo") as mock_echo:
                 load_all_profiles(cfg_path)
                 mock_warn.assert_called_once()
                 self.assertIn("accessible by other users", mock_warn.call_args[0][0])
+                mock_echo.assert_called_once()
+                self.assertTrue(mock_echo.call_args[1].get("err"))
+                self.assertIn("accessible by other users", mock_echo.call_args[0][0])
+                self.assertIn(cfg_path, mock_echo.call_args[0][0])
+
+            # Deduplication: second load of same file path should not call click.echo again
+            with patch("logging.warning") as mock_warn_dedup, patch("click.echo") as mock_echo_dedup:
+                load_all_profiles(cfg_path)
+                mock_warn_dedup.assert_called_once()
+                mock_echo_dedup.assert_not_called()
 
             # Set secure permissions 0600 (owner only)
+            _clear_warned_permission_paths()
             os.chmod(cfg_path, 0o600)
-            with patch("logging.warning") as mock_warn_secure:
+            with patch("logging.warning") as mock_warn_secure, patch("click.echo") as mock_echo_secure:
                 load_all_profiles(cfg_path)
                 mock_warn_secure.assert_not_called()
+                mock_echo_secure.assert_not_called()
         finally:
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
@@ -609,6 +624,7 @@ client_key =
         if os.name != "posix":
             self.skipTest("Permission test only applies to POSIX systems")
 
+        _clear_warned_permission_paths()
         with tempfile.NamedTemporaryFile("w", delete=False) as tf_key:
             tf_key.write("FAKE KEY DATA")
             key_path = tf_key.name
@@ -622,22 +638,63 @@ client_key =
             os.chmod(cfg_path, 0o600)
             # Set open permissions 0644 on key file
             os.chmod(key_path, 0o644)
-            with patch("logging.warning") as mock_warn:
+            with patch("logging.warning") as mock_warn, patch("click.echo") as mock_echo:
                 load_all_profiles(cfg_path)
                 mock_warn.assert_called_once()
-                self.assertIn("contains private key material but is accessible by other users", mock_warn.call_args[0][0])
+                self.assertIn(
+                    "contains private key material but is accessible by other users",
+                    mock_warn.call_args[0][0],
+                )
                 self.assertEqual(mock_warn.call_args[0][1], key_path)
+                mock_echo.assert_called_once()
+                self.assertTrue(mock_echo.call_args[1].get("err"))
+                self.assertIn("contains private key material", mock_echo.call_args[0][0])
+                self.assertIn(key_path, mock_echo.call_args[0][0])
+
+            # Deduplication: second load should not emit duplicate click.echo
+            with patch("logging.warning") as mock_warn_dedup, patch("click.echo") as mock_echo_dedup:
+                load_all_profiles(cfg_path)
+                mock_warn_dedup.assert_called_once()
+                mock_echo_dedup.assert_not_called()
 
             # Set secure permissions 0600 on key file
+            _clear_warned_permission_paths()
             os.chmod(key_path, 0o600)
-            with patch("logging.warning") as mock_warn_secure:
+            with patch("logging.warning") as mock_warn_secure, patch("click.echo") as mock_echo_secure:
                 load_all_profiles(cfg_path)
                 mock_warn_secure.assert_not_called()
+                mock_echo_secure.assert_not_called()
         finally:
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
             if os.path.exists(key_path):
                 os.remove(key_path)
+
+    def test_check_permissions_warning_emitted_when_logging_level_is_error(self) -> None:
+        """Verify click.echo warning is still emitted when logging level is ERROR (CLI default)."""
+        if os.name != "posix":
+            self.skipTest("Permission test only applies to POSIX systems")
+
+        _clear_warned_permission_paths()
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write("[default]\nserver=test\n")
+            cfg_path = tf.name
+
+        try:
+            os.chmod(cfg_path, 0o644)
+            original_level = logging.root.level
+            logging.root.setLevel(logging.ERROR)
+            try:
+                with patch("click.echo") as mock_echo:
+                    load_all_profiles(cfg_path)
+                    mock_echo.assert_called_once()
+                    self.assertTrue(mock_echo.call_args[1].get("err"))
+                    self.assertIn("accessible by other users", mock_echo.call_args[0][0])
+            finally:
+                logging.root.setLevel(original_level)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
 
     def test_check_client_key_permissions_deduplication(self) -> None:
         """Verify duplicate warnings are not emitted when multiple profiles inherit the same key."""
