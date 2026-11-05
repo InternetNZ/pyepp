@@ -26,6 +26,7 @@ from pyepp.cli.cli import PyEppCli, login_logout
 from pyepp.cli.utils import format_table, format_tsv
 from pyepp.cli.__main__ import pyepp_cli, load_config, CONTEXT_SETTINGS
 from pyepp.epp import EppCommunicatorException
+from pyepp.profiles import _clear_warned_permission_paths
 
 
 class DummyCli:
@@ -1199,6 +1200,38 @@ class CliConfigTest(unittest.TestCase):
         finally:
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
+
+    def test_cli_autocompletion_suppresses_config_permission_warning(self) -> None:
+        """Verify CLI autocompletion does not emit config file permission warnings."""
+        _clear_warned_permission_paths()
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write("[default]\nserver=test.server\n")
+            cfg_path = tf.name
+
+        try:
+            if os.name == "posix":
+                os.chmod(cfg_path, 0o644)
+            load_config(cfg_path)
+            runner = CliRunner()
+            with patch("click.echo") as mock_echo:
+                result = runner.invoke(
+                    pyepp_cli,
+                    env={
+                        "_PYEPP_COMPLETE": "bash_complete",
+                        "COMP_WORDS": "pyepp do",
+                        "COMP_CWORD": "1",
+                    },
+                )
+                self.assertEqual(result.exit_code, 0)
+                self.assertIn("plain,domain", result.output)
+                self.assertNotIn("accessible by other users", result.output)
+                # Ensure click.echo was not invoked with permission warning
+                for call in mock_echo.call_args_list:
+                    self.assertNotIn("accessible by other users", str(call))
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+            load_config()
 
 
 if __name__ == "__main__":
