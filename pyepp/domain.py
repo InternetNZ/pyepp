@@ -146,7 +146,7 @@ class Domain(BaseCommand):
         if isinstance(item_dict.get("digest_type"), Enum):
             item_dict["digest_type"] = item_dict["digest_type"].value
 
-        # Handle optional nested dns_key
+        # Handle optional nested dns_key (supports DSRecordKeyData or dict when item is a raw dict)
         dns_key = item_dict.get("dns_key")
         if dns_key:
             if isinstance(dns_key, DSRecordKeyData):
@@ -154,14 +154,15 @@ class Domain(BaseCommand):
             elif isinstance(dns_key, dict):
                 dns_key_dict = dict(dns_key)
             else:
-                dns_key_dict = dns_key
+                raise TypeError(
+                    f"Expected DSRecordKeyData or dict for dns_key, got {type(dns_key).__name__}"
+                )
 
-            if isinstance(dns_key_dict, dict):
-                if isinstance(dns_key_dict.get("algorithm"), Enum):
-                    dns_key_dict["algorithm"] = dns_key_dict["algorithm"].value
-                if isinstance(dns_key_dict.get("flag"), Enum):
-                    dns_key_dict["flag"] = dns_key_dict["flag"].value
-                item_dict["dns_key"] = dns_key_dict
+            if isinstance(dns_key_dict.get("algorithm"), Enum):
+                dns_key_dict["algorithm"] = dns_key_dict["algorithm"].value
+            if isinstance(dns_key_dict.get("flag"), Enum):
+                dns_key_dict["flag"] = dns_key_dict["flag"].value
+            item_dict["dns_key"] = dns_key_dict
 
         return item_dict
 
@@ -187,8 +188,7 @@ class Domain(BaseCommand):
         else:
             record_list = [records]
 
-        normalized = [cls._normalize_ds_record_item(item) for item in record_list]
-        return normalized if normalized else None
+        return [cls._normalize_ds_record_item(item) for item in record_list]
 
     # pylint: disable=R0801
     def check(
@@ -381,8 +381,7 @@ class Domain(BaseCommand):
 
         # Issue #316: Normalize dns_sec into a list of dicts with unpacked enum values,
         # ensuring DOMAIN_CREATE_XML receives a standard list rather than handling mappings in Jinja.
-        if params.get("dns_sec"):
-            params["dns_sec"] = self._normalize_ds_records(params["dns_sec"])
+        params["dns_sec"] = self._normalize_ds_records(params.get("dns_sec"))
 
         result = self.execute(DOMAIN_CREATE_XML, **params)
 
@@ -525,12 +524,8 @@ class Domain(BaseCommand):
         )
         change = bool(registrant or password)
 
-        normalized_add_dns_sec = (
-            self._normalize_ds_records(add_dns_sec) if add_dns_sec else None
-        )
-        normalized_remove_dns_sec = (
-            self._normalize_ds_records(remove_dns_sec) if remove_dns_sec else None
-        )
+        normalized_add_dns_sec = self._normalize_ds_records(add_dns_sec)
+        normalized_remove_dns_sec = self._normalize_ds_records(remove_dns_sec)
 
         result = self.execute(
             DOMAIN_UPDATE_XML,

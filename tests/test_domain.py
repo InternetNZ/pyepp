@@ -11,6 +11,7 @@ from pyepp.domain import (
     DomainData,
     DSRecordData,
     DSRecordKeyData,
+    DNSKeyFlagEnum,
     DNSSECAlgorithm,
     DigestTypeEnum,
 )
@@ -1150,3 +1151,80 @@ class DomainTest(unittest.TestCase):
             domain.update("internet.nz", add_dns_sec="invalid_string")  # type: ignore
 
         self.assertIn("Expected DSRecordData or dict", str(ctx.exception))
+
+    def test_create_renders_dns_sec_with_key_data_and_enums(self) -> None:
+        """domain.create() must render nested DSRecordKeyData and unpack DNSKeyFlagEnum."""
+        dns_sec = DSRecordData(
+            key_tag=1235,
+            algorithm=DNSSECAlgorithm.RSA_SHA_256,
+            digest_type=DigestTypeEnum.SHA_256,
+            digest="8cdb09364147aed879d12c68d615f98af5900b73",
+            dns_key=DSRecordKeyData(
+                flag=DNSKeyFlagEnum.FLAG_257,  # type: ignore[arg-type]
+                algorithm=DNSSECAlgorithm.RSA_SHA_256,
+                public_key="AwEAAc0x...",
+            ),
+        )
+        create_params = DomainData(
+            domain_name="internet.nz",
+            registrant="inz-contact-3",
+            dns_sec=dns_sec,
+        )
+
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        domain.create(create_params)
+
+        xml_command = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<secDNS:keyTag>1235</secDNS:keyTag>", xml_command)
+        self.assertIn("<secDNS:alg>8</secDNS:alg>", xml_command)
+        self.assertIn("<secDNS:digestType>2</secDNS:digestType>", xml_command)
+        self.assertIn("<secDNS:keyData>", xml_command)
+        self.assertIn("<secDNS:flags>257</secDNS:flags>", xml_command)
+        self.assertIn("<secDNS:protocol>3</secDNS:protocol>", xml_command)
+        self.assertIn("<secDNS:pubKey>AwEAAc0x...</secDNS:pubKey>", xml_command)
+
+    def test_normalize_ds_records_dict_with_dataclass_dns_key_and_invalid_dns_key(self) -> None:
+        """_normalize_ds_records handles dict with DSRecordKeyData and rejects invalid dns_key types."""
+        normalized = Domain._normalize_ds_records(
+            {
+                "key_tag": 1235,
+                "algorithm": DNSSECAlgorithm.DSA_SHA_1,
+                "digest_type": DigestTypeEnum.SHA_1,
+                "digest": "abc",
+                "dns_key": DSRecordKeyData(
+                    flag=DNSKeyFlagEnum.FLAG_256,  # type: ignore[arg-type]
+                    algorithm=DNSSECAlgorithm.DSA_SHA_1,
+                    public_key="pub",
+                ),
+            }
+        )
+        self.assertEqual(
+            normalized,
+            [
+                {
+                    "key_tag": 1235,
+                    "algorithm": 3,
+                    "digest_type": 1,
+                    "digest": "abc",
+                    "dns_key": {
+                        "flag": 256,
+                        "algorithm": 3,
+                        "public_key": "pub",
+                        "protocol": 3,
+                    },
+                }
+            ],
+        )
+
+        with self.assertRaises(TypeError) as ctx:
+            Domain._normalize_ds_records(
+                {
+                    "key_tag": 1235,
+                    "algorithm": 3,
+                    "digest_type": 1,
+                    "digest": "abc",
+                    "dns_key": "invalid_key_type",
+                }
+            )
+        self.assertIn("Expected DSRecordKeyData or dict for dns_key", str(ctx.exception))
