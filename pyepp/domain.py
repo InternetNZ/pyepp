@@ -4,7 +4,7 @@ Domain Mapping Module.
 
 from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 from datetime import date, datetime
 
 from pyepp.epp import EppResultData
@@ -100,7 +100,7 @@ class DomainData:
     expiry_date: Optional[str] = ""
     transfer_date: Optional[str] = ""
     password: Optional[str] = ""
-    dns_sec: Optional[list[DSRecordData]] = None
+    dns_sec: Optional[Union[list[DSRecordData], DSRecordData]] = None
 
 
 class Domain(BaseCommand):
@@ -119,6 +119,76 @@ class Domain(BaseCommand):
         data_dict = asdict(data)
 
         return data_dict
+
+    @staticmethod
+    def _normalize_ds_record_item(item: Union[DSRecordData, dict]) -> dict:
+        """Convert a single DS record (dataclass or dict) to a normalized dictionary.
+
+        Unpacks Enum objects (such as DNSSECAlgorithm, DigestTypeEnum, DNSKeyFlagEnum)
+        to their underlying scalar values for proper Jinja2 template rendering.
+
+        :param item: DSRecordData or dict representing a DS record
+        :return: Dictionary representation of the DS record with unpacked Enum values
+        :raises TypeError: If item is neither a DSRecordData nor a dict
+        """
+        if isinstance(item, DSRecordData):
+            item_dict = asdict(item)
+        elif isinstance(item, dict):
+            item_dict = dict(item)
+        else:
+            raise TypeError(
+                f"Expected DSRecordData or dict, got {type(item).__name__}"
+            )
+
+        # Unpack Enum values if present
+        if isinstance(item_dict.get("algorithm"), Enum):
+            item_dict["algorithm"] = item_dict["algorithm"].value
+        if isinstance(item_dict.get("digest_type"), Enum):
+            item_dict["digest_type"] = item_dict["digest_type"].value
+
+        # Handle optional nested dns_key
+        dns_key = item_dict.get("dns_key")
+        if dns_key:
+            if isinstance(dns_key, DSRecordKeyData):
+                dns_key_dict = asdict(dns_key)
+            elif isinstance(dns_key, dict):
+                dns_key_dict = dict(dns_key)
+            else:
+                dns_key_dict = dns_key
+
+            if isinstance(dns_key_dict, dict):
+                if isinstance(dns_key_dict.get("algorithm"), Enum):
+                    dns_key_dict["algorithm"] = dns_key_dict["algorithm"].value
+                if isinstance(dns_key_dict.get("flag"), Enum):
+                    dns_key_dict["flag"] = dns_key_dict["flag"].value
+                item_dict["dns_key"] = dns_key_dict
+
+        return item_dict
+
+    @classmethod
+    def _normalize_ds_records(
+        cls,
+        records: Optional[Union[list[DSRecordData], DSRecordData, list[dict], dict]],
+    ) -> Optional[list[dict]]:
+        """Normalize DS records into a list of dictionaries with enum values unpacked.
+
+        Handles both DSRecordData instances and pre-serialized dictionaries, accommodating
+        both single instances and lists. Resolves Issue #316 by moving shape normalization
+        from Jinja2 templates into Python.
+
+        :param records: Single DS record or list of DS records (dataclass or dict)
+        :return: Normalized list of DS record dictionaries, or None if records is empty
+        """
+        if not records:
+            return None
+
+        if isinstance(records, (list, tuple)):
+            record_list = list(records)
+        else:
+            record_list = [records]
+
+        normalized = [cls._normalize_ds_record_item(item) for item in record_list]
+        return normalized if normalized else None
 
     # pylint: disable=R0801
     def check(
@@ -309,6 +379,11 @@ class Domain(BaseCommand):
         if not params.get('password'):
             params['password'] = helper.generate_password(16)
 
+        # Issue #316: Normalize dns_sec into a list of dicts with unpacked enum values,
+        # ensuring DOMAIN_CREATE_XML receives a standard list rather than handling mappings in Jinja.
+        if params.get("dns_sec"):
+            params["dns_sec"] = self._normalize_ds_records(params["dns_sec"])
+
         result = self.execute(DOMAIN_CREATE_XML, **params)
 
         return result
@@ -403,6 +478,9 @@ class Domain(BaseCommand):
         remove_statuses: Optional[list[str]] = None,
         add_hosts: Optional[list[str]] = None,
         remove_hosts: Optional[list[str]] = None,
+        add_dns_sec: Optional[Union[list[DSRecordData], DSRecordData]] = None,
+        remove_dns_sec: Optional[Union[list[DSRecordData], DSRecordData]] = None,
+        remove_all_dns_sec: bool = False,
         client_transaction_id: Optional[str] = None,
     ) -> EppResultData:
         """A successful Domain Update request modifies a domain object in the Registry, and may also add or delete
@@ -422,11 +500,21 @@ class Domain(BaseCommand):
         :param add_hosts: A list of host names to be added to the domain name.
         :param remove_hosts: A list of host names to be removed from the domain name.
         :param password: A new password to replace the old password.
+        :param add_dns_sec: A list of DSRecordData or single DSRecordData to add to the domain name.
+        :param remove_dns_sec: A list of DSRecordData or single DSRecordData to remove from the domain name.
+        :param remove_all_dns_sec: If True, removes all DNSSEC records from the domain name via <secDNS:all>.
         :param client_transaction_id: Client transaction id
 
         :return: Result object
         :rtype: EppResultData
         """
+        # Issue #291 & RFC 5910 §4.2: <secDNS:rem> uses a choice between <secDNS:all> and <secDNS:dsData>.
+        # Specifying both remove_dns_sec and remove_all_dns_sec is conflicting and invalid per schema.
+        if remove_all_dns_sec and remove_dns_sec:
+            raise ValueError(
+                "Cannot specify both remove_dns_sec and remove_all_dns_sec."
+            )
+
         add = bool(add_admins or add_techs or add_billings or add_statuses or add_hosts)
         remove = bool(
             remove_admins
@@ -436,6 +524,13 @@ class Domain(BaseCommand):
             or remove_hosts
         )
         change = bool(registrant or password)
+
+        normalized_add_dns_sec = (
+            self._normalize_ds_records(add_dns_sec) if add_dns_sec else None
+        )
+        normalized_remove_dns_sec = (
+            self._normalize_ds_records(remove_dns_sec) if remove_dns_sec else None
+        )
 
         result = self.execute(
             DOMAIN_UPDATE_XML,
@@ -455,6 +550,9 @@ class Domain(BaseCommand):
             remove_hosts=remove_hosts,
             password=password,
             registrant=registrant,
+            add_dns_sec=normalized_add_dns_sec,
+            remove_dns_sec=normalized_remove_dns_sec,
+            remove_all_dns_sec=remove_all_dns_sec,
             client_transaction_id=client_transaction_id,
         )
 

@@ -263,12 +263,7 @@ DOMAIN_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     {% if dns_sec %}
     <extension>
       <secDNS:create xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
-        {% if dns_sec is mapping %}
-          {% set dns_sec_list = [dns_sec] %}
-        {% else %}
-          {% set dns_sec_list = dns_sec %}
-        {% endif %}
-        {% for ds in dns_sec_list %}
+        {% for ds in dns_sec %}
         <secDNS:dsData>
           <secDNS:keyTag>{{ ds.get('key_tag') }}</secDNS:keyTag>
           <secDNS:alg>{{ ds.get('algorithm') }}</secDNS:alg>
@@ -284,14 +279,6 @@ DOMAIN_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
           {% endif %}
         </secDNS:dsData>
         {% endfor %}
-        {% if dns_key %}
-        <secDNS:keyData>
-          <secDNS:flags>{{ dns_key.dns_key.get('flag') }}</secDNS:flags>
-          <secDNS:protocol>{{ dns_key.dns_key.get('protocol') }}</secDNS:protocol>
-          <secDNS:alg>{{ dns_key.dns_key.get('algorithm') }}</secDNS:alg>
-          <secDNS:pubKey>{{ dns_key.dns_key.get('public_key') }}</secDNS:pubKey>
-        </secDNS:keyData>
-        {% endif %}
       </secDNS:create>
     </extension>
     {% endif %}
@@ -411,6 +398,57 @@ DOMAIN_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8"?>
         {% endif %}
       </domain:update>
     </update>
+    {% if add_dns_sec or remove_dns_sec or remove_all_dns_sec %}
+    <extension>
+      <secDNS:update xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">
+        {# RFC 5910 §4.2: <secDNS:rem> MUST precede <secDNS:add> per schema sequence #}
+        {% if remove_all_dns_sec or remove_dns_sec %}
+        <secDNS:rem>
+          {% if remove_all_dns_sec %}
+          <secDNS:all>true</secDNS:all>
+          {% else %}
+          {% for ds in remove_dns_sec %}
+          <secDNS:dsData>
+            <secDNS:keyTag>{{ ds.get('key_tag') }}</secDNS:keyTag>
+            <secDNS:alg>{{ ds.get('algorithm') }}</secDNS:alg>
+            <secDNS:digestType>{{ ds.get('digest_type') }}</secDNS:digestType>
+            <secDNS:digest>{{ ds.get('digest') }}</secDNS:digest>
+            {% if ds.get('dns_key') %}
+            <secDNS:keyData>
+              <secDNS:flags>{{ ds.get('dns_key').get('flag') }}</secDNS:flags>
+              <secDNS:protocol>{{ ds.get('dns_key').get('protocol') }}</secDNS:protocol>
+              <secDNS:alg>{{ ds.get('dns_key').get('algorithm') }}</secDNS:alg>
+              <secDNS:pubKey>{{ ds.get('dns_key').get('public_key') }}</secDNS:pubKey>
+            </secDNS:keyData>
+            {% endif %}
+          </secDNS:dsData>
+          {% endfor %}
+          {% endif %}
+        </secDNS:rem>
+        {% endif %}
+        {% if add_dns_sec %}
+        <secDNS:add>
+          {% for ds in add_dns_sec %}
+          <secDNS:dsData>
+            <secDNS:keyTag>{{ ds.get('key_tag') }}</secDNS:keyTag>
+            <secDNS:alg>{{ ds.get('algorithm') }}</secDNS:alg>
+            <secDNS:digestType>{{ ds.get('digest_type') }}</secDNS:digestType>
+            <secDNS:digest>{{ ds.get('digest') }}</secDNS:digest>
+            {% if ds.get('dns_key') %}
+            <secDNS:keyData>
+              <secDNS:flags>{{ ds.get('dns_key').get('flag') }}</secDNS:flags>
+              <secDNS:protocol>{{ ds.get('dns_key').get('protocol') }}</secDNS:protocol>
+              <secDNS:alg>{{ ds.get('dns_key').get('algorithm') }}</secDNS:alg>
+              <secDNS:pubKey>{{ ds.get('dns_key').get('public_key') }}</secDNS:pubKey>
+            </secDNS:keyData>
+            {% endif %}
+          </secDNS:dsData>
+          {% endfor %}
+        </secDNS:add>
+        {% endif %}
+      </secDNS:update>
+    </extension>
+    {% endif %}
     <clTRID>{{ client_transaction_id }}</clTRID>
   </command>
 </epp>"""
