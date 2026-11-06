@@ -271,6 +271,20 @@ def _load_base_default_config(
     return default_config, has_pyepp_section
 
 
+def _is_shell_completion() -> bool:
+    """
+    Check if the current process is running shell autocompletion.
+
+    Click shell completion sets environment variables matching _<PROG>_COMPLETE
+    (e.g. _PYEPP_COMPLETE) and COMP_WORDS. Emitting warnings to stderr during
+    completion corrupts shell autocompletion output in the user's terminal prompt.
+    """
+    for key, value in os.environ.items():
+        if key.startswith("_") and key.endswith("_COMPLETE") and value:
+            return True
+    return bool(os.environ.get("COMP_WORDS"))
+
+
 def _check_config_file_permissions(file_path: str) -> None:
     """
     Check and warn if configuration file permissions are excessively permissive on POSIX.
@@ -279,6 +293,11 @@ def _check_config_file_permissions(file_path: str) -> None:
     by group or world users (st_mode & 0o077) should emit a security warning advising
     more restrictive permissions (e.g. 0600).
     """
+    # Suppress permission warnings during shell autocompletion to prevent stderr
+    # output from corrupting the user's terminal prompt during tab completion.
+    if _is_shell_completion():
+        return
+
     if os.name == "posix" and os.path.isfile(file_path):
         try:
             mode = os.stat(file_path).st_mode
@@ -318,6 +337,11 @@ def _check_client_key_permissions(file_path: str) -> None:
     world users (st_mode & 0o077) should emit a security warning advising more
     restrictive permissions (e.g. 0600).
     """
+    # Suppress permission warnings during shell autocompletion to prevent stderr
+    # output from corrupting the user's terminal prompt during tab completion.
+    if _is_shell_completion():
+        return
+
     if os.name == "posix" and os.path.isfile(file_path):
         try:
             mode = os.stat(file_path).st_mode

@@ -18,7 +18,7 @@ from pyepp import (
     load_all_profiles,
     get_default_config_path,
 )
-from pyepp.profiles import _clear_warned_permission_paths
+from pyepp.profiles import _clear_warned_permission_paths, _is_shell_completion
 
 
 class ProfilesModuleTest(unittest.TestCase):
@@ -774,6 +774,89 @@ client_key =
             self.assertEqual(prof.client_cert, os.path.expanduser("~/cert.pem"))
             self.assertEqual(prof.client_key, key_path)
         finally:
+            if os.path.exists(key_path):
+                os.remove(key_path)
+
+    def test_is_shell_completion(self) -> None:
+        """Verify _is_shell_completion detects Click autocompletion environment variables."""
+        # Clean environment without completion variables
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(_is_shell_completion())
+
+        # Click bash completion
+        with patch.dict(os.environ, {"_PYEPP_COMPLETE": "bash_complete"}):
+            self.assertTrue(_is_shell_completion())
+
+        # Click zsh completion
+        with patch.dict(os.environ, {"_PYEPP_COMPLETE": "zsh_complete"}):
+            self.assertTrue(_is_shell_completion())
+
+        # Click fish completion
+        with patch.dict(os.environ, {"_PYEPP_COMPLETE": "fish_complete"}):
+            self.assertTrue(_is_shell_completion())
+
+        # Completion script generation (source)
+        with patch.dict(os.environ, {"_PYEPP_COMPLETE": "zsh_source"}):
+            self.assertTrue(_is_shell_completion())
+
+        # Arbitrary Click executable completion variable
+        with patch.dict(os.environ, {"_PYEPP_CLI_COMPLETE": "bash_complete"}):
+            self.assertTrue(_is_shell_completion())
+
+        # Shell exported COMP_WORDS
+        with patch.dict(os.environ, {"COMP_WORDS": "pyepp do"}):
+            self.assertTrue(_is_shell_completion())
+
+        # Empty completion variable should not trigger completion detection
+        with patch.dict(os.environ, {"_PYEPP_COMPLETE": ""}):
+            self.assertFalse(_is_shell_completion())
+
+    def test_check_config_file_permissions_suppressed_during_completion(self) -> None:
+        """Verify config file permission warning is suppressed during shell autocompletion."""
+        if os.name != "posix":
+            self.skipTest("Permission test only applies to POSIX systems")
+
+        _clear_warned_permission_paths()
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write("[default]\nserver=test\n")
+            cfg_path = tf.name
+
+        try:
+            os.chmod(cfg_path, 0o644)
+            with patch.dict(os.environ, {"_PYEPP_COMPLETE": "zsh_complete"}):
+                with patch("logging.warning") as mock_warn, patch("click.echo") as mock_echo:
+                    load_all_profiles(cfg_path)
+                    mock_warn.assert_not_called()
+                    mock_echo.assert_not_called()
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_check_client_key_permissions_suppressed_during_completion(self) -> None:
+        """Verify client_key permission warning is suppressed during shell autocompletion."""
+        if os.name != "posix":
+            self.skipTest("Permission test only applies to POSIX systems")
+
+        _clear_warned_permission_paths()
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_key:
+            tf_key.write("FAKE KEY DATA")
+            key_path = tf_key.name
+
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf_cfg:
+            tf_cfg.write(f"[default]\nserver=test\nclient_key={key_path}\n")
+            cfg_path = tf_cfg.name
+
+        try:
+            os.chmod(cfg_path, 0o600)
+            os.chmod(key_path, 0o644)
+            with patch.dict(os.environ, {"_PYEPP_COMPLETE": "bash_complete"}):
+                with patch("logging.warning") as mock_warn, patch("click.echo") as mock_echo:
+                    load_all_profiles(cfg_path)
+                    mock_warn.assert_not_called()
+                    mock_echo.assert_not_called()
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
             if os.path.exists(key_path):
                 os.remove(key_path)
 
