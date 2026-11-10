@@ -1,0 +1,8 @@
+# ==============================================================================
+# .gitleaksignore - Tier 2 Secret Fingerprint Suppression
+# ==============================================================================
+# To suppress legacy secrets or third-party vendored findings without altering code:
+# Add finding fingerprints below (one per line).
+# Format: commit:file:rule:lineNumber
+# Example: 1a2b3c4d:legacy/config.js:generic-api-key:42
+# ==============================================================================

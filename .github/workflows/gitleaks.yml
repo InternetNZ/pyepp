@@ -1,0 +1,24 @@
+name: Secret Scanning (Gitleaks)
+
+# Automated secret scanning guardrail
+# Proposal Phase 3: Checks Pull Requests & commits against Gitleaks rules
+on:
+  pull_request:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Detection
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
