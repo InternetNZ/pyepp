@@ -319,13 +319,31 @@ class Contact(BaseCommand):
             return result
 
         raw_response = result.parsed_xml
-        contacts_check_data = raw_response.find_all("cd")
+        # Scope XML parsing to <resData> / <contact:chkData> per RFC 5733 §3.1.1
+        # to prevent <cd> elements in <extension> blocks from colliding or crashing.
+        res_data = raw_response.find("resData")
+        chk_el = (
+            (res_data.find("chkData") or res_data)
+            if res_data
+            else (raw_response.find("chkData") or raw_response)
+        )
+        contacts_check_data = chk_el.find_all("cd")
 
         result_data = {}
         for contact_cd in contacts_check_data:
             contact = contact_cd.find("id")
+            if not contact:
+                continue
             available = contact.get("avail") in ("true", "1")
-            reason = contact_cd.find("reason").text if not available else None
+            # RFC 5733 §3.1.1: <contact:reason> is OPTIONAL even when avail="0"/"false".
+            # Safely check that the <reason> node exists before accessing .text to
+            # prevent AttributeError crashes on registries that omit reason.
+            reason_el = contact_cd.find("reason")
+            reason = (
+                reason_el.text
+                if (not available and reason_el is not None)
+                else None
+            )
             result_data[contact.text] = {
                 "avail": available,
                 "reason": reason,
@@ -335,6 +353,7 @@ class Contact(BaseCommand):
 
         return result
 
+    # pylint: disable=too-many-locals
     def info(
         self, contact_id: str, client_transaction_id: Optional[str] = None
     ) -> EppResultData:
@@ -361,84 +380,90 @@ class Contact(BaseCommand):
 
         raw_response = result.parsed_xml
 
+        # Scope XML parsing to <resData> / <contact:infData> per RFC 5730 / RFC 5733
+        # to avoid data corruption from colliding tags (e.g. status, crDate, email)
+        # in other EPP sections or registry extensions.
+        res_data = raw_response.find("resData")
+        info_el = (
+            (res_data.find("infData") or res_data)
+            if res_data
+            else (raw_response.find("infData") or raw_response)
+        )
+
+        id_el = info_el.find("id", recursive=False)
+        cr_date_el = info_el.find("crDate", recursive=False)
+        cr_id_el = info_el.find("crID", recursive=False)
+        cl_id_el = info_el.find("clID", recursive=False)
+        up_id_el = info_el.find("upID", recursive=False)
+        up_date_el = info_el.find("upDate", recursive=False)
+        # Query communication elements with recursive=False so empty <contact:voice/>,
+        # <contact:fax/>, and <contact:email/> tags nested inside <contact:disclose>
+        # are not mistaken for contact values when those fields are omitted or redacted.
+        voice_el = info_el.find("voice", recursive=False)
+        fax_el = info_el.find("fax", recursive=False)
+        email_el = info_el.find("email", recursive=False)
+
+        # RFC 5733 §3.1.2: Parse postalInfo block scoped strictly to its element.
+        # Under GDPR / redaction policies, <postalInfo> or its sub-elements may be omitted.
+        # Furthermore, scoping street/city queries strictly within <addr> inside the
+        # specific <postalInfo> element prevents merging street lines across multiple
+        # localized and international postalInfo elements.
+        postal_info_el = info_el.find("postalInfo", recursive=False)
+        postal_info_data = None
+        if postal_info_el:
+            name_el = postal_info_el.find("name", recursive=False)
+            org_el = postal_info_el.find("org", recursive=False)
+            addr_el = postal_info_el.find("addr", recursive=False)
+
+            address_data = None
+            if addr_el:
+                streets = addr_el.find_all("street")
+                city_el = addr_el.find("city")
+                sp_el = addr_el.find("sp")
+                pc_el = addr_el.find("pc")
+                cc_el = addr_el.find("cc")
+                address_data = AddressData(
+                    street_1=streets[0].text if len(streets) >= 1 else None,
+                    street_2=streets[1].text if len(streets) >= 2 else None,
+                    street_3=streets[2].text if len(streets) >= 3 else None,
+                    city=city_el.text if city_el else None,
+                    province=sp_el.text if sp_el else None,
+                    postal_code=pc_el.text if pc_el else None,
+                    country_code=cc_el.text if cc_el else None,
+                )
+
+            postal_info_data = PostalInfoData(
+                name=name_el.text if name_el else None,
+                organization=org_el.text if org_el else None,
+                type=postal_info_el.get("type") or "loc",
+                address=address_data,
+            )
+
         result_data = {
-            "id": raw_response.find("id").text,
+            "id": id_el.text if id_el else "",
             # RFC 5733 §4.2: Contact status identifiers are stored in the 's' attribute
             # (e.g. <contact:status s="linked"/>). Fall back to element text if 's' is missing.
             "status": [
                 status.get("s") or status.text
-                for status in raw_response.find_all("status")
+                for status in info_el.find_all("status")
             ],
-            "create_date": raw_response.find("crDate").text,
-            "create_client_id": raw_response.find("crID").text,
-            "sponsoring_client_id": raw_response.find("clID").text,
-            "update_client_id": (
-                raw_response.find("upID").text if raw_response.find("upID") else None
-            ),
-            "update_date": (
-                raw_response.find("upDate").text
-                if raw_response.find("upDate")
-                else None
-            ),
-            "postal_info": PostalInfoData(
-                **{
-                    "name": raw_response.find("name").text,
-                    "organization": (
-                        raw_response.find("org").text
-                        if raw_response.find("org")
-                        else None
-                    ),
-                    "type": (
-                        raw_response.find("postalInfo").get("type")
-                        if raw_response.find("postalInfo")
-                        and raw_response.find("postalInfo").get("type")
-                        else "loc"
-                    ),
-                    "address": AddressData(
-                        **{
-                            "street_1": (
-                                raw_response.find_all("street")[0].text
-                                if len(raw_response.find_all("street")) >= 1
-                                else None
-                            ),
-                            "street_2": (
-                                raw_response.find_all("street")[1].text
-                                if len(raw_response.find_all("street")) >= 2
-                                else None
-                            ),
-                            "street_3": (
-                                raw_response.find_all("street")[2].text
-                                if len(raw_response.find_all("street")) >= 3
-                                else None
-                            ),
-                            "city": raw_response.find("city").text,
-                            "province": (
-                                raw_response.find("sp").text
-                                if raw_response.find("sp")
-                                else None
-                            ),
-                            "postal_code": (
-                                raw_response.find("pc").text
-                                if raw_response.find("pc")
-                                else None
-                            ),
-                            "country_code": raw_response.find("cc").text,
-                        }
-                    ),
-                }
-            ),
-            "phone": (
-                raw_response.find("voice").text if raw_response.find("voice") else None
-            ),
-            "fax": raw_response.find("fax").text if raw_response.find("fax") else None,
-            "email": raw_response.find("email").text,
+            "create_date": cr_date_el.text if cr_date_el else None,
+            "create_client_id": cr_id_el.text if cr_id_el else None,
+            "sponsoring_client_id": cl_id_el.text if cl_id_el else None,
+            "update_client_id": up_id_el.text if up_id_el else None,
+            "update_date": up_date_el.text if up_date_el else None,
+            "postal_info": postal_info_data,
+            "phone": voice_el.text if voice_el else None,
+            "fax": fax_el.text if fax_el else None,
+            "email": email_el.text if email_el else None,
         }
 
-        if raw_response.find("pw"):
-            result_data["password"] = raw_response.find("pw").text
+        pw_el = info_el.find("pw")
+        if pw_el:
+            result_data["password"] = pw_el.text
 
-        if raw_response.find("disclose"):
-            disclose_el = raw_response.find("disclose")
+        disclose_el = info_el.find("disclose")
+        if disclose_el:
             # RFC 5733 §2.9: flag="0" indicates non-disclosure / redaction (privacy),
             # while flag="1" indicates disclosure is allowed. Only populate privacy
             # when flag is "0" or "false" to prevent marking disclosed fields as private.

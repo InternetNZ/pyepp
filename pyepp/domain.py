@@ -214,13 +214,31 @@ class Domain(BaseCommand):
             return result
 
         raw_response = result.parsed_xml
-        domains_check_data = raw_response.find_all("cd")
+        # Scope XML parsing to <resData> / <domain:chkData> per RFC 5731 §3.1.1
+        # to prevent <cd> elements in <extension> blocks (e.g. fee/launch) from colliding.
+        res_data = raw_response.find("resData")
+        chk_el = (
+            (res_data.find("chkData") or res_data)
+            if res_data
+            else (raw_response.find("chkData") or raw_response)
+        )
+        domains_check_data = chk_el.find_all("cd")
 
         result_data = {}
         for domain_cd in domains_check_data:
             domain = domain_cd.find("name")
+            if not domain:
+                continue
             available = domain.get("avail") in ("true", "1")
-            reason = domain_cd.find("reason").text if not available else None
+            # RFC 5731 §3.1.1: <domain:reason> is OPTIONAL even when avail="0"/"false".
+            # Safely check that the <reason> node exists before accessing .text to
+            # prevent AttributeError crashes on registries that omit reason.
+            reason_el = domain_cd.find("reason")
+            reason = (
+                reason_el.text
+                if (not available and reason_el is not None)
+                else None
+            )
             result_data[domain.text] = {
                 "avail": available,
                 "reason": reason,
@@ -230,6 +248,7 @@ class Domain(BaseCommand):
 
         return result
 
+    # pylint: disable=too-many-locals
     def info(
         self, domain_name: str, client_transaction_id: Optional[str] = None
     ) -> EppResultData:
@@ -257,100 +276,98 @@ class Domain(BaseCommand):
         # are optional and often omitted or redacted by registries when the domain
         # is queried by a non-sponsoring registrar. Safe null checks prevent
         # AttributeError when parsing responses for external domains.
+        # We scope queries to <resData> / <domain:infData> to avoid collisions with
+        # identical element names (e.g. status, name, clID) in other EPP blocks or extensions.
+        res_data = raw_response.find("resData")
+        info_el = (
+            (res_data.find("infData") or res_data)
+            if res_data
+            else (raw_response.find("infData") or raw_response)
+        )
+
+        name_el = info_el.find("name")
+        cl_id_el = info_el.find("clID")
+        reg_el = info_el.find("registrant")
+        admin_el = info_el.find("contact", {"type": "admin"})
+        tech_el = info_el.find("contact", {"type": "tech"})
+        billing_els = info_el.find_all("contact", {"type": "billing"})
+        cr_date_el = info_el.find("crDate")
+        cr_id_el = info_el.find("crID")
+        ex_date_el = info_el.find("exDate")
+        up_id_el = info_el.find("upID")
+        up_date_el = info_el.find("upDate")
+        tr_date_el = info_el.find("trDate")
+        pw_el = info_el.find("pw")
+
         result_data = {
-            "domain_name": (
-                raw_response.find("name").text
-                if raw_response.find("name")
-                else None
-            ),
-            "sponsoring_client_id": (
-                raw_response.find("clID").text
-                if raw_response.find("clID")
-                else None
-            ),
-            "status": [status.get("s") for status in raw_response.find_all("status")],
+            "domain_name": name_el.text if name_el else None,
+            "sponsoring_client_id": cl_id_el.text if cl_id_el else None,
+            "status": [
+                status.get("s") or status.text
+                for status in info_el.find_all("status")
+            ],
             "host": (
-                [host.text for host in raw_response.find_all("hostObj")]
-                if raw_response.find("ns")
+                [host.text for host in info_el.find_all("hostObj")]
+                if info_el.find("ns")
                 else None
             ),
-            "registrant": (
-                raw_response.find("registrant").text
-                if raw_response.find("registrant")
-                else None
-            ),
-            "admin": (
-                raw_response.find("contact", {"type": "admin"}).text
-                if raw_response.find("contact", {"type": "admin"})
-                else None
-            ),
-            "tech": (
-                raw_response.find("contact", {"type": "tech"}).text
-                if raw_response.find("contact", {"type": "tech"})
-                else None
-            ),
+            "registrant": reg_el.text if reg_el else None,
+            "admin": admin_el.text if admin_el else None,
+            "tech": tech_el.text if tech_el else None,
             "billing": (
-                [
-                    billing.text
-                    for billing in raw_response.find_all("contact", {"type": "billing"})
-                ]
-                if raw_response.find("contact", {"type": "billing"})
+                [billing.text for billing in billing_els]
+                if billing_els
                 else None
             ),
-            "create_date": (
-                raw_response.find("crDate").text
-                if raw_response.find("crDate")
-                else None
-            ),
-            "create_client_id": (
-                raw_response.find("crID").text if raw_response.find("crID") else None
-            ),
-            "expiry_date": (
-                raw_response.find("exDate").text
-                if raw_response.find("exDate")
-                else None
-            ),
-            "update_client_id": (
-                raw_response.find("upID").text if raw_response.find("upID") else None
-            ),
-            "update_date": (
-                raw_response.find("upDate").text
-                if raw_response.find("upDate")
-                else None
-            ),
-            "transfer_date": (
-                raw_response.find("trDate").text
-                if raw_response.find("trDate")
-                else None
-            ),
-            "password": (
-                raw_response.find("pw").text if raw_response.find("pw") else None
-            ),
+            "create_date": cr_date_el.text if cr_date_el else None,
+            "create_client_id": cr_id_el.text if cr_id_el else None,
+            "expiry_date": ex_date_el.text if ex_date_el else None,
+            "update_client_id": up_id_el.text if up_id_el else None,
+            "update_date": up_date_el.text if up_date_el else None,
+            "transfer_date": tr_date_el.text if tr_date_el else None,
+            "password": pw_el.text if pw_el else None,
             "period": None,
             "dns_sec": None,
         }
 
+        # DNSSEC data is defined in RFC 5910 under <extension><secDNS:infData>.
+        # Scope search to <extension> if present to avoid collisions, falling back to root.
         dns_sec = []
-        all_ds_data = raw_response.find_all("dsData")
+        ext_data = raw_response.find("extension")
+        sec_scope = ext_data if ext_data else raw_response
+        all_ds_data = sec_scope.find_all("dsData")
         for ds_data in all_ds_data:
+            # Use recursive=False so direct DS child elements (especially <secDNS:alg>)
+            # never descend into the nested <secDNS:keyData> element.
+            key_tag_el = ds_data.find("keyTag", recursive=False)
+            alg_el = ds_data.find("alg", recursive=False)
+            digest_type_el = ds_data.find("digestType", recursive=False)
+            digest_el = ds_data.find("digest", recursive=False)
+            key_data_el = ds_data.find("keyData", recursive=False)
+
+            dns_key = None
+            if key_data_el:
+                # RFC 5910 §5.1.1: Query keyData child elements strictly within <secDNS:keyData>.
+                # Previously, querying ds_data.find("alg") returned the DS record's algorithm
+                # rather than keyData's algorithm.
+                key_flags = key_data_el.find("flags", recursive=False)
+                key_proto = key_data_el.find("protocol", recursive=False)
+                key_alg = key_data_el.find("alg", recursive=False)
+                key_pub = key_data_el.find("pubKey", recursive=False)
+                dns_key = {
+                    "flag": key_flags.text if key_flags else None,
+                    "protocol": key_proto.text if key_proto else None,
+                    "algorithm": key_alg.text if key_alg else None,
+                    "public_key": key_pub.text if key_pub else None,
+                }
+
             dns_sec.append(
                 DSRecordData(
-                    **{
-                        "key_tag": ds_data.find("keyTag").text,
-                        "algorithm": ds_data.find("alg").text,
-                        "digest_type": ds_data.find("digestType").text,
-                        "digest": ds_data.find("digest").text,
-                        "dns_key": (
-                            {
-                                "flag": ds_data.find("flags").text,
-                                "protocol": ds_data.find("protocol").text,
-                                "algorithm": ds_data.find("alg").text,
-                                "public_key": ds_data.find("pubKey").text,
-                            }
-                            if ds_data.find("keyData")
-                            else None
-                        ),
-                    }
+                    key_tag=key_tag_el.text if key_tag_el else None,
+                    algorithm=alg_el.text if alg_el else None,
+                    digest_type=digest_type_el.text if digest_type_el else None,
+                    digest=digest_el.text if digest_el else None,
+                    dns_key=dns_key,
                 )
             )
 
