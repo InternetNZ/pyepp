@@ -142,8 +142,8 @@ Usage example
        host=['01y.test-indwrx2vkicn2otgm3otav5wpnzvjd.co.nz', '0d9x6239.example.co.nz'],
        dns_sec=[DSRecordData(
            key_tag=1235,
-           algorithm=DNSSECAlgorithm.DSA_SHA_1.value,
-           digest_type=DigestTypeEnum.SHA_1.value,
+           algorithm=DNSSECAlgorithm.DSA_SHA_1,
+           digest_type=DigestTypeEnum.SHA_1,
            digest='8cdb09364147aed879d12c68d615f98af5900b73'
        )],
    )

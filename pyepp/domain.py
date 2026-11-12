@@ -2,9 +2,9 @@
 Domain Mapping Module.
 """
 
-from dataclasses import dataclass, asdict
-from enum import Enum
-from typing import Optional, Union
+from dataclasses import asdict, dataclass
+from enum import Enum, IntEnum
+from typing import Any, Optional, Union
 from datetime import date, datetime
 
 from pyepp.epp import EppResultData
@@ -24,8 +24,8 @@ from pyepp import helper
 from pyepp.epp import EppResultCode
 
 
-class DNSSECAlgorithm(Enum):
-    """DNSSEC algorithms enumeration."""
+class DNSSECAlgorithm(IntEnum):
+    """DNSSEC algorithms enumeration (RFC 4034 §A.1, RFC 5910)."""
 
     DSA_SHA_1 = 3
     RSA_SHA_1 = 5
@@ -41,42 +41,102 @@ class DNSSECAlgorithm(Enum):
     PRIVATE_ALGORITHM = 253
     PRIVATE_ALGORITHM_OID = 255
 
+    def __str__(self) -> str:
+        """Return string representation of the integer value."""
+        return str(self.value)
 
-class DigestTypeEnum(Enum):
-    """Digest types enumeration."""
+
+class DigestTypeEnum(IntEnum):
+    """Digest types enumeration (RFC 4034 §A.2, RFC 5910)."""
 
     SHA_1 = 1
     SHA_256 = 2
     GOST_R_34_11_94 = 3
     SHA_384 = 4
 
+    def __str__(self) -> str:
+        """Return string representation of the integer value."""
+        return str(self.value)
 
-class DNSKeyFlagEnum(Enum):
-    """DNS Key flags enumeration."""
+
+class DNSKeyFlagEnum(IntEnum):
+    """DNS Key flags enumeration (RFC 4034 §2.1.1, RFC 5910)."""
 
     FLAG_256 = 256
     FLAG_257 = 257
 
+    def __str__(self) -> str:
+        """Return string representation of the integer value."""
+        return str(self.value)
+
 
 @dataclass
 class DSRecordKeyData:
-    """DNSSEC Key data enumeration."""
+    """DNSSEC Key data dataclass (RFC 4034 §2.1, RFC 5910 §5.1.1)."""
 
-    flag: str
-    algorithm: DNSSECAlgorithm
-    public_key: str
-    protocol: str = 3
+    flag: Optional[Union[DNSKeyFlagEnum, int, str]] = None
+    algorithm: Optional[Union[DNSSECAlgorithm, int, str]] = None
+    public_key: Optional[str] = None
+    protocol: Optional[Union[int, str]] = 3
+
+    def __getitem__(self, key: Any) -> Any:
+        """Support dict-like indexing for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        if isinstance(key, str) and key in dataclass_fields:
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        """Support dict-like .get() for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        if isinstance(key, str) and key in dataclass_fields:
+            return getattr(self, key)
+        return default
+
+    def __contains__(self, key: Any) -> bool:
+        """Support 'in' operator for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        return isinstance(key, str) and key in dataclass_fields
+
+    def keys(self) -> list[str]:
+        """Support .keys() for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        return list(dataclass_fields.keys())
 
 
 @dataclass
 class DSRecordData:
-    """DNSSEC dataclass."""
+    """DNSSEC DS record dataclass (RFC 4034 §5.1, RFC 5910 §5.1.1)."""
 
-    key_tag: int
-    algorithm: DNSSECAlgorithm
-    digest_type: DigestTypeEnum
-    digest: str
-    dns_key: Optional[DSRecordKeyData] = None
+    key_tag: Optional[Union[int, str]] = None
+    algorithm: Optional[Union[DNSSECAlgorithm, int, str]] = None
+    digest_type: Optional[Union[DigestTypeEnum, int, str]] = None
+    digest: Optional[str] = None
+    dns_key: Optional[Union[DSRecordKeyData, dict]] = None
+
+    def __getitem__(self, key: Any) -> Any:
+        """Support dict-like indexing for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        if isinstance(key, str) and key in dataclass_fields:
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        """Support dict-like .get() for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        if isinstance(key, str) and key in dataclass_fields:
+            return getattr(self, key)
+        return default
+
+    def __contains__(self, key: Any) -> bool:
+        """Support 'in' operator for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        return isinstance(key, str) and key in dataclass_fields
+
+    def keys(self) -> list[str]:
+        """Support .keys() for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        return list(dataclass_fields.keys())
 
 
 @dataclass
@@ -248,6 +308,118 @@ class Domain(BaseCommand):
 
         return result
 
+    @staticmethod
+    def _parse_int_or_enum(
+        el: Any,
+        enum_cls: Optional[type] = None,
+        default: Any = None,
+    ) -> Any:
+        """Parse an XML element's text into an enum or int, with fallback.
+
+        Handles whitespace stripping and unassigned numeric codes (e.g. private
+        or newly assigned IANA DNSSEC algorithms).
+
+        :param el: XML element containing text
+        :param enum_cls: Optional Enum/IntEnum class to convert to
+        :param default: Default value if element is None or empty
+        :return: Enum member, int, raw string fallback, or default
+        """
+        if el is None or el.text is None:
+            return default
+        raw = el.text.strip()
+        if not raw:
+            return default
+        try:
+            val = int(raw)
+        except ValueError:
+            return raw
+
+        if enum_cls is not None:
+            try:
+                return enum_cls(val)
+            except ValueError:
+                return val
+        return val
+
+    @classmethod
+    def _parse_ds_key_data(cls, key_data_el: Any) -> Optional[DSRecordKeyData]:
+        """Parse a <secDNS:keyData> XML element into a DSRecordKeyData instance.
+
+        :param key_data_el: BeautifulSoup element for <secDNS:keyData>
+        :return: Parsed DSRecordKeyData instance, or None if key_data_el is None
+        """
+        if not key_data_el:
+            return None
+
+        # RFC 5910 §5.1.1: Query keyData child elements strictly within <secDNS:keyData>.
+        # Previously, querying ds_data.find("alg") returned the DS record's algorithm
+        # rather than keyData's algorithm.
+        key_flags = key_data_el.find("flags", recursive=False)
+        key_proto = key_data_el.find("protocol", recursive=False)
+        key_alg = key_data_el.find("alg", recursive=False)
+        key_pub = key_data_el.find("pubKey", recursive=False)
+
+        parsed_flag = cls._parse_int_or_enum(key_flags, enum_cls=DNSKeyFlagEnum)
+        parsed_proto = cls._parse_int_or_enum(key_proto, default=3)
+        parsed_key_alg = cls._parse_int_or_enum(key_alg, enum_cls=DNSSECAlgorithm)
+        parsed_pub = (
+            key_pub.text.strip() if key_pub and key_pub.text else None
+        )
+
+        return DSRecordKeyData(
+            flag=parsed_flag,
+            protocol=parsed_proto,
+            algorithm=parsed_key_alg,
+            public_key=parsed_pub,
+        )
+
+    @classmethod
+    def _parse_ds_record(cls, ds_data: Any) -> DSRecordData:
+        """Parse a <secDNS:dsData> XML element into a DSRecordData instance.
+
+        :param ds_data: BeautifulSoup element for <secDNS:dsData>
+        :return: Parsed DSRecordData instance
+        """
+        # Use recursive=False so direct DS child elements (especially <secDNS:alg>)
+        # never descend into the nested <secDNS:keyData> element.
+        key_tag_el = ds_data.find("keyTag", recursive=False)
+        alg_el = ds_data.find("alg", recursive=False)
+        digest_type_el = ds_data.find("digestType", recursive=False)
+        digest_el = ds_data.find("digest", recursive=False)
+        key_data_el = ds_data.find("keyData", recursive=False)
+
+        dns_key = cls._parse_ds_key_data(key_data_el)
+        parsed_key_tag = cls._parse_int_or_enum(key_tag_el)
+        parsed_alg = cls._parse_int_or_enum(alg_el, enum_cls=DNSSECAlgorithm)
+        parsed_digest_type = cls._parse_int_or_enum(
+            digest_type_el, enum_cls=DigestTypeEnum
+        )
+        parsed_digest = (
+            digest_el.text.strip() if digest_el and digest_el.text else None
+        )
+
+        return DSRecordData(
+            key_tag=parsed_key_tag,
+            algorithm=parsed_alg,
+            digest_type=parsed_digest_type,
+            digest=parsed_digest,
+            dns_key=dns_key,
+        )
+
+    @classmethod
+    def _parse_dnssec_extension(cls, raw_response: Any) -> Optional[list[DSRecordData]]:
+        """Parse RFC 5910 DNSSEC data from <extension><secDNS:infData>.
+
+        :param raw_response: Parsed XML document or response element
+        :return: List of DSRecordData instances, or None if no DNSSEC records found
+        """
+        ext_data = raw_response.find("extension")
+        sec_scope = ext_data if ext_data else raw_response
+        all_ds_data = sec_scope.find_all("dsData")
+        if not all_ds_data:
+            return None
+        return [cls._parse_ds_record(ds_data) for ds_data in all_ds_data]
+
     # pylint: disable=too-many-locals
     def info(
         self, domain_name: str, client_transaction_id: Optional[str] = None
@@ -331,46 +503,7 @@ class Domain(BaseCommand):
         }
 
         # DNSSEC data is defined in RFC 5910 under <extension><secDNS:infData>.
-        # Scope search to <extension> if present to avoid collisions, falling back to root.
-        dns_sec = []
-        ext_data = raw_response.find("extension")
-        sec_scope = ext_data if ext_data else raw_response
-        all_ds_data = sec_scope.find_all("dsData")
-        for ds_data in all_ds_data:
-            # Use recursive=False so direct DS child elements (especially <secDNS:alg>)
-            # never descend into the nested <secDNS:keyData> element.
-            key_tag_el = ds_data.find("keyTag", recursive=False)
-            alg_el = ds_data.find("alg", recursive=False)
-            digest_type_el = ds_data.find("digestType", recursive=False)
-            digest_el = ds_data.find("digest", recursive=False)
-            key_data_el = ds_data.find("keyData", recursive=False)
-
-            dns_key = None
-            if key_data_el:
-                # RFC 5910 §5.1.1: Query keyData child elements strictly within <secDNS:keyData>.
-                # Previously, querying ds_data.find("alg") returned the DS record's algorithm
-                # rather than keyData's algorithm.
-                key_flags = key_data_el.find("flags", recursive=False)
-                key_proto = key_data_el.find("protocol", recursive=False)
-                key_alg = key_data_el.find("alg", recursive=False)
-                key_pub = key_data_el.find("pubKey", recursive=False)
-                dns_key = {
-                    "flag": key_flags.text if key_flags else None,
-                    "protocol": key_proto.text if key_proto else None,
-                    "algorithm": key_alg.text if key_alg else None,
-                    "public_key": key_pub.text if key_pub else None,
-                }
-
-            dns_sec.append(
-                DSRecordData(
-                    key_tag=key_tag_el.text if key_tag_el else None,
-                    algorithm=alg_el.text if alg_el else None,
-                    digest_type=digest_type_el.text if digest_type_el else None,
-                    digest=digest_el.text if digest_el else None,
-                    dns_key=dns_key,
-                )
-            )
-
+        dns_sec = self._parse_dnssec_extension(raw_response)
         if dns_sec:
             result_data["dns_sec"] = dns_sec
 
