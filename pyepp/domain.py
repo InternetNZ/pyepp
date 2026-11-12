@@ -264,7 +264,8 @@ class Domain(BaseCommand):
         :return: List of contact ID strings, or None if no contacts are provided
         :raises TypeError: If contacts or any element in contacts is not a string
         """
-        if not contacts:
+        # Only None bypasses validation; falsey unsupported types must still raise.
+        if contacts is None:
             return None
         if isinstance(contacts, str):
             stripped = contacts.strip()
