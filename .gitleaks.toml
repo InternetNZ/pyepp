@@ -1,6 +1,5 @@
 # ==============================================================================
 # InternetNZ Standard Gitleaks Configuration
-# Reference: pre-commit-secret-scanning-proposal.md
 # ==============================================================================
 # Exception Hierarchy:
 #  - Tier 1: Inline directive on line: '# gitleaks:allow'

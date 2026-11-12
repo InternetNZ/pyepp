@@ -5,7 +5,7 @@ name: Secret Scanning (Gitleaks)
 on:
   pull_request:
   push:
-    branches: [ main, master ]
+    branches: [ main, develop ]
 
 jobs:
   gitleaks:
