@@ -5,6 +5,8 @@ import unittest
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+from bs4 import BeautifulSoup
+
 from pyepp.host import Host, HostData, IPAddressData
 from pyepp.command_templates import HOST_CREATE_XML
 from pyepp.epp import EppCommunicator, EppResultData
@@ -110,6 +112,7 @@ class HostTest(unittest.TestCase):
         mock_name.text = "ns1.example.nz"
         mock_name.get.return_value = "1"
         mock_cd.find.side_effect = lambda tag, *args, **kwargs: mock_name if tag == "name" else None
+        mock_parsed.find.return_value = None
         mock_parsed.find_all.return_value = [mock_cd]
 
         execute_result = EppResultData(
@@ -127,6 +130,102 @@ class HostTest(unittest.TestCase):
         self.assertEqual(
             result["result_data"], {"ns1.example.nz": {"avail": True, "reason": None}}
         )
+
+    def test_check_unavailable_without_reason(self) -> None:
+        """RFC 5732 §3.1.1: verify host.check handles avail="0" without optional <reason>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<host:chkData xmlns:host="urn:ietf:params:xml:ns:host-1.0">'
+            '<host:cd><host:name avail="0">ns1.taken.nz</host:name></host:cd>'
+            '</host:chkData>'
+            '</resData></response>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        host.execute = MagicMock(return_value=execute_result)
+        result = host.check(["ns1.taken.nz"])
+        self.assertEqual(
+            result["result_data"],
+            {"ns1.taken.nz": {"avail": False, "reason": None}},
+        )
+
+    def test_check_ignores_extension_cd_and_missing_name(self) -> None:
+        """Verify host.check scopes to <resData>/<chkData> and ignores extension <cd> or missing <name>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<host:chkData xmlns:host="urn:ietf:params:xml:ns:host-1.0">'
+            '<host:cd><host:name avail="1">ns1.available.nz</host:name></host:cd>'
+            '<host:cd><host:reason>malformed-without-name</host:reason></host:cd>'
+            '</host:chkData>'
+            '</resData>'
+            '<extension>'
+            '<ext:chkData xmlns:ext="urn:ietf:params:xml:ns:ext-1.0">'
+            '<ext:cd><ext:objID>ns1.available.nz</ext:objID></ext:cd>'
+            '</ext:chkData>'
+            '</extension>'
+            '</response></epp>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        host.execute = MagicMock(return_value=execute_result)
+        result = host.check(["ns1.available.nz"])
+        self.assertEqual(
+            result["result_data"],
+            {"ns1.available.nz": {"avail": True, "reason": None}},
+        )
+
+    def test_info_minimal(self) -> None:
+        """Verify host.info parses minimal host info without crDate/crID/addr without error."""
+        epp_communicator = MagicMock(EppCommunicator)
+        host = Host(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<host:infData xmlns:host="urn:ietf:params:xml:ns:host-1.0">'
+            '<host:name>ns1.example.nz</host:name>'
+            '<host:roid>NS1-INZ</host:roid>'
+            '<host:status s="ok"/>'
+            '<host:clID>ClientA</host:clID>'
+            '</host:infData>'
+            '</resData></response>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        host.execute = MagicMock(return_value=execute_result)
+        result = host.info("ns1.example.nz")
+        self.assertIsNotNone(result["result_data"])
+        self.assertEqual(result["result_data"].host_name, "ns1.example.nz")
+        self.assertEqual(result["result_data"].status, ["ok"])
+        self.assertIsNone(result["result_data"].address)
+        self.assertIsNone(result["result_data"].create_date)
+        self.assertIsNone(result["result_data"].create_client_id)
 
     def test_info_uses_parsed_xml_directly(self) -> None:
         """Verify host.info re-uses result.parsed_xml directly."""

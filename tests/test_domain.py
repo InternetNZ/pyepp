@@ -6,6 +6,8 @@ import unittest
 from datetime import date, datetime
 from unittest.mock import MagicMock, patch
 
+from bs4 import BeautifulSoup
+
 from pyepp.domain import (
     Domain,
     DomainData,
@@ -147,6 +149,112 @@ class DomainTest(unittest.TestCase):
             result.result_data, {"test.nz": {"avail": True, "reason": None}}
         )
 
+    def test_check_unavailable_without_reason(self) -> None:
+        """RFC 5731 §3.1.1: verify domain.check handles avail="0" without optional <reason>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<domain:chkData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:cd><domain:name avail="0">taken.nz</domain:name></domain:cd>'
+            '</domain:chkData>'
+            '</resData></response>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.check(["taken.nz"])
+        self.assertEqual(
+            result.result_data, {"taken.nz": {"avail": False, "reason": None}}
+        )
+
+    def test_check_ignores_extension_cd_and_missing_name(self) -> None:
+        """Verify domain.check scopes to <resData>/<chkData> and ignores extension <cd> or missing <name>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<domain:chkData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:cd><domain:name avail="1">available.nz</domain:name></domain:cd>'
+            '<domain:cd><domain:reason>malformed-without-name</domain:reason></domain:cd>'
+            '</domain:chkData>'
+            '</resData>'
+            '<extension>'
+            '<fee:chkData xmlns:fee="urn:ietf:params:xml:ns:epp:fee-1.0">'
+            '<fee:cd avail="1"><fee:objID>available.nz</fee:objID></fee:cd>'
+            '<fee:cd><fee:name>available.nz</fee:name></fee:cd>'
+            '</fee:chkData>'
+            '</extension>'
+            '</response></epp>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.check(["available.nz"])
+        self.assertEqual(
+            result.result_data, {"available.nz": {"avail": True, "reason": None}}
+        )
+
+    def test_info_ds_data_without_key_data(self) -> None:
+        """Verify domain.info parses <secDNS:dsData> when optional <secDNS:keyData> is omitted."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<domain:infData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:name>ds-only.nz</domain:name>'
+            '<domain:status s="ok"/>'
+            '<domain:clID>ClientA</domain:clID>'
+            '</domain:infData>'
+            '</resData>'
+            '<extension>'
+            '<secDNS:infData xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">'
+            '<secDNS:dsData>'
+            '<secDNS:keyTag>12345</secDNS:keyTag>'
+            '<secDNS:alg>8</secDNS:alg>'
+            '<secDNS:digestType>2</secDNS:digestType>'
+            '<secDNS:digest>ABCDEF0123456789</secDNS:digest>'
+            '</secDNS:dsData>'
+            '</secDNS:infData>'
+            '</extension>'
+            '</response></epp>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.info("ds-only.nz")
+        self.assertEqual(len(result.result_data.dns_sec), 1)
+        ds = result.result_data.dns_sec[0]
+        self.assertEqual(ds.key_tag, "12345")
+        self.assertEqual(ds.algorithm, "8")
+        self.assertEqual(ds.digest_type, "2")
+        self.assertEqual(ds.digest, "ABCDEF0123456789")
+        self.assertIsNone(ds.dns_key)
+
     def test_check_uses_parsed_xml_directly(self) -> None:
         """Verify domain.check re-uses result.parsed_xml directly."""
         epp_communicator = MagicMock(EppCommunicator)
@@ -157,6 +265,7 @@ class DomainTest(unittest.TestCase):
         mock_name.text = "test.nz"
         mock_name.get.return_value = "1"
         mock_cd.find.side_effect = lambda tag, *args, **kwargs: mock_name if tag == "name" else None
+        mock_parsed.find.return_value = None
         mock_parsed.find_all.return_value = [mock_cd]
 
         execute_result = EppResultData(
@@ -412,7 +521,7 @@ class DomainTest(unittest.TestCase):
                             digest_type="1",
                             digest="4ffb0f3f0fb5edbaa0067d1cd94bb545249cfea2",
                             dns_key={
-                                "algorithm": "13",
+                                "algorithm": "14",
                                 "flag": "257",
                                 "protocol": "3",
                                 "public_key": "1fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==",

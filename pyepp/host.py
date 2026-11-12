@@ -87,14 +87,32 @@ class Host(BaseCommand):
             return result
 
         raw_response = result.parsed_xml
-        domains_check_data = raw_response.find_all("cd")
+        # Scope XML parsing to <resData> / <host:chkData> per RFC 5732 §3.1.1
+        # to prevent <cd> elements in <extension> blocks from colliding or crashing.
+        res_data = raw_response.find("resData")
+        chk_el = (
+            (res_data.find("chkData") or res_data)
+            if res_data
+            else (raw_response.find("chkData") or raw_response)
+        )
+        hosts_check_data = chk_el.find_all("cd")
 
         result_data = {}
-        for domain_cd in domains_check_data:
-            domain = domain_cd.find("name")
-            available = domain.get("avail") in ("true", "1")
-            reason = domain_cd.find("reason").text if not available else None
-            result_data[domain.text] = {
+        for host_cd in hosts_check_data:
+            host_name_el = host_cd.find("name")
+            if not host_name_el:
+                continue
+            available = host_name_el.get("avail") in ("true", "1")
+            # RFC 5732 §3.1.1: <host:reason> is OPTIONAL even when avail="0"/"false".
+            # Safely check that the <reason> node exists before accessing .text to
+            # prevent AttributeError crashes on registries that omit reason.
+            reason_el = host_cd.find("reason")
+            reason = (
+                reason_el.text
+                if (not available and reason_el is not None)
+                else None
+            )
+            result_data[host_name_el.text] = {
                 "avail": available,
                 "reason": reason,
             }
@@ -126,33 +144,39 @@ class Host(BaseCommand):
 
         raw_response = result.parsed_xml
 
+        # Scope XML parsing to <resData> / <host:infData> per RFC 5732 §3.1.2 to avoid
+        # data corruption from colliding tags (e.g. status, name, crDate) in other sections.
+        res_data = raw_response.find("resData")
+        info_el = (
+            (res_data.find("infData") or res_data)
+            if res_data
+            else (raw_response.find("infData") or raw_response)
+        )
+
+        name_el = info_el.find("name")
+        cr_date_el = info_el.find("crDate")
+        cr_id_el = info_el.find("crID")
+        up_id_el = info_el.find("upID")
+        up_date_el = info_el.find("upDate")
+
         result_data = {
-            "host_name": raw_response.find("name").text,
-            "status": [status.get("s") for status in raw_response.find_all("status")],
+            "host_name": name_el.text if name_el else "",
+            "status": [
+                status.get("s") or status.text
+                for status in info_el.find_all("status")
+            ],
             "address": (
                 [
                     IPAddressData(address=addr.text, ip=addr.get("ip"))
-                    for addr in raw_response.find_all("addr")
+                    for addr in info_el.find_all("addr")
                 ]
-                if raw_response.find("addr")
+                if info_el.find("addr")
                 else None
             ),
-            "create_date": (
-                raw_response.find("crDate").text
-                if raw_response.find("crDate")
-                else None
-            ),
-            "create_client_id": (
-                raw_response.find("crID").text if raw_response.find("crID") else None
-            ),
-            "update_client_id": (
-                raw_response.find("upID").text if raw_response.find("upID") else None
-            ),
-            "update_date": (
-                raw_response.find("upDate").text
-                if raw_response.find("upDate")
-                else None
-            ),
+            "create_date": cr_date_el.text if cr_date_el else None,
+            "create_client_id": cr_id_el.text if cr_id_el else None,
+            "update_client_id": up_id_el.text if up_id_el else None,
+            "update_date": up_date_el.text if up_date_el else None,
         }
 
         result["result_data"] = HostData(**result_data)

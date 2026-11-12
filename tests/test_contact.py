@@ -6,6 +6,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 import xml.etree.ElementTree as ET
 
+from bs4 import BeautifulSoup
+
 from pyepp.contact import (
     ContactData,
     PostalInfoData,
@@ -215,6 +217,7 @@ class ContactTest(unittest.TestCase):
         mock_id.text = "c1"
         mock_id.get.return_value = "1"
         mock_cd.find.side_effect = lambda tag, *args, **kwargs: mock_id if tag == "id" else None
+        mock_parsed.find.return_value = None
         mock_parsed.find_all.return_value = [mock_cd]
 
         execute_result = EppResultData(
@@ -231,6 +234,122 @@ class ContactTest(unittest.TestCase):
         mock_parsed.find_all.assert_called_with("cd")
         self.assertEqual(result.result_data, {"c1": {"avail": True, "reason": None}})
 
+    def test_check_unavailable_without_reason(self) -> None:
+        """RFC 5733 §3.1.1: verify contact.check handles avail="0" without optional <reason>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<contact:chkData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">'
+            '<contact:cd><contact:id avail="0">taken-contact</contact:id></contact:cd>'
+            '</contact:chkData>'
+            '</resData></response>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.check(["taken-contact"])
+        self.assertEqual(
+            result.result_data,
+            {"taken-contact": {"avail": False, "reason": None}},
+        )
+
+    def test_info_redacted_contact(self) -> None:
+        """Verify contact.info parses GDPR/redacted contacts without AttributeError."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        # Redacted contact XML: missing crDate, crID, postalInfo, email, etc.
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<contact:infData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">'
+            '<contact:id>redacted-contact-1</contact:id>'
+            '<contact:roid>999999-INZ</contact:roid>'
+            '<contact:status s="ok"/>'
+            '<contact:clID>ClientA</contact:clID>'
+            '</contact:infData>'
+            '</resData></response>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("redacted-contact-1")
+        self.assertIsNotNone(result.result_data)
+        self.assertEqual(result.result_data.id, "redacted-contact-1")
+        self.assertEqual(result.result_data.status, ["ok"])
+        self.assertEqual(result.result_data.sponsoring_client_id, "ClientA")
+        self.assertIsNone(result.result_data.postal_info)
+        self.assertIsNone(result.result_data.email)
+        self.assertIsNone(result.result_data.create_date)
+        self.assertIsNone(result.result_data.create_client_id)
+
+    def test_info_multiple_postal_info_does_not_collide(self) -> None:
+        """Verify contact.info scopes streets to the first postalInfo and does not merge loc & int."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<contact:infData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">'
+            '<contact:id>multi-postal</contact:id>'
+            '<contact:status s="ok"/>'
+            '<contact:postalInfo type="loc">'
+            '<contact:name>Local Person</contact:name>'
+            '<contact:addr>'
+            '<contact:street>123 Local Street</contact:street>'
+            '<contact:city>Wellington</contact:city>'
+            '<contact:cc>NZ</contact:cc>'
+            '</contact:addr>'
+            '</contact:postalInfo>'
+            '<contact:postalInfo type="int">'
+            '<contact:name>International Person</contact:name>'
+            '<contact:addr>'
+            '<contact:street>456 International Ave</contact:street>'
+            '<contact:city>New York</contact:city>'
+            '<contact:cc>US</contact:cc>'
+            '</contact:addr>'
+            '</contact:postalInfo>'
+            '<contact:email>test@example.com</contact:email>'
+            '<contact:clID>ClientA</contact:clID>'
+            '</contact:infData>'
+            '</resData></response>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("multi-postal")
+        postal = result.result_data.postal_info
+        self.assertIsNotNone(postal)
+        self.assertEqual(postal.name, "Local Person")
+        self.assertEqual(postal.type, "loc")
+        self.assertEqual(postal.address.street_1, "123 Local Street")
+        # Ensure 456 International Ave was NOT added as street_2
+        self.assertIsNone(postal.address.street_2)
+        self.assertEqual(postal.address.city, "Wellington")
+        self.assertEqual(postal.address.country_code, "NZ")
+
     def test_info_uses_parsed_xml_directly(self) -> None:
         """Verify contact.info re-uses result.parsed_xml directly."""
         epp_communicator = MagicMock(EppCommunicator)
@@ -238,6 +357,16 @@ class ContactTest(unittest.TestCase):
         mock_parsed = MagicMock()
         mock_postal = MagicMock()
         mock_postal.get.return_value = "loc"
+        mock_addr = MagicMock()
+        mock_addr.find_all.return_value = []
+        mock_addr.find.side_effect = lambda tag, *args, **kwargs: {
+            "city": MagicMock(text="Dulles"),
+            "cc": MagicMock(text="US"),
+        }.get(tag, None)
+        mock_postal.find.side_effect = lambda tag, *args, **kwargs: {
+            "name": MagicMock(text="John Doe"),
+            "addr": mock_addr,
+        }.get(tag, None)
 
         mock_parsed.find.side_effect = lambda tag, *args, **kwargs: {
             "id": MagicMock(text="sh8014"),
@@ -245,9 +374,6 @@ class ContactTest(unittest.TestCase):
             "crID": MagicMock(text="ClientY"),
             "clID": MagicMock(text="ClientX"),
             "postalInfo": mock_postal,
-            "name": MagicMock(text="John Doe"),
-            "city": MagicMock(text="Dulles"),
-            "cc": MagicMock(text="US"),
             "email": MagicMock(text="jdoe@example.com"),
         }.get(tag, None)
         mock_parsed.find_all.return_value = []
@@ -265,6 +391,86 @@ class ContactTest(unittest.TestCase):
         result = contact.info("sh8014")
         self.assertEqual(result.result_data.id, "sh8014")
         self.assertEqual(result.result_data.email, "jdoe@example.com")
+        self.assertEqual(result.result_data.postal_info.name, "John Doe")
+        self.assertEqual(result.result_data.postal_info.address.city, "Dulles")
+        self.assertEqual(result.result_data.postal_info.address.country_code, "US")
+
+    def test_check_ignores_extension_cd_and_missing_id(self) -> None:
+        """Verify contact.check scopes to <resData>/<chkData> and ignores extension <cd> or missing <id>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<contact:chkData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">'
+            '<contact:cd><contact:id avail="1">valid-contact</contact:id></contact:cd>'
+            '<contact:cd><contact:reason>malformed-without-id</contact:reason></contact:cd>'
+            '</contact:chkData>'
+            '</resData>'
+            '<extension>'
+            '<ext:chkData xmlns:ext="urn:ietf:params:xml:ns:ext-1.0">'
+            '<ext:cd><ext:objID>valid-contact</ext:objID></ext:cd>'
+            '</ext:chkData>'
+            '</extension>'
+            '</response></epp>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.check(["valid-contact"])
+        self.assertEqual(
+            result.result_data,
+            {"valid-contact": {"avail": True, "reason": None}},
+        )
+
+    def test_info_disclose_tags_do_not_bleed_into_omitted_fields_and_postal_without_addr(self) -> None:
+        """Verify <contact:disclose> child tags do not populate omitted phone/fax/email as '' and postalInfo without addr works."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<contact:infData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">'
+            '<contact:id>disclose-no-bleed</contact:id>'
+            '<contact:status s="ok"/>'
+            '<contact:postalInfo type="">'
+            '<contact:name>Redacted Address Contact</contact:name>'
+            '</contact:postalInfo>'
+            '<contact:clID>ClientA</contact:clID>'
+            '<contact:disclose flag="0">'
+            '<contact:voice/>'
+            '<contact:fax/>'
+            '<contact:email/>'
+            '</contact:disclose>'
+            '</contact:infData>'
+            '</resData></response></epp>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        result = contact.info("disclose-no-bleed")
+        self.assertIsNone(result.result_data.phone)
+        self.assertIsNone(result.result_data.fax)
+        self.assertIsNone(result.result_data.email)
+        self.assertEqual(result.result_data.privacy, ["voice", "fax", "email"])
+        self.assertIsNotNone(result.result_data.postal_info)
+        self.assertEqual(result.result_data.postal_info.name, "Redacted Address Contact")
+        self.assertEqual(result.result_data.postal_info.type, "loc")
+        self.assertIsNone(result.result_data.postal_info.address)
 
     def test_info_dry_run(self) -> None:
         epp_communicator = MagicMock(EppCommunicator)
