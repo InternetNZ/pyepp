@@ -147,10 +147,10 @@ class DomainData:
     domain_name: str
     period: Optional[int] = None
     registrant: Optional[str] = ""
-    admin: Optional[str] = ""
-    tech: Optional[str] = ""
+    admin: Optional[Union[list[str], tuple[str, ...], str]] = None
+    tech: Optional[Union[list[str], tuple[str, ...], str]] = None
     sponsoring_client_id: Optional[str] = ""
-    billing: Optional[str] = ""
+    billing: Optional[Union[list[str], tuple[str, ...], str]] = None
     status: Optional[list[str]] = None
     host: Optional[list[str]] = None
     create_date: Optional[str] = ""
@@ -249,6 +249,42 @@ class Domain(BaseCommand):
             record_list = [records]
 
         return [cls._normalize_ds_record_item(item) for item in record_list]
+
+    @staticmethod
+    def _normalize_contact_list(
+        contacts: Optional[Union[list[str], tuple[str, ...], str]]
+    ) -> Optional[list[str]]:
+        """Normalize domain contact identifiers to a list of non-empty strings.
+
+        RFC 5731 §3.2.1 permits zero or more contact elements per type (admin, tech,
+        billing). Accepts a single contact id string or a sequence (list or tuple) of
+        contact ids, validating types and stripping whitespace.
+
+        :param contacts: Single contact ID string or sequence of contact IDs
+        :return: List of contact ID strings, or None if no contacts are provided
+        :raises TypeError: If contacts or any element in contacts is not a string
+        """
+        # Only None bypasses validation; falsey unsupported types must still raise.
+        if contacts is None:
+            return None
+        if isinstance(contacts, str):
+            stripped = contacts.strip()
+            return [stripped] if stripped else None
+        if isinstance(contacts, (list, tuple)):
+            result = []
+            for c in contacts:
+                if not isinstance(c, str):
+                    raise TypeError(
+                        f"Expected contact ID to be str, got {type(c).__name__}"
+                    )
+                stripped = c.strip()
+                if stripped:
+                    result.append(stripped)
+            return result or None
+        raise TypeError(
+            f"Expected contact ID to be str, list[str], or tuple[str, ...], "
+            f"got {type(contacts).__name__}"
+        )
 
     # pylint: disable=R0801
     def check(
@@ -460,9 +496,29 @@ class Domain(BaseCommand):
         name_el = info_el.find("name")
         cl_id_el = info_el.find("clID")
         reg_el = info_el.find("registrant")
-        admin_el = info_el.find("contact", {"type": "admin"})
-        tech_el = info_el.find("contact", {"type": "tech"})
+        # RFC 5731 §3.1.2: A domain may have zero, one, or multiple contacts of type
+        # "admin", "tech", or "billing" (<domain:contact minOccurs="0" maxOccurs="unbounded">).
+        # Query all matching contact elements via find_all() to avoid silently dropping
+        # secondary contacts and ensure consistent list representations. Strip whitespace
+        # and discard empty/redacted tags so optional contact lists default to None.
+        admin_els = info_el.find_all("contact", {"type": "admin"})
+        tech_els = info_el.find_all("contact", {"type": "tech"})
         billing_els = info_el.find_all("contact", {"type": "billing"})
+        admin_contacts = [
+            admin.text.strip()
+            for admin in admin_els
+            if admin.text and admin.text.strip()
+        ]
+        tech_contacts = [
+            tech.text.strip()
+            for tech in tech_els
+            if tech.text and tech.text.strip()
+        ]
+        billing_contacts = [
+            billing.text.strip()
+            for billing in billing_els
+            if billing.text and billing.text.strip()
+        ]
         cr_date_el = info_el.find("crDate")
         cr_id_el = info_el.find("crID")
         ex_date_el = info_el.find("exDate")
@@ -484,13 +540,9 @@ class Domain(BaseCommand):
                 else None
             ),
             "registrant": reg_el.text if reg_el else None,
-            "admin": admin_el.text if admin_el else None,
-            "tech": tech_el.text if tech_el else None,
-            "billing": (
-                [billing.text for billing in billing_els]
-                if billing_els
-                else None
-            ),
+            "admin": admin_contacts or None,
+            "tech": tech_contacts or None,
+            "billing": billing_contacts or None,
             "create_date": cr_date_el.text if cr_date_el else None,
             "create_client_id": cr_id_el.text if cr_id_el else None,
             "expiry_date": ex_date_el.text if ex_date_el else None,
@@ -528,6 +580,13 @@ class Domain(BaseCommand):
 
         if not params.get('password'):
             params['password'] = helper.generate_password(16)
+
+        # RFC 5731 §3.2.1: Normalize admin, tech, and billing contacts to lists of strings
+        # so DOMAIN_CREATE_XML renders individual <domain:contact> elements without
+        # leaking Python list representations or dropping multiple contacts.
+        params["admin"] = self._normalize_contact_list(params.get("admin"))
+        params["tech"] = self._normalize_contact_list(params.get("tech"))
+        params["billing"] = self._normalize_contact_list(params.get("billing"))
 
         # Issue #316: Normalize dns_sec into a list of dicts with unpacked enum values,
         # ensuring DOMAIN_CREATE_XML receives a standard list rather than handling mappings in Jinja.
@@ -617,12 +676,12 @@ class Domain(BaseCommand):
         domain_name: str,
         registrant: Optional[str] = None,
         password: Optional[str] = None,
-        add_admins: Optional[list[str]] = None,
-        remove_admins: Optional[list[str]] = None,
-        add_techs: Optional[list[str]] = None,
-        remove_techs: Optional[list[str]] = None,
-        add_billings: Optional[list[str]] = None,
-        remove_billings: Optional[list[str]] = None,
+        add_admins: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        remove_admins: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        add_techs: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        remove_techs: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        add_billings: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        remove_billings: Optional[Union[list[str], tuple[str, ...], str]] = None,
         add_statuses: Optional[list[tuple]] = None,
         remove_statuses: Optional[list[str]] = None,
         add_hosts: Optional[list[str]] = None,
@@ -637,12 +696,12 @@ class Domain(BaseCommand):
 
         :param domain_name: Domain name to be updated
         :param registrant: A contact id to replace the current registrant
-        :param add_admins: A list of contact ids to be added to the admin contacts
-        :param remove_admins: A list of contact ids to be removed from the admin contacts
-        :param add_techs:  A list of contact ids to be added to the techs contacts
-        :param remove_techs: A list of contact ids to be removed from the tech contacts
-        :param add_billings: A list of contact ids to add to the billing contacts
-        :param remove_billings: A list of contact ids to remove from the billing contacts
+        :param add_admins: A list, tuple, or single contact id to be added to the admin contacts
+        :param remove_admins: A list, tuple, or single contact id to be removed from the admin contacts
+        :param add_techs: A list, tuple, or single contact id to be added to the tech contacts
+        :param remove_techs: A list, tuple, or single contact id to be removed from the tech contacts
+        :param add_billings: A list, tuple, or single contact id to add to the billing contacts
+        :param remove_billings: A list, tuple, or single contact id to remove from the billing contacts
         :param add_statuses: List of statuses to be added to the domain name. The tuple must contain two
             elements. The first one will be the Status Code and the second element will be Descriptions.
         :param remove_statuses: A list of statuses to be removed from the domain name.
@@ -663,6 +722,15 @@ class Domain(BaseCommand):
             raise ValueError(
                 "Cannot specify both remove_dns_sec and remove_all_dns_sec."
             )
+
+        # RFC 5731 §3.2.5: Normalize contact change lists using _normalize_contact_list
+        # to accept single strings or sequences and prevent string-splitting character bugs in Jinja.
+        add_admins = self._normalize_contact_list(add_admins)
+        remove_admins = self._normalize_contact_list(remove_admins)
+        add_techs = self._normalize_contact_list(add_techs)
+        remove_techs = self._normalize_contact_list(remove_techs)
+        add_billings = self._normalize_contact_list(add_billings)
+        remove_billings = self._normalize_contact_list(remove_billings)
 
         add = bool(add_admins or add_techs or add_billings or add_statuses or add_hosts)
         remove = bool(

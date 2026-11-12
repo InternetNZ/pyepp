@@ -506,8 +506,8 @@ class DomainTest(unittest.TestCase):
                     status=["inactive"],
                     host=None,
                     registrant="inz-contact-1",
-                    admin="inz-contact-1",
-                    tech="inz-contact-1",
+                    admin=["inz-contact-1"],
+                    tech=["inz-contact-1"],
                     billing=None,
                     create_date="2023-02-23T21:56:22.713Z",
                     create_client_id="933",
@@ -1597,3 +1597,237 @@ class DomainTest(unittest.TestCase):
         # Empty extension returns None
         empty_resp = BeautifulSoup("<response><resData/></response>", "xml")
         self.assertIsNone(Domain._parse_dnssec_extension(empty_resp))
+
+    def test_domain_info_multiple_contacts(self) -> None:
+        """Verify domain.info() preserves multiple admin, tech, and billing contacts per RFC 5731 §3.1.2."""
+        raw_xml = (
+            "<response>\n"
+            '  <result code="1000">\n'
+            "    <msg>Command completed successfully</msg>\n"
+            "  </result>\n"
+            "  <resData>\n"
+            "    <domain:infData>\n"
+            "      <domain:name>multi-contact.nz</domain:name>\n"
+            "      <domain:roid>12345-INZ</domain:roid>\n"
+            '      <domain:status s="ok"/>\n'
+            "      <domain:registrant>reg-contact-1</domain:registrant>\n"
+            '      <domain:contact type="admin">admin-contact-1</domain:contact>\n'
+            '      <domain:contact type="admin">admin-contact-2</domain:contact>\n'
+            '      <domain:contact type="tech">tech-contact-1</domain:contact>\n'
+            '      <domain:contact type="tech">tech-contact-2</domain:contact>\n'
+            '      <domain:contact type="billing">billing-contact-1</domain:contact>\n'
+            '      <domain:contact type="billing">billing-contact-2</domain:contact>\n'
+            "      <domain:clID>client-1</domain:clID>\n"
+            "    </domain:infData>\n"
+            "  </resData>\n"
+            "</response>"
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=raw_xml,
+            result_data=None,
+        )
+        domain = Domain(MagicMock(EppCommunicator))
+        domain.execute = MagicMock(return_value=execute_result)
+
+        result = domain.info("multi-contact.nz")
+        self.assertEqual(
+            result.result_data.admin, ["admin-contact-1", "admin-contact-2"]
+        )
+        self.assertEqual(
+            result.result_data.tech, ["tech-contact-1", "tech-contact-2"]
+        )
+        self.assertEqual(
+            result.result_data.billing,
+            ["billing-contact-1", "billing-contact-2"],
+        )
+
+    def test_domain_create_multiple_contacts_xml(self) -> None:
+        """Verify domain.create() renders multiple contacts without Python list reprs."""
+        epp = EppCommunicator(
+            "localhost",
+            "700",
+            user="user",
+            password="pw",
+            dry_run=True,
+        )
+        domain = Domain(epp)
+        domain_data = DomainData(
+            domain_name="example.nz",
+            registrant="reg-1",
+            admin=["admin-1", "admin-2"],
+            tech=["tech-1", "tech-2"],
+            billing=["bill-1", "bill-2"],
+            period=1,
+            password="testpassword123",
+        )
+        result = domain.create(domain_data)
+        xml = result.raw_response
+        self.assertIn('<domain:contact type="admin">admin-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="admin">admin-2</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-2</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">bill-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">bill-2</domain:contact>', xml)
+        self.assertNotIn("['admin-1'", xml)
+        self.assertNotIn("['bill-1'", xml)
+
+    def test_domain_create_string_contacts_xml(self) -> None:
+        """Verify domain.create() renders single contact string values cleanly."""
+        epp = EppCommunicator(
+            "localhost",
+            "700",
+            user="user",
+            password="pw",
+            dry_run=True,
+        )
+        domain = Domain(epp)
+        domain_data = DomainData(
+            domain_name="single.nz",
+            registrant="reg-1",
+            admin="admin-single",
+            tech="tech-single",
+            billing="bill-single",
+            period=1,
+            password="testpassword123",
+        )
+        result = domain.create(domain_data)
+        xml = result.raw_response
+        self.assertIn('<domain:contact type="admin">admin-single</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-single</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">bill-single</domain:contact>', xml)
+        self.assertNotIn("['", xml)
+
+    def test_domain_info_to_create_round_trip(self) -> None:
+        """Verify DomainData returned by info() can be passed directly to create() without schema errors."""
+        info_xml = (
+            "<response>\n"
+            '  <result code="1000">\n'
+            "    <msg>Command completed successfully</msg>\n"
+            "  </result>\n"
+            "  <resData>\n"
+            "    <domain:infData>\n"
+            "      <domain:name>roundtrip.nz</domain:name>\n"
+            "      <domain:roid>99999-INZ</domain:roid>\n"
+            '      <domain:status s="ok"/>\n'
+            "      <domain:registrant>reg-contact-1</domain:registrant>\n"
+            '      <domain:contact type="admin">admin-1</domain:contact>\n'
+            '      <domain:contact type="tech">tech-1</domain:contact>\n'
+            '      <domain:contact type="billing">billing-1</domain:contact>\n'
+            "      <domain:clID>client-1</domain:clID>\n"
+            "    </domain:infData>\n"
+            "  </resData>\n"
+            "</response>"
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=info_xml,
+            result_data=None,
+        )
+        epp = EppCommunicator(
+            "localhost",
+            "700",
+            user="user",
+            password="pw",
+            dry_run=True,
+        )
+        domain = Domain(epp)
+        domain.execute = MagicMock(return_value=execute_result)
+
+        info_res = domain.info("roundtrip.nz")
+        create_domain = Domain(epp)
+        create_res = create_domain.create(info_res.result_data)
+        xml = create_res.raw_response
+        self.assertIn('<domain:contact type="admin">admin-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">billing-1</domain:contact>', xml)
+        self.assertNotIn("['billing-1']", xml)
+        self.assertNotIn("['admin-1']", xml)
+        # RFC 5731 §3.2.1: When period is None (not returned by info), <domain:period> is omitted
+        self.assertNotIn("<domain:period", xml)
+        self.assertNotIn("<domain:registrant>None", xml)
+
+    def test_domain_info_empty_and_whitespace_contacts(self) -> None:
+        """Verify domain.info() normalizes empty and whitespace contact tags to None."""
+        info_xml = (
+            "<response>\n"
+            '  <result code="1000">\n'
+            "    <msg>Command completed successfully</msg>\n"
+            "  </result>\n"
+            "  <resData>\n"
+            "    <domain:infData>\n"
+            "      <domain:name>empty-contacts.nz</domain:name>\n"
+            '      <domain:status s="ok"/>\n'
+            '      <domain:contact type="admin"></domain:contact>\n'
+            '      <domain:contact type="tech">   </domain:contact>\n'
+            '      <domain:contact type="billing">\n\t</domain:contact>\n'
+            "    </domain:infData>\n"
+            "  </resData>\n"
+            "</response>"
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=info_xml,
+            result_data=None,
+        )
+        epp = MagicMock(EppCommunicator)
+        domain = Domain(epp)
+        domain.execute = MagicMock(return_value=execute_result)
+
+        result = domain.info("empty-contacts.nz")
+        self.assertIsNone(result.result_data.admin)
+        self.assertIsNone(result.result_data.tech)
+        self.assertIsNone(result.result_data.billing)
+
+    def test_domain_update_contact_normalization(self) -> None:
+        """Verify domain.update() normalizes single strings and tuples without character splitting."""
+        epp = EppCommunicator(
+            "localhost",
+            "700",
+            user="user",
+            password="pw",
+            dry_run=True,
+        )
+        domain = Domain(epp)
+        result = domain.update(
+            domain_name="example.nz",
+            add_admins="adm-single",
+            remove_techs=("tech-1", "tech-2"),
+            add_billings="bill-single",
+        )
+        xml = result.raw_response
+        self.assertIn('<domain:contact type="admin">adm-single</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-2</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">bill-single</domain:contact>', xml)
+        # Ensure string wasn't iterated into individual characters
+        self.assertNotIn('<domain:contact type="admin">a</domain:contact>', xml)
+        self.assertNotIn('<domain:contact type="admin">d</domain:contact>', xml)
+
+    def test_normalize_contact_list(self) -> None:
+        """Verify Domain._normalize_contact_list handles various input shapes and types."""
+        self.assertIsNone(Domain._normalize_contact_list(None))
+        self.assertIsNone(Domain._normalize_contact_list(""))
+        self.assertIsNone(Domain._normalize_contact_list("   "))
+        self.assertIsNone(Domain._normalize_contact_list([]))
+        self.assertIsNone(Domain._normalize_contact_list(["  ", ""]))
+        self.assertEqual(Domain._normalize_contact_list("c1"), ["c1"])
+        self.assertEqual(Domain._normalize_contact_list("  c1  "), ["c1"])
+        self.assertEqual(Domain._normalize_contact_list(["c1", "c2"]), ["c1", "c2"])
+        self.assertEqual(Domain._normalize_contact_list(("c1", "c2")), ["c1", "c2"])
+        self.assertEqual(Domain._normalize_contact_list(["c1", "  "]), ["c1"])
+
+        with self.assertRaises(TypeError):
+            Domain._normalize_contact_list(123)  # type: ignore[arg-type]
+
+        with self.assertRaises(TypeError):
+            Domain._normalize_contact_list({"admin": "c1"})  # type: ignore[arg-type]
+
+        with self.assertRaises(TypeError):
+            Domain._normalize_contact_list({"c1", "c2"})  # type: ignore[arg-type]
+
+        with self.assertRaises(TypeError):
+            Domain._normalize_contact_list(["c1", 123])  # type: ignore[list-item]

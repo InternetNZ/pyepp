@@ -237,7 +237,9 @@ DOMAIN_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
     <create>
       <domain:create xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">
         <domain:name>{{ domain_name }}</domain:name>
+        {% if period %}
         <domain:period unit='y'>{{ period }}</domain:period>
+        {% endif %}
         {% if host %}
         <domain:ns>
         {% for ns in host %}
@@ -245,15 +247,23 @@ DOMAIN_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
         {% endfor %}
         </domain:ns>
         {% endif %}
+        {% if registrant %}
         <domain:registrant>{{ registrant }}</domain:registrant>
+        {% endif %}
         {% if admin %}
-        <domain:contact type="admin">{{ admin }}</domain:contact>
+        {% for a in admin %}
+        <domain:contact type="admin">{{ a }}</domain:contact>
+        {% endfor %}
         {% endif %}
         {% if tech %}
-        <domain:contact type="tech">{{ tech }}</domain:contact>
+        {% for t in tech %}
+        <domain:contact type="tech">{{ t }}</domain:contact>
+        {% endfor %}
         {% endif %}
         {% if billing %}
-        <domain:contact type="billing">{{ billing }}</domain:contact>
+        {% for b in billing %}
+        <domain:contact type="billing">{{ b }}</domain:contact>
+        {% endfor %}
         {% endif %}
         <domain:authInfo>
           <domain:pw>{{ password }}</domain:pw>
