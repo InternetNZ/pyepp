@@ -12,6 +12,7 @@ from collections.abc import Iterator, Mapping
 from configparser import RawConfigParser
 from dataclasses import dataclass, field
 import logging
+import math
 import os
 from typing import Any, Optional, TYPE_CHECKING
 import click
@@ -93,6 +94,7 @@ class Profile(Mapping[str, Any]):
     output_format: str = "XML"
     no_pretty: bool = False
     dry_run: bool = False
+    timeout: Optional[float] = None
     raw_config: dict[str, str] = field(default_factory=dict, repr=False)
 
     _COMMUNICATOR_KEYS = (
@@ -104,6 +106,7 @@ class Profile(Mapping[str, Any]):
         "user",
         "password",
         "extensions",
+        "timeout",
     )
 
     def __getitem__(self, key: str) -> Any:
@@ -111,6 +114,7 @@ class Profile(Mapping[str, Any]):
             val = getattr(self, key, None)
             if val is not None:
                 return val
+            raise KeyError(key)
         if key in self.raw_config:
             return self.raw_config[key]
         raise KeyError(key)
@@ -127,8 +131,8 @@ class Profile(Mapping[str, Any]):
     def __contains__(self, key: object) -> bool:
         if not isinstance(key, str):
             return False
-        if key in self._COMMUNICATOR_KEYS and getattr(self, key, None) is not None:
-            return True
+        if key in self._COMMUNICATOR_KEYS:
+            return getattr(self, key, None) is not None
         return key in self.raw_config
 
     def to_communicator_kwargs(self, **overrides: Any) -> dict[str, Any]:
@@ -144,6 +148,7 @@ class Profile(Mapping[str, Any]):
             "user": self.user,
             "password": self.password,
             "extensions": list(self.extensions) if self.extensions is not None else [],
+            "timeout": self.timeout,
         }
         result = {k: v for k, v in kwargs.items() if v is not None}
         result.update(overrides)
@@ -172,6 +177,7 @@ class Profile(Mapping[str, Any]):
             "output_format": self.output_format,
             "no_pretty": self.no_pretty,
             "dry_run": self.dry_run,
+            "timeout": self.timeout,
             "raw_config": dict(self.raw_config),
         }
 
@@ -221,6 +227,20 @@ def _build_profile_from_config(
             if checked_keys is not None:
                 checked_keys.add(client_key)
 
+    raw_timeout = config.get("timeout")
+    timeout = None
+    if raw_timeout is not None and str(raw_timeout).strip():
+        try:
+            val = float(str(raw_timeout).strip())
+            if not math.isfinite(val) or val <= 0:
+                raise ValueError
+            timeout = val
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"Invalid timeout value in profile '{name}': {raw_timeout!r}. "
+                "Timeout must be a positive finite number."
+            ) from exc
+
     return Profile(
         name=name,
         server=config.get("server"),
@@ -233,6 +253,7 @@ def _build_profile_from_config(
         output_format=fmt.strip().upper(),
         no_pretty=_parse_bool(config.get("no_pretty") or config.get("no-pretty")),
         dry_run=_parse_bool(config.get("dry_run") or config.get("dry-run")),
+        timeout=timeout,
         raw_config=dict(config),
     )
 

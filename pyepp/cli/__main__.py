@@ -70,6 +70,8 @@ def load_config(config_file=None, profile=None):
             "no_pretty": prof.no_pretty,
             "dry_run": prof.dry_run,
         }
+        if prof.timeout is not None:
+            d_map["timeout"] = prof.timeout
         if prof.extensions:
             d_map["extension"] = tuple(prof.extensions)
 
@@ -142,6 +144,7 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
         "password",
         "client_cert",
         "client_key",
+        "timeout",
     ):
         # Environment variables take precedence over profile configuration
         if _get_option_env_var(field_name) in os.environ:
@@ -232,6 +235,13 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
 )
 @click.option("-v", "--verbose", is_flag=True, show_default=True, default=False)
 @click.option("-d", "--debug", is_flag=True, show_default=True, default=False)
+@click.option(
+    "--timeout",
+    envvar="PYEPP_TIMEOUT",
+    type=click.FloatRange(min=0, min_open=True),
+    required=False,
+    help="Socket connection and transmission timeout in seconds.",
+)
 @click.version_option()
 @click.pass_context
 # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
@@ -252,6 +262,7 @@ def pyepp_cli(
     file,
     verbose,
     debug,
+    timeout=None,
 ):
     """A command line interface to work with PyEpp library."""
     active_profile = profile or os.environ.get("PYEPP_PROFILE")
@@ -271,6 +282,7 @@ def pyepp_cli(
                 "output_format": output_format,
                 "dry_run": dry_run,
                 "no_pretty": no_pretty,
+                "timeout": timeout,
             },
         )
         server = resolved["server"]
@@ -283,6 +295,7 @@ def pyepp_cli(
         output_format = resolved["output_format"]
         dry_run = resolved["dry_run"]
         no_pretty = resolved["no_pretty"]
+        timeout = resolved.get("timeout")
 
     if ctx.invoked_subcommand not in ("profile", "shell"):
         missing = []
@@ -315,6 +328,7 @@ def pyepp_cli(
         config_file=config_file,
         debug=debug,
         verbose=verbose,
+        timeout=timeout,
     )
 
     if verbose:

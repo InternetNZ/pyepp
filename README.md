@@ -128,6 +128,8 @@ Options:
   --password TEXT
   --client-cert TEXT
   --client-key TEXT
+  --timeout FLOAT                 Socket connection and transmission timeout
+                                  in seconds.
   --extension TEXT                The extension to be loaded for the EPP
                                   command.
   -o, --output-format [XML|OBJECT|MIN|TABLE]
@@ -159,6 +161,7 @@ PyEPP supports user-defined configuration profiles (similar to AWS CLI profiles)
 ```ini
 [default]
 port = 700
+timeout = 10.0
 output_format = TABLE
 no_pretty = false
 dry_run = false

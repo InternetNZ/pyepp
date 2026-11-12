@@ -19,6 +19,7 @@ class PyEPPTests(unittest.TestCase):
             "client_key": "path_to_key",
         }
         patch("pyepp.epp.socket.socket").start()
+        patch("pyepp.epp.socket.create_connection").start()
         patch("pyepp.epp.ssl.SSLContext").start()
 
         self.maxDiff = None
@@ -220,7 +221,12 @@ class PyEPPTests(unittest.TestCase):
         result = epp._write(HELLO_XML)
 
         self.assertEqual(result, expected_result)
-        self.assertEqual(epp._ssl_socket.sendall.call_count, 2)
+        self.assertEqual(epp._ssl_socket.sendall.call_count, 1)
+        expected_bytes = (HELLO_XML + "\r\n").encode("utf-8")
+        expected_payload = (
+            (len(expected_bytes) + 4).to_bytes(4, byteorder="big") + expected_bytes
+        )
+        epp._ssl_socket.sendall.assert_called_once_with(expected_payload)
 
 
 if __name__ == "__main__":

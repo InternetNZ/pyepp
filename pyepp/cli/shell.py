@@ -236,7 +236,12 @@ def switch_profile(cli_obj, profile_name: str) -> bool:
     _safe_close_session(cli_obj)
 
     cli_obj.epp = EppCommunicator(
-        prof.server, prof.port, prof.client_cert, prof.client_key, prof.dry_run
+        prof.server,
+        prof.port,
+        prof.client_cert,
+        prof.client_key,
+        prof.dry_run,
+        timeout=getattr(prof, "timeout", None),
     )
     cli_obj.user = prof.user
     cli_obj.password = prof.password

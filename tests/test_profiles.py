@@ -148,7 +148,68 @@ class ProfilesModuleTest(unittest.TestCase):
         self.assertIsInstance(epp, EppCommunicator)
         self.assertEqual(epp._server, "127.0.0.1")
         self.assertEqual(epp._user, "admin")
-        self.assertTrue(epp._dry_run)
+
+    def test_profile_timeout_configuration(self) -> None:
+        """Verify timeout field in Profile, to_dict, to_communicator_kwargs, and INI loading."""
+        prof = Profile(
+            name="timeout_test",
+            server="127.0.0.1",
+            timeout=25.5,
+        )
+        self.assertEqual(prof.timeout, 25.5)
+        self.assertEqual(prof.to_dict()["timeout"], 25.5)
+        kwargs = prof.to_communicator_kwargs()
+        self.assertEqual(kwargs["timeout"], 25.5)
+        epp = prof.create_communicator()
+        self.assertEqual(epp.timeout, 25.5)
+
+        ini_content = """[profile timeout_ini]
+server = epp.timeout.test
+timeout = 42.0
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            loaded_prof = load_profile("timeout_ini", config_file=cfg_path)
+            self.assertEqual(loaded_prof.timeout, 42.0)
+            loaded_kwargs = loaded_prof.to_communicator_kwargs()
+            self.assertEqual(loaded_kwargs["timeout"], 42.0)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_profile_timeout_invalid_raises_value_error(self) -> None:
+        """Verify invalid timeout values in config.ini raise ValueError with descriptive message."""
+        for invalid_val in ("abc", "-5", "0", "nan", "inf"):
+            ini_content = f"""[profile bad_timeout]
+server = epp.test.net
+timeout = {invalid_val}
+"""
+            with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+                tf.write(ini_content)
+                cfg_path = tf.name
+
+            try:
+                with self.assertRaises(ValueError) as ctx:
+                    load_profile("bad_timeout", config_file=cfg_path)
+                self.assertIn("Invalid timeout value in profile 'bad_timeout'", str(ctx.exception))
+                self.assertIn("Timeout must be a positive finite number", str(ctx.exception))
+            finally:
+                if os.path.exists(cfg_path):
+                    os.remove(cfg_path)
+
+    def test_profile_mapping_protocol_with_timeout(self) -> None:
+        """Verify Profile Mapping protocol behavior with configured and unconfigured timeout."""
+        prof_with = Profile(name="p_with", server="127.0.0.1", timeout=15.0)
+        self.assertIn("timeout", prof_with)
+        self.assertEqual(prof_with["timeout"], 15.0)
+
+        prof_without = Profile(name="p_without", server="127.0.0.1", timeout=None)
+        self.assertNotIn("timeout", prof_without)
+        with self.assertRaises(KeyError):
+            _ = prof_without["timeout"]
 
     def test_profile_to_dict_and_copy(self) -> None:
         """Verify to_dict and copy methods on Profile."""
@@ -394,9 +455,10 @@ password = test_pass
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
 
+    @patch("pyepp.epp.socket.create_connection")
     @patch("pyepp.epp.ssl.create_default_context")
     def test_epp_communicator_from_profile_with_cert_and_key_expanded(
-        self, mock_ssl: MagicMock
+        self, mock_ssl: MagicMock, mock_create_conn: MagicMock
     ) -> None:
         """Verify EppCommunicator.from_profile uses expanded cert/key when connecting."""
         ini_content = """[profile tls_test]

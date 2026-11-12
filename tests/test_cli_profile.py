@@ -104,6 +104,7 @@ server = epp.alpha.net
         self.assertIn("Profile: default", result.output)
         self.assertIn("Port:          700", result.output)
         self.assertIn("Output Format: TABLE", result.output)
+        self.assertIn("Timeout:       None", result.output)
 
     def test_cli_profile_show_named_profile_masks_password(self) -> None:
         """Verify 'pyepp profile show <name>' displays profile details with masked password."""
@@ -127,6 +128,28 @@ server = epp.alpha.net
         )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Password:      ote_secret_password", result.output)
+
+    def test_cli_profile_show_with_configured_timeout(self) -> None:
+        """Verify 'pyepp profile show' displays formatted timeout when configured."""
+        ini_content = """[profile timeout_prof]
+server = epp.timeout.test
+timeout = 15.5
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            result = self.runner.invoke(
+                pyepp_cli,
+                ["-c", cfg_path, "profile", "show", "timeout_prof"],
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Profile: timeout_prof", result.output)
+            self.assertIn("Timeout:       15.5", result.output)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
 
     def test_cli_profile_show_non_existent_profile(self) -> None:
         """Verify 'pyepp profile show non_existent' reports an error."""
