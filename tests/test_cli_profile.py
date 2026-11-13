@@ -633,14 +633,23 @@ no_pretty = false
         self,
     ) -> None:
         """Verify `pyepp profile list` still runs when implicit [default] is malformed."""
-        ini_content = "[default]\ntimeout = not_a_number\n[profile ote]\nserver = epp.ote.net\n"
+        ini_content = (
+            "[default]\ntimeout = not_a_number\n"
+            "[profile ote]\nserver = epp.ote.net\ntimeout = 30\n"
+        )
         with tempfile.NamedTemporaryFile("w", delete=False) as tf:
             tf.write(ini_content)
             bad_cfg_path = tf.name
 
         try:
             load_config(bad_cfg_path)
-            with patch("pyepp.profiles.get_default_config_path", return_value=bad_cfg_path):
+            with (
+                patch("pyepp.profiles.get_default_config_path", return_value=bad_cfg_path),
+                patch(
+                    "pyepp.cli.profile.get_default_config_path",
+                    return_value=bad_cfg_path,
+                ),
+            ):
                 result = self.runner.invoke(pyepp_cli, ["profile", "list"])
             self.assertEqual(result.exit_code, 0)
             self.assertIn("ote", result.output)
