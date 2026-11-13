@@ -686,6 +686,36 @@ no_pretty = false
             if os.path.exists(bad_cfg_path):
                 os.remove(bad_cfg_path)
 
+    def test_shell_subcommand_with_explicit_config_fails_when_default_invalid(
+        self,
+    ) -> None:
+        """Verify `pyepp -c <cfg> shell` fails when [default] has invalid settings."""
+        ini_content = "[default]\ndry_run = true\ntimeout = not_a_number\n"
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            bad_cfg_path = tf.name
+
+        try:
+            result = self.runner.invoke(
+                pyepp_cli,
+                [
+                    "-c",
+                    bad_cfg_path,
+                    "--server",
+                    "epp.example.net",
+                    "--user",
+                    "user",
+                    "--password",
+                    "pass",
+                    "shell",
+                ],
+            )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("Invalid timeout value in profile 'default'", result.output)
+        finally:
+            if os.path.exists(bad_cfg_path):
+                os.remove(bad_cfg_path)
+
     def test_cli_rejects_non_finite_timeout(self) -> None:
         """Verify --timeout and PYEPP_TIMEOUT reject non-finite values like inf and nan."""
         for args, env in [

@@ -121,16 +121,25 @@ def _validate_profile_output_format(ctx, raw_fmt):
 
 def _resolve_profile_options(ctx, active_profile, config_file, current_values):
     """Resolve configuration profile options and override default/unspecified parameters."""
-    from pyepp.profiles import load_profile  # pylint: disable=import-outside-toplevel
+    from pyepp.profiles import (  # pylint: disable=import-outside-toplevel
+        ProfileNotFoundError,
+        load_profile,
+    )
 
     try:
         prof = load_profile(active_profile or "default", config_file=config_file)
-    except Exception as ex:  # pylint: disable=broad-exception-caught
+    except ProfileNotFoundError as ex:
         # Allow 'profile' commands and 'shell' (when no explicit profile was requested)
         # to proceed even if a [default] profile does not exist in config.ini.
         if ctx.invoked_subcommand != "profile" and not (
             ctx.invoked_subcommand == "shell" and not active_profile
         ):
+            raise click.ClickException(str(ex)) from ex
+        return current_values
+    except Exception as ex:  # pylint: disable=broad-exception-caught
+        # Surface validation errors (such as malformed timeout paired with
+        # dry_run=true) for all non-'profile' commands including 'shell'.
+        if ctx.invoked_subcommand != "profile":
             raise click.ClickException(str(ex)) from ex
         return current_values
 
