@@ -658,6 +658,44 @@ no_pretty = false
             if os.path.exists(bad_cfg_path):
                 os.remove(bad_cfg_path)
 
+    def test_shell_subcommand_fails_when_implicit_default_profile_invalid(self) -> None:
+        """Verify `pyepp shell` fails instead of silently dropping [default] settings."""
+        ini_content = "[default]\ndry_run = true\ntimeout = not_a_number\n"
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            bad_cfg_path = tf.name
+
+        try:
+            load_config(bad_cfg_path)
+            result = self.runner.invoke(
+                pyepp_cli,
+                [
+                    "--server",
+                    "epp.example.net",
+                    "--user",
+                    "user",
+                    "--password",
+                    "pass",
+                    "shell",
+                ],
+            )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("Invalid timeout value in profile 'default'", result.output)
+        finally:
+            load_config()
+            if os.path.exists(bad_cfg_path):
+                os.remove(bad_cfg_path)
+
+    def test_cli_rejects_non_finite_timeout(self) -> None:
+        """Verify --timeout and PYEPP_TIMEOUT reject non-finite values like inf and nan."""
+        for args, env in [
+            (["--timeout", "inf", "hello"], None),
+            (["hello"], {"PYEPP_TIMEOUT": "nan"}),
+        ]:
+            result = self.runner.invoke(pyepp_cli, args, env=env)
+            self.assertEqual(result.exit_code, 2)
+            self.assertIn("must be a finite positive number.", result.output)
+
 
 if __name__ == "__main__":
     unittest.main()

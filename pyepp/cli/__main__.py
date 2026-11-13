@@ -4,6 +4,7 @@ Executable cli module.
 
 import os
 import logging
+import math
 from typing import Optional
 
 import click
@@ -193,6 +194,17 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
     return updated
 
 
+def _validate_timeout(
+    _ctx: click.Context, _param: click.Parameter, value: Optional[float]
+) -> Optional[float]:
+    """Validate that --timeout is a finite positive number when provided."""
+    # click.FloatRange permits 'inf' and 'nan'; reject them here so Click
+    # reports a clean parameter error instead of failing later in EppCommunicator.
+    if value is not None and (not math.isfinite(value) or value <= 0):
+        raise click.BadParameter("must be a finite positive number.")
+    return value
+
+
 @click.group(name="pyepp", context_settings=CONTEXT_SETTINGS)
 @click.option(
     "-p",
@@ -248,6 +260,7 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
     "--timeout",
     envvar="PYEPP_TIMEOUT",
     type=click.FloatRange(min=0, min_open=True),
+    callback=_validate_timeout,
     required=False,
     help="Socket connection and transmission timeout in seconds.",
 )
@@ -305,10 +318,11 @@ def pyepp_cli(
         dry_run = resolved["dry_run"]
         no_pretty = resolved["no_pretty"]
         timeout = resolved.get("timeout")
-    elif ctx.invoked_subcommand not in ("profile", "shell"):
-        # Validate the implicit default profile at invocation time so invalid
-        # settings (e.g. malformed timeout causing load_config() to fall back and
-        # drop dry_run=true) are surfaced rather than silently ignored.
+    elif ctx.invoked_subcommand != "profile":
+        # Validate the implicit default profile at invocation time (including
+        # shell mode, which can open a live connection) so invalid settings such
+        # as malformed timeout causing load_config() to drop dry_run=true are
+        # surfaced rather than silently ignored.
         if _CONFIG_LOAD_ERROR is not None:
             raise click.ClickException(str(_CONFIG_LOAD_ERROR)) from _CONFIG_LOAD_ERROR
         from pyepp.profiles import load_profile  # pylint: disable=import-outside-toplevel
