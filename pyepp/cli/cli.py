@@ -121,8 +121,11 @@ class PyEppCli:
         persistent_session=False,
         debug=False,
         verbose=False,
+        timeout=None,
     ):
-        self.epp = EppCommunicator(server, port, client_cert, client_key, dry_run)
+        self.epp = EppCommunicator(
+            server, port, client_cert, client_key, dry_run, timeout=timeout
+        )
 
         self.user = user
         self.password = password

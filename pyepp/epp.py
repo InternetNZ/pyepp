@@ -4,6 +4,7 @@ EPP Communicator Module
 # pylint: disable=too-many-lines
 
 import copy
+import math
 import ssl
 import socket
 import struct
@@ -24,8 +25,8 @@ from pyepp.command_templates import (
 )
 
 LENGTH_FIELD_SIZE = 4
-CRLF_SIZE = 2
 DEFAULT_MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MiB limit to prevent DoS via memory exhaustion
+DEFAULT_TIMEOUT = 10.0  # Default socket connection and transmission timeout in seconds
 SOCKET_BUFFER_CHUNK_SIZE = 16384  # 16 KiB - matching standard TLS maximum record size
 
 COMMAND_TAG_REGEX = re.compile(r"(?:^|:)command$")
@@ -253,7 +254,7 @@ class EppResultData:
 
     code: int
     message: str
-    raw_response: str
+    raw_response: Union[bytes, str]
     result_data: Any
     reason: Optional[str] = None
     client_transaction_id: Optional[str] = None
@@ -310,12 +311,52 @@ class EppTransactionMismatchException(EppCommunicatorException):
         self.received_transaction_id = received_transaction_id
 
 
+def _create_connection(
+    address: tuple[str, int], timeout: float
+) -> socket.socket:
+    """Establish a dual-stack TCP socket with deterministic cleanup on BaseException.
+
+    RFC 5734 §2 specifies transport over TCP. Standard library socket.create_connection
+    iterates getaddrinfo results but only catches OSError. If a BaseException (e.g.
+    KeyboardInterrupt / SIGINT or SystemExit) occurs while connecting a candidate
+    socket, socket.create_connection aborts without closing that candidate socket.
+    Because the caller does not yet hold a reference to the candidate socket, it
+    would leak an open file descriptor.
+
+    This helper iterates through all resolved dual-stack (IPv4/IPv6) addresses and
+    guarantees that any candidate socket is deterministically closed if interrupted
+    by BaseException or on connection error before moving to the next candidate.
+    """
+    host, port = address
+    err = None
+    for af, socktype, proto, _, sa in socket.getaddrinfo(
+        host, port, 0, socket.SOCK_STREAM
+    ):
+        sock = None
+        try:
+            sock = socket.socket(af, socktype, proto)
+            sock.settimeout(timeout)
+            sock.connect(sa)
+            return sock
+        except OSError as exc:
+            err = exc
+            if sock is not None:
+                sock.close()
+        except BaseException:
+            if sock is not None:
+                sock.close()
+            raise
+    if err is not None:
+        raise err
+    raise OSError(f"getaddrinfo({host!r}, {port}) returned empty address list")
+
+
 class EppCommunicator:
     """
     An EPP client for connecting to EPP server.
     """
 
-    # pylint: disable=too-many-instance-attributes,too-many-arguments,too-many-positional-arguments
+    # pylint: disable=too-many-instance-attributes,too-many-arguments,too-many-positional-arguments,too-many-branches
     def __init__(
         self,
         server: Optional[str] = None,
@@ -329,6 +370,7 @@ class EppCommunicator:
         extensions: Optional[list[str]] = None,
         profile: Optional[Union[str, Any]] = None,
         config_file: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> None:
         """
         :param server: EPP server to connect to.
@@ -342,6 +384,7 @@ class EppCommunicator:
         :param extensions: Optional list of extension URIs for login
         :param profile: Optional profile name or Profile instance to load configuration from
         :param config_file: Optional path to config.ini file for profile lookup
+        :param timeout: Optional socket connection and read/write timeout in seconds (defaults to 10.0)
         """
         prof_obj = None
         if profile is not None:
@@ -373,6 +416,8 @@ class EppCommunicator:
             # to override profiles where dry_run is configured as True.
             if dry_run is None and getattr(prof_obj, "dry_run", False):
                 dry_run = prof_obj.dry_run
+            if timeout is None and getattr(prof_obj, "timeout", None) is not None:
+                timeout = prof_obj.timeout
 
         self.profile = prof_obj
         self._server = server
@@ -385,6 +430,17 @@ class EppCommunicator:
 
         self._dry_run = bool(dry_run)
         self._max_message_size = max_message_size
+        if timeout is not None:
+            if (
+                isinstance(timeout, bool)
+                or not isinstance(timeout, (int, float))
+                or not math.isfinite(float(timeout))
+                or float(timeout) <= 0
+            ):
+                raise ValueError("Timeout must be a positive finite number.")
+            self._timeout = float(timeout)
+        else:
+            self._timeout = DEFAULT_TIMEOUT
 
         self._format_32 = get_format_32()
 
@@ -511,6 +567,11 @@ class EppCommunicator:
             return self.greeting is not None
         return self._ssl_socket is not None
 
+    @property
+    def timeout(self) -> float:
+        """Socket connection and transmission timeout in seconds."""
+        return self._timeout
+
     def _unpack_data(self, data: bytes) -> int:
         """Unpack 32-bit unsigned integer data from bytes."""
         return struct.unpack(self._format_32, data)[0]
@@ -634,7 +695,11 @@ class EppCommunicator:
 
     def _write(self, xml: str) -> int:
         """
-        Write the request into the socket.
+        Send formatted XML over TLS connection per RFC 5734 §4 framing.
+
+        Frames data with a 4-byte unsigned network-endian length header and appends CRLF.
+        Sends header and payload in a single atomic sendall() buffer to minimize syscalls
+        and avoid splitting across multiple TLS records or TCP segments.
 
         :param str xml: XML Command
 
@@ -645,16 +710,16 @@ class EppCommunicator:
         if self._ssl_socket is None:
             raise EppCommunicatorException("Socket connection is not established.")
 
-        # +4 for the length field itself (section 4 mandates that)
-        # +2 for the CRLF at the end
-        xml_bytes = xml.encode("utf-8")
-        length = self._pack_data(len(xml_bytes) + LENGTH_FIELD_SIZE + CRLF_SIZE)
+        # Per RFC 5734 §4, the 4-byte length header represents the total size
+        # of the data unit in octets, including the 4 octets of the length field itself.
+        # PyEPP appends CRLF (2 octets) per EPP client convention; the header length
+        # reflects len(xml_bytes) + LENGTH_FIELD_SIZE.
+        xml_bytes = xml.encode("utf-8") + b"\r\n"
+        length = self._pack_data(len(xml_bytes) + LENGTH_FIELD_SIZE)
+        payload = length + xml_bytes
 
         try:
-            self._ssl_socket.sendall(length)
-            xml += "\r\n"
-            data_to_send = xml.encode("utf-8")
-            self._ssl_socket.sendall(data_to_send)
+            self._ssl_socket.sendall(payload)
         except (socket.timeout, TimeoutError) as exc:
             self.disconnect()
             raise EppCommunicatorException(
@@ -671,8 +736,8 @@ class EppCommunicator:
                 f"Connection error while sending data: {exc}"
             ) from exc
 
-        logging.debug("Sent %s bytes", len(data_to_send))
-        return len(data_to_send)
+        logging.debug("Sent %s bytes", len(xml_bytes))
+        return len(xml_bytes)
 
     def _execute_command(self, cmd: str) -> bytes:
         """
@@ -742,13 +807,22 @@ class EppCommunicator:
                 self._context.load_cert_chain(
                     certfile=self._client_cert, keyfile=self._client_key
                 )
-            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-            self._socket.settimeout(10)
-
-            self._ssl_socket = self._context.wrap_socket(
-                self._socket, server_hostname=self._server
+            # RFC 5734 §2: Establish dual-stack TCP socket (IPv4/IPv6) with configurable timeout.
+            # _create_connection resolves and attempts all IPv6 and IPv4 addresses automatically,
+            # ensuring candidate sockets are deterministically closed on BaseException (e.g. SIGINT).
+            # Strip RFC 3986 bracket framing if provided (e.g. "[2001:db8::1]" -> "2001:db8::1").
+            server_host = (
+                self._server[1:-1]
+                if self._server.startswith("[") and self._server.endswith("]")
+                else self._server
             )
-            self._ssl_socket.connect((self._server, int(self._port)))
+            self._socket = _create_connection(
+                (server_host, int(self._port)), timeout=self._timeout
+            )
+            self._ssl_socket = self._context.wrap_socket(
+                self._socket, server_hostname=server_host
+            )
+            self._ssl_socket.settimeout(self._timeout)
             self.greeting = self._read()
             if self.greeting is None:
                 raise EppCommunicatorException(
@@ -889,7 +963,7 @@ class EppCommunicator:
         )
 
     def _parse_response(
-        self, raw_response: bytes, expected_trid: Optional[str], cmd: str
+        self, raw_response: Union[bytes, str], expected_trid: Optional[str], cmd: str
     ) -> EppResultData:
         """Parse raw XML server response into EppResultData and validate clTRID."""
         xml_response = BeautifulSoup(raw_response, "xml")
@@ -1017,10 +1091,16 @@ class EppCommunicator:
             logging.info(
                 "User %s logged in to %s:%s", self._user, self._server, self._port
             )
-        elif result.code == EppResultCode.PARAMETER_RANGE_ERROR.value:
+        elif result.code in (
+            EppResultCode.AUTHENTICATION_ERROR.value,
+            EppResultCode.AUTHENTICATION_ERROR_CLOSING_CONNECTION.value,
+        ):
+            # RFC 5730 §3: 2200 (Authentication error) and 2501 (Authentication error; server
+            # closing connection) denote failed credentials validation on session authentication.
             self._logged_in = False
+            reason_suffix = f" - Reason: {result.reason}" if result.reason else ""
             raise EppCommunicatorException(
-                "Incorrect user name or password. Please try again!"
+                f"Incorrect user name or password. Please try again!{reason_suffix}"
             )
         else:
             self._logged_in = False

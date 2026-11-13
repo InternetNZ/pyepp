@@ -86,7 +86,7 @@ pyepp --help
 Global options:
 - `-p, --profile` (configuration profile name from `config.ini`, e.g. `ote`, `prod`)
 - `-c, --config-file` (explicit path to `config.ini` file)
-- `--server`, `--port`, `--user`, `--password` (or via `PYEPP_*` environment variables or `~/.pyepp/config.ini`)
+- `--server`, `--port`, `--user`, `--password`, `--timeout` (or via `PYEPP_*` environment variables or `~/.pyepp/config.ini`)
 - `--client-cert`, `--client-key` (for TLS client certificate authentication)
 - `--extension` (repeatable custom EPP service extension URIs)
 - `-o, --output-format [XML|OBJECT|MIN|TABLE]`

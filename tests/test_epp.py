@@ -11,6 +11,7 @@ import socket
 import ssl
 
 from pyepp.command_templates import LOGIN_XML
+from pyepp.profiles import Profile
 from pyepp.epp import (
     EppCommunicator,
     EppResultData,
@@ -104,6 +105,16 @@ class EppResultDataTest(unittest.TestCase):
             result_data=None,
         )
         self.assertIsNone(data.parsed_xml)
+
+    def test_post_init_parses_bytes_raw_response(self):
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response=b'<root><item>bytes_test</item></root>',
+            result_data=None,
+        )
+        self.assertIsNotNone(data.parsed_xml)
+        self.assertEqual(data.parsed_xml.find('item').text, 'bytes_test')
 
     def test_post_init_preserves_explicit_parsed_xml(self):
         from bs4 import BeautifulSoup
@@ -441,23 +452,84 @@ class EppCommunicatorTest(unittest.TestCase):
         mock_get_template.assert_called_once_with(LOGIN_XML)
         mock_tmpl.render.assert_called_once_with(user='user', password='pass', extensions=[])
 
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
-    def test_connect_with_cert_and_key(self, mock_ssl):
+    def test_connect_with_cert_and_key(self, mock_ssl, mock_create_conn):
         epp = EppCommunicator('localhost', '700', client_cert='cert.pem', client_key='key.pem', dry_run=False)
         mock_context = MagicMock()
         mock_ssl.return_value = mock_context
         epp._read = MagicMock(return_value=b'greeting')
         epp.connect()
         mock_context.load_cert_chain.assert_called_with(certfile='cert.pem', keyfile='key.pem')
+        mock_create_conn.assert_called_once_with(('localhost', 700), timeout=10.0)
 
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
-    def test_connect_without_cert_and_key(self, mock_ssl):
+    def test_connect_without_cert_and_key(self, mock_ssl, mock_create_conn):
         epp = EppCommunicator('localhost', '700', dry_run=False)
         mock_context = MagicMock()
         mock_ssl.return_value = mock_context
         epp._read = MagicMock(return_value=b'greeting')
         epp.connect()
         mock_context.load_cert_chain.assert_not_called()
+        mock_create_conn.assert_called_once_with(('localhost', 700), timeout=10.0)
+
+    @patch('pyepp.epp._create_connection')
+    @patch('pyepp.epp.ssl.create_default_context')
+    def test_timeout_configuration_and_socket_timeout(self, mock_ssl, mock_create_conn):
+        """Verify custom timeout is forwarded to _create_connection and settimeout."""
+        epp = EppCommunicator('localhost', '700', timeout=25.0, dry_run=False)
+        self.assertEqual(epp.timeout, 25.0)
+
+        mock_context = MagicMock()
+        mock_ssl.return_value = mock_context
+        mock_wrapped_sock = MagicMock()
+        mock_context.wrap_socket.return_value = mock_wrapped_sock
+        epp._read = MagicMock(return_value=b'greeting')
+
+        epp.connect()
+
+        mock_create_conn.assert_called_once_with(('localhost', 700), timeout=25.0)
+        mock_wrapped_sock.settimeout.assert_called_once_with(25.0)
+
+    def test_timeout_validation_invalid_values(self):
+        """Verify invalid timeout values (<=0, NaN, inf, bool, non-numeric) raise ValueError."""
+        for invalid_timeout in (0, 0.0, -1, -5.5, float("nan"), float("inf"), float("-inf"), True, False, "invalid"):
+            with self.subTest(timeout=invalid_timeout):
+                with self.assertRaises(ValueError) as ctx:
+                    EppCommunicator('localhost', '700', timeout=invalid_timeout)
+                self.assertIn("Timeout must be a positive finite number.", str(ctx.exception))
+
+    def test_timeout_inherited_from_profile(self):
+        """Verify timeout configured on Profile object is inherited by EppCommunicator."""
+        prof = Profile(name="test_prof", server="epp.example.com", timeout=17.5)
+        epp = EppCommunicator(profile=prof)
+        self.assertEqual(epp.timeout, 17.5)
+
+    def test_timeout_invalid_from_profile_raises_value_error(self):
+        """Verify non-positive timeout on Profile object raises ValueError during EppCommunicator init."""
+        prof = Profile(name="test_prof", server="epp.example.com", timeout=-10.0)
+        with self.assertRaises(ValueError) as ctx:
+            EppCommunicator(profile=prof)
+        self.assertIn("Timeout must be a positive finite number.", str(ctx.exception))
+
+    @patch('pyepp.epp._create_connection')
+    @patch('pyepp.epp.ssl.create_default_context')
+    def test_connect_bracketed_ipv6_literal(self, mock_ssl, mock_create_conn):
+        """Verify bracketed IPv6 literal server address has brackets stripped for socket and TLS hostname."""
+        epp = EppCommunicator('[2001:db8::1]', '700', timeout=5.0, dry_run=False)
+        mock_context = MagicMock()
+        mock_ssl.return_value = mock_context
+        mock_sock = MagicMock()
+        mock_create_conn.return_value = mock_sock
+        mock_wrapped_sock = MagicMock()
+        mock_context.wrap_socket.return_value = mock_wrapped_sock
+        epp._read = MagicMock(return_value=b'greeting')
+
+        epp.connect()
+
+        mock_create_conn.assert_called_once_with(('2001:db8::1', 700), timeout=5.0)
+        mock_context.wrap_socket.assert_called_once_with(mock_sock, server_hostname='2001:db8::1')
 
     def test_read_empty_chunk(self):
         self.epp._ssl_socket = MagicMock()
@@ -486,8 +558,9 @@ class EppCommunicatorTest(unittest.TestCase):
             self.assertTrue(any("DEBUG:root:Sent 8 bytes" in msg for msg in log.output))
             self.assertFalse(any("INFO:root:Sent" in msg for msg in log.output))
 
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
-    def test_connect_logging_debug(self, mock_ssl):
+    def test_connect_logging_debug(self, mock_ssl, mock_create_conn):
         epp = EppCommunicator('localhost', '700', dry_run=False)
         epp._read = MagicMock(return_value=b'greeting')
         with self.assertLogs(level='DEBUG') as log:
@@ -1128,22 +1201,54 @@ class EppContextManagerTest(unittest.TestCase):
         self.assertFalse(epp.is_logged_in)
 
     def test_login_failure_resets_logged_in(self):
-        """Login returning non-success result code sets _logged_in to False and raises."""
+        """Login returning non-success result code sets _logged_in to False and raises generic error."""
         epp = EppCommunicator('localhost', '700')
         mock_result = MagicMock()
-        mock_result.code = 2200
-        mock_result.message = "Authentication error"
-        mock_result.reason = "Bad credentials"
+        mock_result.code = 2400
+        mock_result.message = "Command failed"
+        mock_result.reason = "Internal error"
         epp.execute = MagicMock(return_value=mock_result)
 
         with self.assertRaises(EppCommunicatorException) as ctx:
             epp.login('user', 'pass')
 
-        self.assertIn("Auth", str(ctx.exception))
+        self.assertIn("Command failed", str(ctx.exception))
+        self.assertIn("Code: 2400", str(ctx.exception))
         self.assertFalse(epp.is_logged_in)
 
+    def test_login_authentication_error_resets_logged_in(self):
+        """Login returning AUTHENTICATION_ERROR (2200) or AUTHENTICATION_ERROR_CLOSING_CONNECTION (2501) raises friendly auth message with reason if present."""
+        for auth_code in (2200, 2501):
+            # Test with reason provided
+            epp = EppCommunicator('localhost', '700')
+            mock_result = MagicMock()
+            mock_result.code = auth_code
+            mock_result.message = "Authentication error"
+            mock_result.reason = "Bad credentials"
+            epp.execute = MagicMock(return_value=mock_result)
+
+            with self.assertRaises(EppCommunicatorException) as ctx:
+                epp.login('user', 'pass')
+
+            self.assertIn("Incorrect user name or password. Please try again! - Reason: Bad credentials", str(ctx.exception))
+            self.assertFalse(epp.is_logged_in)
+
+            # Test without reason
+            epp2 = EppCommunicator('localhost', '700')
+            mock_result_no_reason = MagicMock()
+            mock_result_no_reason.code = auth_code
+            mock_result_no_reason.message = "Authentication error"
+            mock_result_no_reason.reason = None
+            epp2.execute = MagicMock(return_value=mock_result_no_reason)
+
+            with self.assertRaises(EppCommunicatorException) as ctx2:
+                epp2.login('user', 'pass')
+
+            self.assertEqual("Incorrect user name or password. Please try again!", str(ctx2.exception))
+            self.assertFalse(epp2.is_logged_in)
+
     def test_login_parameter_range_error_resets_logged_in(self):
-        """Login returning PARAMETER_RANGE_ERROR sets _logged_in to False and raises."""
+        """Login returning PARAMETER_RANGE_ERROR sets _logged_in to False and raises generic error."""
         epp = EppCommunicator('localhost', '700')
         mock_result = MagicMock()
         mock_result.code = 2004
@@ -1154,7 +1259,8 @@ class EppContextManagerTest(unittest.TestCase):
         with self.assertRaises(EppCommunicatorException) as ctx:
             epp.login('user', 'pass')
 
-        self.assertIn("Incorrect user name or password", str(ctx.exception))
+        self.assertIn("Code: 2004", str(ctx.exception))
+        self.assertIn("Parameter range error", str(ctx.exception))
         self.assertFalse(epp.is_logged_in)
 
     def test_properties_state_flow(self):
@@ -1242,14 +1348,144 @@ class EppContextManagerTest(unittest.TestCase):
 
         epp.disconnect.assert_called_once()
 
-    def test_connect_base_exception_disconnects(self):
+    @patch('pyepp.epp._create_connection')
+    def test_connect_base_exception_disconnects(self, mock_create_conn):
         """BaseException (e.g. KeyboardInterrupt) during connect() calls disconnect() and re-raises."""
         epp = EppCommunicator('localhost', '700')
-        with patch('pyepp.epp.socket.socket', side_effect=KeyboardInterrupt()):
-            with self.assertRaises(KeyboardInterrupt):
-                epp.connect()
+        mock_create_conn.side_effect = KeyboardInterrupt()
+        with self.assertRaises(KeyboardInterrupt):
+            epp.connect()
         self.assertIsNone(epp._socket)
         self.assertIsNone(epp._ssl_socket)
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_interrupt_during_connect_closes_candidate_socket(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """KeyboardInterrupt during candidate sock.connect() closes the candidate socket to avoid FD leaks."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700))
+        ]
+        mock_sock = MagicMock()
+        mock_sock.connect.side_effect = KeyboardInterrupt()
+        mock_socket_cls.return_value = mock_sock
+
+        with self.assertRaises(KeyboardInterrupt):
+            _create_connection(("127.0.0.1", 700), timeout=10.0)
+
+        mock_sock.close.assert_called_once()
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_interrupt_before_socket_allocation(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """KeyboardInterrupt before candidate socket is allocated re-raises cleanly."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700))
+        ]
+        mock_socket_cls.side_effect = KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            _create_connection(("127.0.0.1", 700), timeout=10.0)
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_oserror_before_socket_allocation(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """OSError during socket allocation (sock is None) records error and tries next candidate."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 700, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700)),
+        ]
+        mock_sock2 = MagicMock()
+        mock_socket_cls.side_effect = [OSError("Address family not supported"), mock_sock2]
+
+        result = _create_connection(("localhost", 700), timeout=5.0)
+        self.assertEqual(result, mock_sock2)
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_fallback_to_second_address_on_oserror(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """If first address fails with OSError, candidate socket is closed and second address succeeds."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 700, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700)),
+        ]
+        mock_sock1 = MagicMock()
+        mock_sock1.connect.side_effect = OSError("IPv6 network unreachable")
+        mock_sock2 = MagicMock()
+
+        mock_socket_cls.side_effect = [mock_sock1, mock_sock2]
+
+        result = _create_connection(("localhost", 700), timeout=5.0)
+
+        mock_sock1.close.assert_called_once()
+        mock_sock2.settimeout.assert_called_once_with(5.0)
+        self.assertEqual(result, mock_sock2)
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_all_addresses_fail_raises_last_oserror(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """When all address candidates fail with OSError, last OSError is raised and sockets closed."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700))
+        ]
+        mock_sock = MagicMock()
+        mock_sock.connect.side_effect = OSError("Connection refused")
+        mock_socket_cls.return_value = mock_sock
+
+        with self.assertRaises(OSError) as ctx:
+            _create_connection(("127.0.0.1", 700), timeout=10.0)
+
+        self.assertIn("Connection refused", str(ctx.exception))
+        mock_sock.close.assert_called_once()
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    def test_create_connection_empty_getaddrinfo_raises_oserror(self, mock_getaddrinfo):
+        """Empty address list from getaddrinfo raises OSError."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = []
+        with self.assertRaises(OSError) as ctx:
+            _create_connection(("nonexistent.host", 700), timeout=10.0)
+        self.assertIn("empty address list", str(ctx.exception))
+
+    @patch("pyepp.epp.ssl.create_default_context")
+    @patch("pyepp.epp._create_connection")
+    def test_connect_base_exception_after_socket_allocation_closes_socket(
+        self, mock_create_conn, mock_ssl
+    ):
+        """BaseException during wrap_socket after socket allocation triggers disconnect and closes socket."""
+        epp = EppCommunicator("localhost", "700")
+        mock_sock = MagicMock()
+        mock_create_conn.return_value = mock_sock
+
+        mock_ctx = MagicMock()
+        mock_ctx.wrap_socket.side_effect = KeyboardInterrupt()
+        mock_ssl.return_value = mock_ctx
+
+        with self.assertRaises(KeyboardInterrupt):
+            epp.connect()
+
+        self.assertIsNone(epp._socket)
+        mock_sock.close.assert_called_once()
 
     def test_eof_during_execute_command_disconnects_and_allows_clean_context_entry(self):
         """EOF during _execute_command disconnects session so subsequent context entry reconnects and re-authenticates."""
@@ -1304,7 +1540,7 @@ class EppContextManagerTest(unittest.TestCase):
             self.assertFalse(epp.is_connected)
             self.assertFalse(epp.is_logged_in)
 
-    @patch('pyepp.epp.socket.socket')
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_peer_closes_before_greeting_rejects_and_disconnects(self, mock_ssl, mock_sock):
         """If peer closes before sending greeting, connect() rejects missing greeting and disconnects."""

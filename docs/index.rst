@@ -182,6 +182,8 @@ PyEPP also has a command line interface that allows the user to interact with th
                                       the file.
       -v, --verbose
       -d, --debug
+      --timeout FLOAT                 Socket connection and transmission timeout
+                                      in seconds.
       --version                       Show the version and exit.
       -h, --help                      Show this message and exit.
 
