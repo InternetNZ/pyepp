@@ -311,6 +311,46 @@ class EppTransactionMismatchException(EppCommunicatorException):
         self.received_transaction_id = received_transaction_id
 
 
+def _create_connection(
+    address: tuple[str, int], timeout: float
+) -> socket.socket:
+    """Establish a dual-stack TCP socket with deterministic cleanup on BaseException.
+
+    RFC 5734 §2 specifies transport over TCP. Standard library socket.create_connection
+    iterates getaddrinfo results but only catches OSError. If a BaseException (e.g.
+    KeyboardInterrupt / SIGINT or SystemExit) occurs while connecting a candidate
+    socket, socket.create_connection aborts without closing that candidate socket.
+    Because the caller does not yet hold a reference to the candidate socket, it
+    would leak an open file descriptor.
+
+    This helper iterates through all resolved dual-stack (IPv4/IPv6) addresses and
+    guarantees that any candidate socket is deterministically closed if interrupted
+    by BaseException or on connection error before moving to the next candidate.
+    """
+    host, port = address
+    err = None
+    for af, socktype, proto, _, sa in socket.getaddrinfo(
+        host, port, 0, socket.SOCK_STREAM
+    ):
+        sock = None
+        try:
+            sock = socket.socket(af, socktype, proto)
+            sock.settimeout(timeout)
+            sock.connect(sa)
+            return sock
+        except OSError as exc:
+            err = exc
+            if sock is not None:
+                sock.close()
+        except BaseException:
+            if sock is not None:
+                sock.close()
+            raise
+    if err is not None:
+        raise err
+    raise OSError(f"getaddrinfo({host!r}, {port}) returned empty address list")
+
+
 class EppCommunicator:
     """
     An EPP client for connecting to EPP server.
@@ -768,14 +808,15 @@ class EppCommunicator:
                     certfile=self._client_cert, keyfile=self._client_key
                 )
             # RFC 5734 §2: Establish dual-stack TCP socket (IPv4/IPv6) with configurable timeout.
-            # socket.create_connection resolves and attempts all IPv6 and IPv4 addresses automatically.
+            # _create_connection resolves and attempts all IPv6 and IPv4 addresses automatically,
+            # ensuring candidate sockets are deterministically closed on BaseException (e.g. SIGINT).
             # Strip RFC 3986 bracket framing if provided (e.g. "[2001:db8::1]" -> "2001:db8::1").
             server_host = (
                 self._server[1:-1]
                 if self._server.startswith("[") and self._server.endswith("]")
                 else self._server
             )
-            self._socket = socket.create_connection(
+            self._socket = _create_connection(
                 (server_host, int(self._port)), timeout=self._timeout
             )
             self._ssl_socket = self._context.wrap_socket(

@@ -394,14 +394,35 @@ def _check_client_key_permissions(file_path: str) -> None:
             pass
 
 
-def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
-    """
-    Load all configuration profiles defined in the config.ini file.
+def _merge_named_sections(
+    parser: RawConfigParser, default_config: dict[str, str]
+) -> dict[str, dict[str, str]]:
+    """Group and merge section items for named profiles, inheriting default_config."""
+    raw_sections: dict[str, dict[str, str]] = {}
+    for sec in parser.sections():
+        prof_name = normalize_profile_name(sec).lower()
+        if prof_name in ("default", "pyepp"):
+            continue
+        if prof_name not in raw_sections:
+            raw_sections[prof_name] = dict(default_config)
+        for k, v in parser.items(sec):
+            raw_sections[prof_name][k.lower()] = v
+    return raw_sections
 
-    Inherits base settings from [default] (or legacy [pyepp]).
+
+def _load_profiles_internal(
+    config_file: Optional[str] = None,
+) -> tuple[dict[str, Profile], dict[str, Exception], list[str]]:
+    """
+    Load configuration profiles, isolating per-profile validation errors.
+
+    Extracts base settings from [default] (or legacy [pyepp]) and merges section settings.
+    If an individual profile has invalid settings (e.g. invalid timeout), the exception
+    is recorded in errors rather than aborting all profile loading. This ensures that
+    valid profiles and commands targeting unrelated sections remain operational.
 
     :param config_file: Optional path to config file. Defaults to ~/.pyepp/config.ini.
-    :return: Dictionary mapping profile names to Profile instances.
+    :return: Tuple of (valid_profiles_dict, profile_errors_dict, all_profile_names_list).
     """
     cfg_path = config_file or get_default_config_path()
     parser = RawConfigParser()
@@ -415,56 +436,77 @@ def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
     default_config, has_pyepp_section = _load_base_default_config(parser)
 
     profiles: dict[str, Profile] = {}
+    errors: dict[str, Exception] = {}
     checked_keys: set[str] = set()
 
     # 2. Build default profile
-    profiles["default"] = _build_profile_from_config(
-        "default", default_config, checked_keys=checked_keys
-    )
+    try:
+        profiles["default"] = _build_profile_from_config(
+            "default", default_config, checked_keys=checked_keys
+        )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        errors["default"] = exc
 
     # Register 'pyepp' as a profile name if explicitly present in config
     if has_pyepp_section:
-        profiles["pyepp"] = _build_profile_from_config(
-            "pyepp", default_config, checked_keys=checked_keys
-        )
+        try:
+            profiles["pyepp"] = _build_profile_from_config(
+                "pyepp", default_config, checked_keys=checked_keys
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            errors["pyepp"] = exc
 
-    # 3. Build specific named profiles with normalized lowercase keys to prevent
-    # duplicate entries differing only by case or prefix (e.g. [OTE] and [profile ote]).
-    for sec in parser.sections():
-        prof_name = normalize_profile_name(sec).lower()
-        if prof_name in ("default", "pyepp"):
-            continue
+    # 3. Build specific named profiles with normalized lowercase keys
+    raw_sections = _merge_named_sections(parser, default_config)
+    for prof_name, merged in raw_sections.items():
+        try:
+            profiles[prof_name] = _build_profile_from_config(
+                prof_name, merged, checked_keys=checked_keys
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            errors[prof_name] = exc
 
-        # If profile was already encountered under another case/alias, merge with
-        # its current settings; otherwise inherit base default_config.
-        if prof_name in profiles:
-            merged = dict(profiles[prof_name].raw_config)
-        else:
-            merged = dict(default_config)
+    # Order profile names: 'default' always first, followed by 'pyepp' if defined,
+    # then any named profile sections in alphabetical order.
+    all_names = ["default"]
+    if has_pyepp_section:
+        all_names.append("pyepp")
+    for prof_name in sorted(raw_sections.keys()):
+        if prof_name not in all_names:
+            all_names.append(prof_name)
 
-        for k, v in parser.items(sec):
-            merged[k.lower()] = v
+    return profiles, errors, all_names
 
-        profiles[prof_name] = _build_profile_from_config(
-            prof_name, merged, checked_keys=checked_keys
-        )
 
+def load_all_profiles(config_file: Optional[str] = None) -> dict[str, Profile]:
+    """
+    Load all valid configuration profiles defined in the config.ini file.
+
+    Inherits base settings from [default] (or legacy [pyepp]). Any section with
+    validation errors is skipped and logged at debug level so that an invalid setting
+    in an unused profile does not prevent loading remaining valid profiles.
+
+    :param config_file: Optional path to config file. Defaults to ~/.pyepp/config.ini.
+    :return: Dictionary mapping profile names to Profile instances.
+    """
+    profiles, errors, _ = _load_profiles_internal(config_file)
+    for prof_name, exc in errors.items():
+        logging.debug("Skipping invalid profile '%s': %s", prof_name, exc)
     return profiles
 
 
 def list_profiles(config_file: Optional[str] = None) -> list[str]:
     """
-    List all available profile names in the configuration file.
+    List all available profile names configured in the configuration file.
+
+    Returns all profile names defined in the config file (even if an individual
+    section has validation errors) with 'default' always listed first.
 
     :param config_file: Optional path to config file.
     :return: Sorted list of profile names with 'default' first.
     """
-    profiles = load_all_profiles(config_file)
-    names = sorted(list(profiles.keys()))
-    if "default" in names:
-        names.remove("default")
-        names.insert(0, "default")
-    return names
+    _, _, all_names = _load_profiles_internal(config_file)
+    return list(all_names)
 
 
 def load_profile(
@@ -473,18 +515,26 @@ def load_profile(
     """
     Load a specific configuration profile by name.
 
+    Per-profile validation ensures that if an unrelated profile in the config file
+    has invalid settings (e.g. malformed timeout), loading this profile will still
+    succeed. If the requested profile itself is invalid, its specific validation error
+    is raised.
+
     :param name: Profile name (e.g. 'default', 'ote', 'prod'). Case-insensitive.
     :param config_file: Optional path to config file.
     :return: The resolved Profile instance.
     :raises ProfileNotFoundError: If profile does not exist.
     """
-    profiles = load_all_profiles(config_file)
+    profiles, errors, all_names = _load_profiles_internal(config_file)
     target = normalize_profile_name(name).lower()
 
     if target in profiles:
         return profiles[target]
 
-    available = ", ".join(list_profiles(config_file))
+    if target in errors:
+        raise errors[target]
+
+    available = ", ".join(all_names)
     raise ProfileNotFoundError(
         f"Profile '{name}' not found. Available profiles: {available}"
     )

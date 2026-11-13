@@ -19,8 +19,9 @@ class PyEPPTests(unittest.TestCase):
             "client_key": "path_to_key",
         }
         patch("pyepp.epp.socket.socket").start()
-        patch("pyepp.epp.socket.create_connection").start()
+        patch("pyepp.epp._create_connection").start()
         patch("pyepp.epp.ssl.SSLContext").start()
+        self.addCleanup(patch.stopall)
 
         self.maxDiff = None
 

@@ -200,6 +200,91 @@ timeout = {invalid_val}
                 if os.path.exists(cfg_path):
                     os.remove(cfg_path)
 
+    def test_unrelated_invalid_profile_does_not_block_loading_valid_profile(self) -> None:
+        """Verify an invalid profile (e.g. invalid timeout) does not prevent loading valid profiles."""
+        ini_content = """[default]
+server = epp.default.com
+
+[profile good]
+server = epp.good.com
+timeout = 15.0
+
+[profile bad]
+server = epp.bad.com
+timeout = not_a_number
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            # 1. Loading the valid profile succeeds without raising ValueError
+            good_prof = load_profile("good", config_file=cfg_path)
+            self.assertEqual(good_prof.server, "epp.good.com")
+            self.assertEqual(good_prof.timeout, 15.0)
+
+            # 2. Loading the default profile also succeeds
+            default_prof = load_profile("default", config_file=cfg_path)
+            self.assertEqual(default_prof.server, "epp.default.com")
+
+            # 3. Requesting the bad profile raises the specific ValueError
+            with self.assertRaises(ValueError) as ctx:
+                load_profile("bad", config_file=cfg_path)
+            self.assertIn("Invalid timeout value in profile 'bad'", str(ctx.exception))
+
+            # 4. list_profiles includes all profiles and does not raise
+            names = list_profiles(config_file=cfg_path)
+            self.assertEqual(names, ["default", "bad", "good"])
+
+            # 5. load_all_profiles returns only the valid profiles
+            all_profs = load_all_profiles(config_file=cfg_path)
+            self.assertIn("default", all_profs)
+            self.assertIn("good", all_profs)
+            self.assertNotIn("bad", all_profs)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_default_profile_invalid_setting_isolated(self) -> None:
+        """Verify invalid setting in [default] records error and raises when requested."""
+        ini_content = """[default]
+server = epp.default.com
+timeout = not_a_number
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                load_profile("default", config_file=cfg_path)
+            self.assertIn("Invalid timeout value in profile 'default'", str(ctx.exception))
+            all_profs = load_all_profiles(config_file=cfg_path)
+            self.assertNotIn("default", all_profs)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
+    def test_pyepp_section_invalid_setting_isolated(self) -> None:
+        """Verify invalid setting in legacy [pyepp] records error and raises when requested."""
+        ini_content = """[pyepp]
+server = epp.legacy.com
+timeout = not_a_number
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                load_profile("pyepp", config_file=cfg_path)
+            self.assertIn("Invalid timeout value in profile 'pyepp'", str(ctx.exception))
+            all_profs = load_all_profiles(config_file=cfg_path)
+            self.assertNotIn("pyepp", all_profs)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
     def test_profile_mapping_protocol_with_timeout(self) -> None:
         """Verify Profile Mapping protocol behavior with configured and unconfigured timeout."""
         prof_with = Profile(name="p_with", server="127.0.0.1", timeout=15.0)
@@ -455,7 +540,7 @@ password = test_pass
             if os.path.exists(cfg_path):
                 os.remove(cfg_path)
 
-    @patch("pyepp.epp.socket.create_connection")
+    @patch("pyepp.epp._create_connection")
     @patch("pyepp.epp.ssl.create_default_context")
     def test_epp_communicator_from_profile_with_cert_and_key_expanded(
         self, mock_ssl: MagicMock, mock_create_conn: MagicMock

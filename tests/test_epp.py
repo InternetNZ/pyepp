@@ -452,7 +452,7 @@ class EppCommunicatorTest(unittest.TestCase):
         mock_get_template.assert_called_once_with(LOGIN_XML)
         mock_tmpl.render.assert_called_once_with(user='user', password='pass', extensions=[])
 
-    @patch('pyepp.epp.socket.create_connection')
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_with_cert_and_key(self, mock_ssl, mock_create_conn):
         epp = EppCommunicator('localhost', '700', client_cert='cert.pem', client_key='key.pem', dry_run=False)
@@ -463,7 +463,7 @@ class EppCommunicatorTest(unittest.TestCase):
         mock_context.load_cert_chain.assert_called_with(certfile='cert.pem', keyfile='key.pem')
         mock_create_conn.assert_called_once_with(('localhost', 700), timeout=10.0)
 
-    @patch('pyepp.epp.socket.create_connection')
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_without_cert_and_key(self, mock_ssl, mock_create_conn):
         epp = EppCommunicator('localhost', '700', dry_run=False)
@@ -474,10 +474,10 @@ class EppCommunicatorTest(unittest.TestCase):
         mock_context.load_cert_chain.assert_not_called()
         mock_create_conn.assert_called_once_with(('localhost', 700), timeout=10.0)
 
-    @patch('pyepp.epp.socket.create_connection')
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
     def test_timeout_configuration_and_socket_timeout(self, mock_ssl, mock_create_conn):
-        """Verify custom timeout is forwarded to socket.create_connection and settimeout."""
+        """Verify custom timeout is forwarded to _create_connection and settimeout."""
         epp = EppCommunicator('localhost', '700', timeout=25.0, dry_run=False)
         self.assertEqual(epp.timeout, 25.0)
 
@@ -513,7 +513,7 @@ class EppCommunicatorTest(unittest.TestCase):
             EppCommunicator(profile=prof)
         self.assertIn("Timeout must be a positive finite number.", str(ctx.exception))
 
-    @patch('pyepp.epp.socket.create_connection')
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_bracketed_ipv6_literal(self, mock_ssl, mock_create_conn):
         """Verify bracketed IPv6 literal server address has brackets stripped for socket and TLS hostname."""
@@ -558,7 +558,7 @@ class EppCommunicatorTest(unittest.TestCase):
             self.assertTrue(any("DEBUG:root:Sent 8 bytes" in msg for msg in log.output))
             self.assertFalse(any("INFO:root:Sent" in msg for msg in log.output))
 
-    @patch('pyepp.epp.socket.create_connection')
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_logging_debug(self, mock_ssl, mock_create_conn):
         epp = EppCommunicator('localhost', '700', dry_run=False)
@@ -1348,14 +1348,144 @@ class EppContextManagerTest(unittest.TestCase):
 
         epp.disconnect.assert_called_once()
 
-    def test_connect_base_exception_disconnects(self):
+    @patch('pyepp.epp._create_connection')
+    def test_connect_base_exception_disconnects(self, mock_create_conn):
         """BaseException (e.g. KeyboardInterrupt) during connect() calls disconnect() and re-raises."""
         epp = EppCommunicator('localhost', '700')
-        with patch('pyepp.epp.socket.create_connection', side_effect=KeyboardInterrupt()):
-            with self.assertRaises(KeyboardInterrupt):
-                epp.connect()
+        mock_create_conn.side_effect = KeyboardInterrupt()
+        with self.assertRaises(KeyboardInterrupt):
+            epp.connect()
         self.assertIsNone(epp._socket)
         self.assertIsNone(epp._ssl_socket)
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_interrupt_during_connect_closes_candidate_socket(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """KeyboardInterrupt during candidate sock.connect() closes the candidate socket to avoid FD leaks."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700))
+        ]
+        mock_sock = MagicMock()
+        mock_sock.connect.side_effect = KeyboardInterrupt()
+        mock_socket_cls.return_value = mock_sock
+
+        with self.assertRaises(KeyboardInterrupt):
+            _create_connection(("127.0.0.1", 700), timeout=10.0)
+
+        mock_sock.close.assert_called_once()
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_interrupt_before_socket_allocation(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """KeyboardInterrupt before candidate socket is allocated re-raises cleanly."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700))
+        ]
+        mock_socket_cls.side_effect = KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            _create_connection(("127.0.0.1", 700), timeout=10.0)
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_oserror_before_socket_allocation(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """OSError during socket allocation (sock is None) records error and tries next candidate."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 700, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700)),
+        ]
+        mock_sock2 = MagicMock()
+        mock_socket_cls.side_effect = [OSError("Address family not supported"), mock_sock2]
+
+        result = _create_connection(("localhost", 700), timeout=5.0)
+        self.assertEqual(result, mock_sock2)
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_fallback_to_second_address_on_oserror(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """If first address fails with OSError, candidate socket is closed and second address succeeds."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 700, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700)),
+        ]
+        mock_sock1 = MagicMock()
+        mock_sock1.connect.side_effect = OSError("IPv6 network unreachable")
+        mock_sock2 = MagicMock()
+
+        mock_socket_cls.side_effect = [mock_sock1, mock_sock2]
+
+        result = _create_connection(("localhost", 700), timeout=5.0)
+
+        mock_sock1.close.assert_called_once()
+        mock_sock2.settimeout.assert_called_once_with(5.0)
+        self.assertEqual(result, mock_sock2)
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    @patch("pyepp.epp.socket.socket")
+    def test_create_connection_all_addresses_fail_raises_last_oserror(
+        self, mock_socket_cls, mock_getaddrinfo
+    ):
+        """When all address candidates fail with OSError, last OSError is raised and sockets closed."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 700))
+        ]
+        mock_sock = MagicMock()
+        mock_sock.connect.side_effect = OSError("Connection refused")
+        mock_socket_cls.return_value = mock_sock
+
+        with self.assertRaises(OSError) as ctx:
+            _create_connection(("127.0.0.1", 700), timeout=10.0)
+
+        self.assertIn("Connection refused", str(ctx.exception))
+        mock_sock.close.assert_called_once()
+
+    @patch("pyepp.epp.socket.getaddrinfo")
+    def test_create_connection_empty_getaddrinfo_raises_oserror(self, mock_getaddrinfo):
+        """Empty address list from getaddrinfo raises OSError."""
+        from pyepp.epp import _create_connection  # pylint: disable=import-outside-toplevel
+
+        mock_getaddrinfo.return_value = []
+        with self.assertRaises(OSError) as ctx:
+            _create_connection(("nonexistent.host", 700), timeout=10.0)
+        self.assertIn("empty address list", str(ctx.exception))
+
+    @patch("pyepp.epp.ssl.create_default_context")
+    @patch("pyepp.epp._create_connection")
+    def test_connect_base_exception_after_socket_allocation_closes_socket(
+        self, mock_create_conn, mock_ssl
+    ):
+        """BaseException during wrap_socket after socket allocation triggers disconnect and closes socket."""
+        epp = EppCommunicator("localhost", "700")
+        mock_sock = MagicMock()
+        mock_create_conn.return_value = mock_sock
+
+        mock_ctx = MagicMock()
+        mock_ctx.wrap_socket.side_effect = KeyboardInterrupt()
+        mock_ssl.return_value = mock_ctx
+
+        with self.assertRaises(KeyboardInterrupt):
+            epp.connect()
+
+        self.assertIsNone(epp._socket)
+        mock_sock.close.assert_called_once()
 
     def test_eof_during_execute_command_disconnects_and_allows_clean_context_entry(self):
         """EOF during _execute_command disconnects session so subsequent context entry reconnects and re-authenticates."""
@@ -1410,7 +1540,7 @@ class EppContextManagerTest(unittest.TestCase):
             self.assertFalse(epp.is_connected)
             self.assertFalse(epp.is_logged_in)
 
-    @patch('pyepp.epp.socket.create_connection')
+    @patch('pyepp.epp._create_connection')
     @patch('pyepp.epp.ssl.create_default_context')
     def test_connect_peer_closes_before_greeting_rejects_and_disconnects(self, mock_ssl, mock_sock):
         """If peer closes before sending greeting, connect() rejects missing greeting and disconnects."""
