@@ -39,6 +39,8 @@ To see the help page:
                                       the file.
       -v, --verbose
       -d, --debug
+      --timeout FLOAT                 Socket connection and transmission timeout
+                                      in seconds.
       --version                       Show the version and exit.
       -h, --help                      Show this message and exit.
 
@@ -127,6 +129,7 @@ The server configuration and credentials can be passed to the cli by command lin
 
     sh> pyepp --server epp.test.net.nz \
         --port 700 \
+        --timeout 10.0 \
         --user epp_user \
         --password SecurePassWord \
         --client-key /path/to/epp.key.pem \
@@ -146,6 +149,7 @@ this way you don't have to pass the parameters for running each command.
     PYEPP_PASSWORD=SecurePassWord
     PYEPP_CLIENT_CERT=/path/to/epp.crt
     PYEPP_CLIENT_KEY=/path/to/epp.key.pem
+    PYEPP_TIMEOUT=10.0
     PYEPP_OUTPUT_FORMAT=XML
 
 Config file
@@ -167,6 +171,7 @@ Then add the below lines to the file:
     [pyepp]
     server = epp.test.net.nz
     port = 700
+    timeout = 10.0
     user = epp_user
     password = SecurePassWord
     client_cert = /path/to/epp.crt
@@ -430,6 +435,7 @@ To inspect profile settings (passwords are masked by default):
       Output Format: TABLE
       No Pretty:     False
       Dry Run:       False
+      Timeout:       None
 
 To display cleartext secrets, pass ``--show-secrets``:
 

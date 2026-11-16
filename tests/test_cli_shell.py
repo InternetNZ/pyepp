@@ -65,6 +65,7 @@ user = prod_user
 password = prod_secret_password
 output_format = XML
 no_pretty = true
+timeout = 25.0
 
 [profile incomplete]
 server = epp.incomplete.net.nz
@@ -257,6 +258,7 @@ server = epp.incomplete.net.nz
             self.assertEqual(cli_obj.password, "prod_secret_password")
             self.assertEqual(cli_obj.epp._server, "epp.registry.net.nz")
             self.assertEqual(cli_obj.epp._port, "701")
+            self.assertEqual(cli_obj.epp.timeout, 25.0)
             self.assertEqual(cli_obj.output_format, "XML")
             self.assertTrue(cli_obj.no_pretty)
             new_connect.assert_called_once()
@@ -296,6 +298,16 @@ server = epp.incomplete.net.nz
         self.assertFalse(switch_profile(cli_obj, "incomplete"))
         cli_obj.epp.logout.assert_not_called()
         self.assertEqual(cli_obj.profile_name, "ote")
+
+    def test_switch_profile_forwards_configured_timeout(self) -> None:
+        """Verify switch_profile instantiates new EppCommunicator with profile's configured timeout."""
+        cli_obj = self._create_mock_cli(dry_run=False)
+        cli_obj.epp._logged_in = True
+        cli_obj.epp._ssl_socket = MagicMock()
+
+        with patch("pyepp.epp.EppCommunicator.connect"), patch("pyepp.epp.EppCommunicator.login"):
+            self.assertTrue(switch_profile(cli_obj, "prod"))
+            self.assertEqual(cli_obj.epp.timeout, 25.0)
 
     def test_shell_tab_autocompletion(self) -> None:
         """Verify ShellCompleter provides completions for commands, subcommands, profiles, and flags."""

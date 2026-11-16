@@ -1233,6 +1233,77 @@ class CliConfigTest(unittest.TestCase):
                 os.remove(cfg_path)
             load_config()
 
+    def test_cli_timeout_option_passed_to_pyepp_cli(self) -> None:
+        """Verify --timeout CLI flag is parsed and passed to PyEppCli."""
+        runner = CliRunner()
+        with patch("pyepp.cli.cli.PyEppCli") as mock_cli_cls:
+            mock_cli = MagicMock()
+            mock_cli_cls.return_value = mock_cli
+            result = runner.invoke(
+                pyepp_cli,
+                [
+                    "--server", "localhost",
+                    "--port", "700",
+                    "--user", "user",
+                    "--password", "pass",
+                    "--timeout", "18.5",
+                    "hello",
+                ],
+            )
+            self.assertEqual(result.exit_code, 0)
+            mock_cli_cls.assert_called_once()
+            _, kwargs = mock_cli_cls.call_args
+            self.assertEqual(kwargs.get("timeout"), 18.5)
+
+    def test_cli_timeout_rejects_non_positive_values(self) -> None:
+        """Verify --timeout flag rejects non-positive values (0 or negative) via FloatRange."""
+        runner = CliRunner()
+        for invalid_val in ("0", "0.0", "-1", "-5.5"):
+            result = runner.invoke(
+                pyepp_cli,
+                [
+                    "--server", "localhost",
+                    "--timeout", invalid_val,
+                    "hello",
+                ],
+            )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("is not in the range", result.output)
+
+    def test_cli_timeout_envvar_overrides_profile(self) -> None:
+        """Verify PYEPP_TIMEOUT environment variable overrides timeout configured in profile."""
+        ini_content = """[profile env_timeout]
+server = epp.env.test
+user = test_user
+password = test_pass
+timeout = 12.0
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        runner = CliRunner()
+        try:
+            with patch("pyepp.cli.cli.PyEppCli") as mock_cli_cls:
+                mock_cli = MagicMock()
+                mock_cli_cls.return_value = mock_cli
+                result = runner.invoke(
+                    pyepp_cli,
+                    [
+                        "-c", cfg_path,
+                        "-p", "env_timeout",
+                        "hello",
+                    ],
+                    env={"PYEPP_TIMEOUT": "35.0"},
+                )
+                self.assertEqual(result.exit_code, 0)
+                mock_cli_cls.assert_called_once()
+                _, kwargs = mock_cli_cls.call_args
+                self.assertEqual(kwargs.get("timeout"), 35.0)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
+
 
 if __name__ == "__main__":
     unittest.main()

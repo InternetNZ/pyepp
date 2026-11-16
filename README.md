@@ -98,8 +98,8 @@ domain_create_params = DomainData(
     host=['01y.test-indwrx2vkicn2otgm3otav5wpnzvjd.co.nz', '0d9x6239.example.co.nz'],
     dns_sec=DSRecordData(
         key_tag=1235,
-        algorithm=DNSSECAlgorithm.DSA_SHA_1.value,
-        digest_type=DigestTypeEnum.SHA_1.value,
+        algorithm=DNSSECAlgorithm.DSA_SHA_1,
+        digest_type=DigestTypeEnum.SHA_1,
         digest='8cdb09364147aed879d12c68d615f98af5900b73'
     ),
 )
@@ -128,6 +128,8 @@ Options:
   --password TEXT
   --client-cert TEXT
   --client-key TEXT
+  --timeout FLOAT                 Socket connection and transmission timeout
+                                  in seconds.
   --extension TEXT                The extension to be loaded for the EPP
                                   command.
   -o, --output-format [XML|OBJECT|MIN|TABLE]
@@ -159,6 +161,7 @@ PyEPP supports user-defined configuration profiles (similar to AWS CLI profiles)
 ```ini
 [default]
 port = 700
+timeout = 10.0
 output_format = TABLE
 no_pretty = false
 dry_run = false

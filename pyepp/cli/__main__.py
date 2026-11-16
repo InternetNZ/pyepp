@@ -4,6 +4,8 @@ Executable cli module.
 
 import os
 import logging
+import math
+from typing import Optional
 
 import click
 
@@ -24,6 +26,11 @@ APP_NAME = "pyepp"
 
 VALID_OUTPUT_FORMATS = ("XML", "OBJECT", "MIN", "TABLE")
 
+# Stores any error encountered while loading the implicit default profile during
+# module initialization so pyepp_cli can surface it at invocation time instead of
+# silently discarding default profile settings (such as dry_run=true).
+_CONFIG_LOAD_ERROR: Optional[Exception] = None
+
 
 def _get_option_env_var(field_name: str) -> str:
     """Return the corresponding PYEPP_* environment variable name for a CLI field."""
@@ -38,17 +45,20 @@ def load_config(config_file=None, profile=None):
     :param config_file: Optional explicit path to configuration file (e.g. for testing).
     :param profile: Optional profile name to load.
     """
+    global _CONFIG_LOAD_ERROR  # pylint: disable=global-statement
     from pyepp.profiles import (  # pylint: disable=import-outside-toplevel
         load_profile,
         get_default_config_path,
     )
 
+    _CONFIG_LOAD_ERROR = None
     cfg = config_file or get_default_config_path()
     prof_name = profile or os.environ.get("PYEPP_PROFILE", "default")
     try:
         prof = load_profile(prof_name, config_file=cfg)
-    except Exception:  # pylint: disable=broad-exception-caught
+    except Exception as ex:  # pylint: disable=broad-exception-caught
         prof = None
+        _CONFIG_LOAD_ERROR = ex
 
     if prof:
         # Sanitize output_format before placing into default_map. Click validates
@@ -70,6 +80,8 @@ def load_config(config_file=None, profile=None):
             "no_pretty": prof.no_pretty,
             "dry_run": prof.dry_run,
         }
+        if prof.timeout is not None:
+            d_map["timeout"] = prof.timeout
         if prof.extensions:
             d_map["extension"] = tuple(prof.extensions)
 
@@ -109,16 +121,25 @@ def _validate_profile_output_format(ctx, raw_fmt):
 
 def _resolve_profile_options(ctx, active_profile, config_file, current_values):
     """Resolve configuration profile options and override default/unspecified parameters."""
-    from pyepp.profiles import load_profile  # pylint: disable=import-outside-toplevel
+    from pyepp.profiles import (  # pylint: disable=import-outside-toplevel
+        ProfileNotFoundError,
+        load_profile,
+    )
 
     try:
         prof = load_profile(active_profile or "default", config_file=config_file)
-    except Exception as ex:  # pylint: disable=broad-exception-caught
+    except ProfileNotFoundError as ex:
         # Allow 'profile' commands and 'shell' (when no explicit profile was requested)
         # to proceed even if a [default] profile does not exist in config.ini.
         if ctx.invoked_subcommand != "profile" and not (
             ctx.invoked_subcommand == "shell" and not active_profile
         ):
+            raise click.ClickException(str(ex)) from ex
+        return current_values
+    except Exception as ex:  # pylint: disable=broad-exception-caught
+        # Surface validation errors (such as malformed timeout paired with
+        # dry_run=true) for all non-'profile' commands including 'shell'.
+        if ctx.invoked_subcommand != "profile":
             raise click.ClickException(str(ex)) from ex
         return current_values
 
@@ -142,6 +163,7 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
         "password",
         "client_cert",
         "client_key",
+        "timeout",
     ):
         # Environment variables take precedence over profile configuration
         if _get_option_env_var(field_name) in os.environ:
@@ -179,6 +201,17 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
         updated["no_pretty"] = bool(prof.no_pretty)
 
     return updated
+
+
+def _validate_timeout(
+    _ctx: click.Context, _param: click.Parameter, value: Optional[float]
+) -> Optional[float]:
+    """Validate that --timeout is a finite positive number when provided."""
+    # click.FloatRange permits 'inf' and 'nan'; reject them here so Click
+    # reports a clean parameter error instead of failing later in EppCommunicator.
+    if value is not None and (not math.isfinite(value) or value <= 0):
+        raise click.BadParameter("must be a finite positive number.")
+    return value
 
 
 @click.group(name="pyepp", context_settings=CONTEXT_SETTINGS)
@@ -232,6 +265,14 @@ def _resolve_profile_options(ctx, active_profile, config_file, current_values):
 )
 @click.option("-v", "--verbose", is_flag=True, show_default=True, default=False)
 @click.option("-d", "--debug", is_flag=True, show_default=True, default=False)
+@click.option(
+    "--timeout",
+    envvar="PYEPP_TIMEOUT",
+    type=click.FloatRange(min=0, min_open=True),
+    callback=_validate_timeout,
+    required=False,
+    help="Socket connection and transmission timeout in seconds.",
+)
 @click.version_option()
 @click.pass_context
 # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
@@ -252,6 +293,7 @@ def pyepp_cli(
     file,
     verbose,
     debug,
+    timeout=None,
 ):
     """A command line interface to work with PyEpp library."""
     active_profile = profile or os.environ.get("PYEPP_PROFILE")
@@ -271,6 +313,7 @@ def pyepp_cli(
                 "output_format": output_format,
                 "dry_run": dry_run,
                 "no_pretty": no_pretty,
+                "timeout": timeout,
             },
         )
         server = resolved["server"]
@@ -283,6 +326,20 @@ def pyepp_cli(
         output_format = resolved["output_format"]
         dry_run = resolved["dry_run"]
         no_pretty = resolved["no_pretty"]
+        timeout = resolved.get("timeout")
+    elif ctx.invoked_subcommand != "profile":
+        # Validate the implicit default profile at invocation time (including
+        # shell mode, which can open a live connection) so invalid settings such
+        # as malformed timeout causing load_config() to drop dry_run=true are
+        # surfaced rather than silently ignored.
+        if _CONFIG_LOAD_ERROR is not None:
+            raise click.ClickException(str(_CONFIG_LOAD_ERROR)) from _CONFIG_LOAD_ERROR
+        from pyepp.profiles import load_profile  # pylint: disable=import-outside-toplevel
+
+        try:
+            load_profile("default")
+        except Exception as ex:  # pylint: disable=broad-exception-caught
+            raise click.ClickException(str(ex)) from ex
 
     if ctx.invoked_subcommand not in ("profile", "shell"):
         missing = []
@@ -315,6 +372,7 @@ def pyepp_cli(
         config_file=config_file,
         debug=debug,
         verbose=verbose,
+        timeout=timeout,
     )
 
     if verbose:

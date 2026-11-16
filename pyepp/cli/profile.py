@@ -127,5 +127,6 @@ def show_profile_cmd(
         f"  Output Format: {prof.output_format}",
         f"  No Pretty:     {prof.no_pretty}",
         f"  Dry Run:       {prof.dry_run}",
+        f"  Timeout:       {prof.timeout if prof.timeout is not None else 'None'}",
     ]
     utils.echo("\n".join(lines))

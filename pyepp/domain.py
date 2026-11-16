@@ -2,9 +2,9 @@
 Domain Mapping Module.
 """
 
-from dataclasses import dataclass, asdict
-from enum import Enum
-from typing import Optional, Union
+from dataclasses import asdict, dataclass
+from enum import Enum, IntEnum
+from typing import Any, Optional, Union
 from datetime import date, datetime
 
 from pyepp.epp import EppResultData
@@ -24,8 +24,8 @@ from pyepp import helper
 from pyepp.epp import EppResultCode
 
 
-class DNSSECAlgorithm(Enum):
-    """DNSSEC algorithms enumeration."""
+class DNSSECAlgorithm(IntEnum):
+    """DNSSEC algorithms enumeration (RFC 4034 §A.1, RFC 5910)."""
 
     DSA_SHA_1 = 3
     RSA_SHA_1 = 5
@@ -41,42 +41,102 @@ class DNSSECAlgorithm(Enum):
     PRIVATE_ALGORITHM = 253
     PRIVATE_ALGORITHM_OID = 255
 
+    def __str__(self) -> str:
+        """Return string representation of the integer value."""
+        return str(self.value)
 
-class DigestTypeEnum(Enum):
-    """Digest types enumeration."""
+
+class DigestTypeEnum(IntEnum):
+    """Digest types enumeration (RFC 4034 §A.2, RFC 5910)."""
 
     SHA_1 = 1
     SHA_256 = 2
     GOST_R_34_11_94 = 3
     SHA_384 = 4
 
+    def __str__(self) -> str:
+        """Return string representation of the integer value."""
+        return str(self.value)
 
-class DNSKeyFlagEnum(Enum):
-    """DNS Key flags enumeration."""
+
+class DNSKeyFlagEnum(IntEnum):
+    """DNS Key flags enumeration (RFC 4034 §2.1.1, RFC 5910)."""
 
     FLAG_256 = 256
     FLAG_257 = 257
 
+    def __str__(self) -> str:
+        """Return string representation of the integer value."""
+        return str(self.value)
+
 
 @dataclass
 class DSRecordKeyData:
-    """DNSSEC Key data enumeration."""
+    """DNSSEC Key data dataclass (RFC 4034 §2.1, RFC 5910 §5.1.1)."""
 
-    flag: str
-    algorithm: DNSSECAlgorithm
-    public_key: str
-    protocol: str = 3
+    flag: Optional[Union[DNSKeyFlagEnum, int, str]] = None
+    algorithm: Optional[Union[DNSSECAlgorithm, int, str]] = None
+    public_key: Optional[str] = None
+    protocol: Optional[Union[int, str]] = 3
+
+    def __getitem__(self, key: Any) -> Any:
+        """Support dict-like indexing for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        if isinstance(key, str) and key in dataclass_fields:
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        """Support dict-like .get() for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        if isinstance(key, str) and key in dataclass_fields:
+            return getattr(self, key)
+        return default
+
+    def __contains__(self, key: Any) -> bool:
+        """Support 'in' operator for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        return isinstance(key, str) and key in dataclass_fields
+
+    def keys(self) -> list[str]:
+        """Support .keys() for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        return list(dataclass_fields.keys())
 
 
 @dataclass
 class DSRecordData:
-    """DNSSEC dataclass."""
+    """DNSSEC DS record dataclass (RFC 4034 §5.1, RFC 5910 §5.1.1)."""
 
-    key_tag: int
-    algorithm: DNSSECAlgorithm
-    digest_type: DigestTypeEnum
-    digest: str
-    dns_key: Optional[DSRecordKeyData] = None
+    key_tag: Optional[Union[int, str]] = None
+    algorithm: Optional[Union[DNSSECAlgorithm, int, str]] = None
+    digest_type: Optional[Union[DigestTypeEnum, int, str]] = None
+    digest: Optional[str] = None
+    dns_key: Optional[Union[DSRecordKeyData, dict]] = None
+
+    def __getitem__(self, key: Any) -> Any:
+        """Support dict-like indexing for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        if isinstance(key, str) and key in dataclass_fields:
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        """Support dict-like .get() for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        if isinstance(key, str) and key in dataclass_fields:
+            return getattr(self, key)
+        return default
+
+    def __contains__(self, key: Any) -> bool:
+        """Support 'in' operator for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        return isinstance(key, str) and key in dataclass_fields
+
+    def keys(self) -> list[str]:
+        """Support .keys() for backward compatibility."""
+        dataclass_fields = getattr(self, "__dataclass_fields__", {})
+        return list(dataclass_fields.keys())
 
 
 @dataclass
@@ -87,10 +147,10 @@ class DomainData:
     domain_name: str
     period: Optional[int] = None
     registrant: Optional[str] = ""
-    admin: Optional[str] = ""
-    tech: Optional[str] = ""
+    admin: Optional[Union[list[str], tuple[str, ...], str]] = None
+    tech: Optional[Union[list[str], tuple[str, ...], str]] = None
     sponsoring_client_id: Optional[str] = ""
-    billing: Optional[str] = ""
+    billing: Optional[Union[list[str], tuple[str, ...], str]] = None
     status: Optional[list[str]] = None
     host: Optional[list[str]] = None
     create_date: Optional[str] = ""
@@ -190,6 +250,42 @@ class Domain(BaseCommand):
 
         return [cls._normalize_ds_record_item(item) for item in record_list]
 
+    @staticmethod
+    def _normalize_contact_list(
+        contacts: Optional[Union[list[str], tuple[str, ...], str]]
+    ) -> Optional[list[str]]:
+        """Normalize domain contact identifiers to a list of non-empty strings.
+
+        RFC 5731 §3.2.1 permits zero or more contact elements per type (admin, tech,
+        billing). Accepts a single contact id string or a sequence (list or tuple) of
+        contact ids, validating types and stripping whitespace.
+
+        :param contacts: Single contact ID string or sequence of contact IDs
+        :return: List of contact ID strings, or None if no contacts are provided
+        :raises TypeError: If contacts or any element in contacts is not a string
+        """
+        # Only None bypasses validation; falsey unsupported types must still raise.
+        if contacts is None:
+            return None
+        if isinstance(contacts, str):
+            stripped = contacts.strip()
+            return [stripped] if stripped else None
+        if isinstance(contacts, (list, tuple)):
+            result = []
+            for c in contacts:
+                if not isinstance(c, str):
+                    raise TypeError(
+                        f"Expected contact ID to be str, got {type(c).__name__}"
+                    )
+                stripped = c.strip()
+                if stripped:
+                    result.append(stripped)
+            return result or None
+        raise TypeError(
+            f"Expected contact ID to be str, list[str], or tuple[str, ...], "
+            f"got {type(contacts).__name__}"
+        )
+
     # pylint: disable=R0801
     def check(
         self, domain_names: list[str], client_transaction_id: Optional[str] = None
@@ -214,13 +310,31 @@ class Domain(BaseCommand):
             return result
 
         raw_response = result.parsed_xml
-        domains_check_data = raw_response.find_all("cd")
+        # Scope XML parsing to <resData> / <domain:chkData> per RFC 5731 §3.1.1
+        # to prevent <cd> elements in <extension> blocks (e.g. fee/launch) from colliding.
+        res_data = raw_response.find("resData")
+        chk_el = (
+            (res_data.find("chkData") or res_data)
+            if res_data
+            else (raw_response.find("chkData") or raw_response)
+        )
+        domains_check_data = chk_el.find_all("cd")
 
         result_data = {}
         for domain_cd in domains_check_data:
             domain = domain_cd.find("name")
+            if not domain:
+                continue
             available = domain.get("avail") in ("true", "1")
-            reason = domain_cd.find("reason").text if not available else None
+            # RFC 5731 §3.1.1: <domain:reason> is OPTIONAL even when avail="0"/"false".
+            # Safely check that the <reason> node exists before accessing .text to
+            # prevent AttributeError crashes on registries that omit reason.
+            reason_el = domain_cd.find("reason")
+            reason = (
+                reason_el.text
+                if (not available and reason_el is not None)
+                else None
+            )
             result_data[domain.text] = {
                 "avail": available,
                 "reason": reason,
@@ -230,6 +344,119 @@ class Domain(BaseCommand):
 
         return result
 
+    @staticmethod
+    def _parse_int_or_enum(
+        el: Any,
+        enum_cls: Optional[type] = None,
+        default: Any = None,
+    ) -> Any:
+        """Parse an XML element's text into an enum or int, with fallback.
+
+        Handles whitespace stripping and unassigned numeric codes (e.g. private
+        or newly assigned IANA DNSSEC algorithms).
+
+        :param el: XML element containing text
+        :param enum_cls: Optional Enum/IntEnum class to convert to
+        :param default: Default value if element is None or empty
+        :return: Enum member, int, raw string fallback, or default
+        """
+        if el is None or el.text is None:
+            return default
+        raw = el.text.strip()
+        if not raw:
+            return default
+        try:
+            val = int(raw)
+        except ValueError:
+            return raw
+
+        if enum_cls is not None:
+            try:
+                return enum_cls(val)
+            except ValueError:
+                return val
+        return val
+
+    @classmethod
+    def _parse_ds_key_data(cls, key_data_el: Any) -> Optional[DSRecordKeyData]:
+        """Parse a <secDNS:keyData> XML element into a DSRecordKeyData instance.
+
+        :param key_data_el: BeautifulSoup element for <secDNS:keyData>
+        :return: Parsed DSRecordKeyData instance, or None if key_data_el is None
+        """
+        if not key_data_el:
+            return None
+
+        # RFC 5910 §5.1.1: Query keyData child elements strictly within <secDNS:keyData>.
+        # Previously, querying ds_data.find("alg") returned the DS record's algorithm
+        # rather than keyData's algorithm.
+        key_flags = key_data_el.find("flags", recursive=False)
+        key_proto = key_data_el.find("protocol", recursive=False)
+        key_alg = key_data_el.find("alg", recursive=False)
+        key_pub = key_data_el.find("pubKey", recursive=False)
+
+        parsed_flag = cls._parse_int_or_enum(key_flags, enum_cls=DNSKeyFlagEnum)
+        parsed_proto = cls._parse_int_or_enum(key_proto, default=3)
+        parsed_key_alg = cls._parse_int_or_enum(key_alg, enum_cls=DNSSECAlgorithm)
+        parsed_pub = (
+            key_pub.text.strip() if key_pub and key_pub.text else None
+        )
+
+        return DSRecordKeyData(
+            flag=parsed_flag,
+            protocol=parsed_proto,
+            algorithm=parsed_key_alg,
+            public_key=parsed_pub,
+        )
+
+    @classmethod
+    def _parse_ds_record(cls, ds_data: Any) -> DSRecordData:
+        """Parse a <secDNS:dsData> XML element into a DSRecordData instance.
+
+        :param ds_data: BeautifulSoup element for <secDNS:dsData>
+        :return: Parsed DSRecordData instance
+        """
+        # Use recursive=False so direct DS child elements (especially <secDNS:alg>)
+        # never descend into the nested <secDNS:keyData> element.
+        key_tag_el = ds_data.find("keyTag", recursive=False)
+        alg_el = ds_data.find("alg", recursive=False)
+        digest_type_el = ds_data.find("digestType", recursive=False)
+        digest_el = ds_data.find("digest", recursive=False)
+        key_data_el = ds_data.find("keyData", recursive=False)
+
+        dns_key = cls._parse_ds_key_data(key_data_el)
+        parsed_key_tag = cls._parse_int_or_enum(key_tag_el)
+        parsed_alg = cls._parse_int_or_enum(alg_el, enum_cls=DNSSECAlgorithm)
+        parsed_digest_type = cls._parse_int_or_enum(
+            digest_type_el, enum_cls=DigestTypeEnum
+        )
+        parsed_digest = (
+            digest_el.text.strip() if digest_el and digest_el.text else None
+        )
+
+        return DSRecordData(
+            key_tag=parsed_key_tag,
+            algorithm=parsed_alg,
+            digest_type=parsed_digest_type,
+            digest=parsed_digest,
+            dns_key=dns_key,
+        )
+
+    @classmethod
+    def _parse_dnssec_extension(cls, raw_response: Any) -> Optional[list[DSRecordData]]:
+        """Parse RFC 5910 DNSSEC data from <extension><secDNS:infData>.
+
+        :param raw_response: Parsed XML document or response element
+        :return: List of DSRecordData instances, or None if no DNSSEC records found
+        """
+        ext_data = raw_response.find("extension")
+        sec_scope = ext_data if ext_data else raw_response
+        all_ds_data = sec_scope.find_all("dsData")
+        if not all_ds_data:
+            return None
+        return [cls._parse_ds_record(ds_data) for ds_data in all_ds_data]
+
+    # pylint: disable=too-many-locals
     def info(
         self, domain_name: str, client_transaction_id: Optional[str] = None
     ) -> EppResultData:
@@ -257,103 +484,78 @@ class Domain(BaseCommand):
         # are optional and often omitted or redacted by registries when the domain
         # is queried by a non-sponsoring registrar. Safe null checks prevent
         # AttributeError when parsing responses for external domains.
+        # We scope queries to <resData> / <domain:infData> to avoid collisions with
+        # identical element names (e.g. status, name, clID) in other EPP blocks or extensions.
+        res_data = raw_response.find("resData")
+        info_el = (
+            (res_data.find("infData") or res_data)
+            if res_data
+            else (raw_response.find("infData") or raw_response)
+        )
+
+        name_el = info_el.find("name")
+        cl_id_el = info_el.find("clID")
+        reg_el = info_el.find("registrant")
+        # RFC 5731 §3.1.2: A domain may have zero, one, or multiple contacts of type
+        # "admin", "tech", or "billing" (<domain:contact minOccurs="0" maxOccurs="unbounded">).
+        # Query all matching contact elements via find_all() to avoid silently dropping
+        # secondary contacts and ensure consistent list representations. Strip whitespace
+        # and discard empty/redacted tags so optional contact lists default to None.
+        admin_els = info_el.find_all("contact", {"type": "admin"})
+        tech_els = info_el.find_all("contact", {"type": "tech"})
+        billing_els = info_el.find_all("contact", {"type": "billing"})
+        admin_contacts = [
+            admin.text.strip()
+            for admin in admin_els
+            if admin.text and admin.text.strip()
+        ]
+        tech_contacts = [
+            tech.text.strip()
+            for tech in tech_els
+            if tech.text and tech.text.strip()
+        ]
+        billing_contacts = [
+            billing.text.strip()
+            for billing in billing_els
+            if billing.text and billing.text.strip()
+        ]
+        cr_date_el = info_el.find("crDate")
+        cr_id_el = info_el.find("crID")
+        ex_date_el = info_el.find("exDate")
+        up_id_el = info_el.find("upID")
+        up_date_el = info_el.find("upDate")
+        tr_date_el = info_el.find("trDate")
+        pw_el = info_el.find("pw")
+
         result_data = {
-            "domain_name": (
-                raw_response.find("name").text
-                if raw_response.find("name")
-                else None
-            ),
-            "sponsoring_client_id": (
-                raw_response.find("clID").text
-                if raw_response.find("clID")
-                else None
-            ),
-            "status": [status.get("s") for status in raw_response.find_all("status")],
+            "domain_name": name_el.text if name_el else None,
+            "sponsoring_client_id": cl_id_el.text if cl_id_el else None,
+            "status": [
+                status.get("s") or status.text
+                for status in info_el.find_all("status")
+            ],
             "host": (
-                [host.text for host in raw_response.find_all("hostObj")]
-                if raw_response.find("ns")
+                [host.text for host in info_el.find_all("hostObj")]
+                if info_el.find("ns")
                 else None
             ),
-            "registrant": (
-                raw_response.find("registrant").text
-                if raw_response.find("registrant")
-                else None
-            ),
-            "admin": (
-                raw_response.find("contact", {"type": "admin"}).text
-                if raw_response.find("contact", {"type": "admin"})
-                else None
-            ),
-            "tech": (
-                raw_response.find("contact", {"type": "tech"}).text
-                if raw_response.find("contact", {"type": "tech"})
-                else None
-            ),
-            "billing": (
-                [
-                    billing.text
-                    for billing in raw_response.find_all("contact", {"type": "billing"})
-                ]
-                if raw_response.find("contact", {"type": "billing"})
-                else None
-            ),
-            "create_date": (
-                raw_response.find("crDate").text
-                if raw_response.find("crDate")
-                else None
-            ),
-            "create_client_id": (
-                raw_response.find("crID").text if raw_response.find("crID") else None
-            ),
-            "expiry_date": (
-                raw_response.find("exDate").text
-                if raw_response.find("exDate")
-                else None
-            ),
-            "update_client_id": (
-                raw_response.find("upID").text if raw_response.find("upID") else None
-            ),
-            "update_date": (
-                raw_response.find("upDate").text
-                if raw_response.find("upDate")
-                else None
-            ),
-            "transfer_date": (
-                raw_response.find("trDate").text
-                if raw_response.find("trDate")
-                else None
-            ),
-            "password": (
-                raw_response.find("pw").text if raw_response.find("pw") else None
-            ),
+            "registrant": reg_el.text if reg_el else None,
+            "admin": admin_contacts or None,
+            "tech": tech_contacts or None,
+            "billing": billing_contacts or None,
+            "create_date": cr_date_el.text if cr_date_el else None,
+            "create_client_id": cr_id_el.text if cr_id_el else None,
+            "expiry_date": ex_date_el.text if ex_date_el else None,
+            "update_client_id": up_id_el.text if up_id_el else None,
+            "update_date": up_date_el.text if up_date_el else None,
+            "transfer_date": tr_date_el.text if tr_date_el else None,
+            "password": pw_el.text if pw_el else None,
             "period": None,
             "dns_sec": None,
         }
 
-        dns_sec = []
-        all_ds_data = raw_response.find_all("dsData")
-        for ds_data in all_ds_data:
-            dns_sec.append(
-                DSRecordData(
-                    **{
-                        "key_tag": ds_data.find("keyTag").text,
-                        "algorithm": ds_data.find("alg").text,
-                        "digest_type": ds_data.find("digestType").text,
-                        "digest": ds_data.find("digest").text,
-                        "dns_key": (
-                            {
-                                "flag": ds_data.find("flags").text,
-                                "protocol": ds_data.find("protocol").text,
-                                "algorithm": ds_data.find("alg").text,
-                                "public_key": ds_data.find("pubKey").text,
-                            }
-                            if ds_data.find("keyData")
-                            else None
-                        ),
-                    }
-                )
-            )
-
+        # DNSSEC data is defined in RFC 5910 under <extension><secDNS:infData>.
+        dns_sec = self._parse_dnssec_extension(raw_response)
         if dns_sec:
             result_data["dns_sec"] = dns_sec
 
@@ -378,6 +580,13 @@ class Domain(BaseCommand):
 
         if not params.get('password'):
             params['password'] = helper.generate_password(16)
+
+        # RFC 5731 §3.2.1: Normalize admin, tech, and billing contacts to lists of strings
+        # so DOMAIN_CREATE_XML renders individual <domain:contact> elements without
+        # leaking Python list representations or dropping multiple contacts.
+        params["admin"] = self._normalize_contact_list(params.get("admin"))
+        params["tech"] = self._normalize_contact_list(params.get("tech"))
+        params["billing"] = self._normalize_contact_list(params.get("billing"))
 
         # Issue #316: Normalize dns_sec into a list of dicts with unpacked enum values,
         # ensuring DOMAIN_CREATE_XML receives a standard list rather than handling mappings in Jinja.
@@ -467,12 +676,12 @@ class Domain(BaseCommand):
         domain_name: str,
         registrant: Optional[str] = None,
         password: Optional[str] = None,
-        add_admins: Optional[list[str]] = None,
-        remove_admins: Optional[list[str]] = None,
-        add_techs: Optional[list[str]] = None,
-        remove_techs: Optional[list[str]] = None,
-        add_billings: Optional[list[str]] = None,
-        remove_billings: Optional[list[str]] = None,
+        add_admins: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        remove_admins: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        add_techs: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        remove_techs: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        add_billings: Optional[Union[list[str], tuple[str, ...], str]] = None,
+        remove_billings: Optional[Union[list[str], tuple[str, ...], str]] = None,
         add_statuses: Optional[list[tuple]] = None,
         remove_statuses: Optional[list[str]] = None,
         add_hosts: Optional[list[str]] = None,
@@ -487,12 +696,12 @@ class Domain(BaseCommand):
 
         :param domain_name: Domain name to be updated
         :param registrant: A contact id to replace the current registrant
-        :param add_admins: A list of contact ids to be added to the admin contacts
-        :param remove_admins: A list of contact ids to be removed from the admin contacts
-        :param add_techs:  A list of contact ids to be added to the techs contacts
-        :param remove_techs: A list of contact ids to be removed from the tech contacts
-        :param add_billings: A list of contact ids to add to the billing contacts
-        :param remove_billings: A list of contact ids to remove from the billing contacts
+        :param add_admins: A list, tuple, or single contact id to be added to the admin contacts
+        :param remove_admins: A list, tuple, or single contact id to be removed from the admin contacts
+        :param add_techs: A list, tuple, or single contact id to be added to the tech contacts
+        :param remove_techs: A list, tuple, or single contact id to be removed from the tech contacts
+        :param add_billings: A list, tuple, or single contact id to add to the billing contacts
+        :param remove_billings: A list, tuple, or single contact id to remove from the billing contacts
         :param add_statuses: List of statuses to be added to the domain name. The tuple must contain two
             elements. The first one will be the Status Code and the second element will be Descriptions.
         :param remove_statuses: A list of statuses to be removed from the domain name.
@@ -513,6 +722,15 @@ class Domain(BaseCommand):
             raise ValueError(
                 "Cannot specify both remove_dns_sec and remove_all_dns_sec."
             )
+
+        # RFC 5731 §3.2.5: Normalize contact change lists using _normalize_contact_list
+        # to accept single strings or sequences and prevent string-splitting character bugs in Jinja.
+        add_admins = self._normalize_contact_list(add_admins)
+        remove_admins = self._normalize_contact_list(remove_admins)
+        add_techs = self._normalize_contact_list(add_techs)
+        remove_techs = self._normalize_contact_list(remove_techs)
+        add_billings = self._normalize_contact_list(add_billings)
+        remove_billings = self._normalize_contact_list(remove_billings)
 
         add = bool(add_admins or add_techs or add_billings or add_statuses or add_hosts)
         remove = bool(

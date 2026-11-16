@@ -1,0 +1,20 @@
+# ==============================================================================
+# InternetNZ Standard Gitleaks Configuration
+# ==============================================================================
+# Exception Hierarchy:
+#  - Tier 1: Inline directive on line: '# gitleaks:allow'
+#  - Tier 2: Fingerprint suppression: .gitleaksignore
+#  - Tier 3: Repository-level allowlist (paths and regexes below)
+# ==============================================================================
+
+[allowlist]
+description = "InternetNZ baseline allowlist"
+paths = [
+  '''(?i)(^|/)tests?/.*fixtures/''',
+  '''(?i)(^|/)\.env\.example$''',
+  '''(?i)package-lock\.json$''',
+  '''(?i)go\.sum$''',
+]
+regexes = [
+  '''AKIAIOSFODNN7EXAMPLE''', # AWS standard documentation dummy key
+]

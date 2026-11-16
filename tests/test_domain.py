@@ -4,7 +4,10 @@ Domain unit tests
 
 import unittest
 from datetime import date, datetime
+from enum import Enum, IntEnum
 from unittest.mock import MagicMock, patch
+
+from bs4 import BeautifulSoup
 
 from pyepp.domain import (
     Domain,
@@ -147,6 +150,114 @@ class DomainTest(unittest.TestCase):
             result.result_data, {"test.nz": {"avail": True, "reason": None}}
         )
 
+    def test_check_unavailable_without_reason(self) -> None:
+        """RFC 5731 §3.1.1: verify domain.check handles avail="0" without optional <reason>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<domain:chkData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:cd><domain:name avail="0">taken.nz</domain:name></domain:cd>'
+            '</domain:chkData>'
+            '</resData></response>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.check(["taken.nz"])
+        self.assertEqual(
+            result.result_data, {"taken.nz": {"avail": False, "reason": None}}
+        )
+
+    def test_check_ignores_extension_cd_and_missing_name(self) -> None:
+        """Verify domain.check scopes to <resData>/<chkData> and ignores extension <cd> or missing <name>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<domain:chkData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:cd><domain:name avail="1">available.nz</domain:name></domain:cd>'
+            '<domain:cd><domain:reason>malformed-without-name</domain:reason></domain:cd>'
+            '</domain:chkData>'
+            '</resData>'
+            '<extension>'
+            '<fee:chkData xmlns:fee="urn:ietf:params:xml:ns:epp:fee-1.0">'
+            '<fee:cd avail="1"><fee:objID>available.nz</fee:objID></fee:cd>'
+            '<fee:cd><fee:name>available.nz</fee:name></fee:cd>'
+            '</fee:chkData>'
+            '</extension>'
+            '</response></epp>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.check(["available.nz"])
+        self.assertEqual(
+            result.result_data, {"available.nz": {"avail": True, "reason": None}}
+        )
+
+    def test_info_ds_data_without_key_data(self) -> None:
+        """Verify domain.info parses <secDNS:dsData> when optional <secDNS:keyData> is omitted."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<domain:infData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:name>ds-only.nz</domain:name>'
+            '<domain:status s="ok"/>'
+            '<domain:clID>ClientA</domain:clID>'
+            '</domain:infData>'
+            '</resData>'
+            '<extension>'
+            '<secDNS:infData xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">'
+            '<secDNS:dsData>'
+            '<secDNS:keyTag>12345</secDNS:keyTag>'
+            '<secDNS:alg>8</secDNS:alg>'
+            '<secDNS:digestType>2</secDNS:digestType>'
+            '<secDNS:digest>ABCDEF0123456789</secDNS:digest>'
+            '</secDNS:dsData>'
+            '</secDNS:infData>'
+            '</extension>'
+            '</response></epp>'
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        domain.execute = MagicMock(return_value=execute_result)
+        result = domain.info("ds-only.nz")
+        self.assertEqual(len(result.result_data.dns_sec), 1)
+        ds = result.result_data.dns_sec[0]
+        self.assertEqual(ds.key_tag, 12345)
+        self.assertEqual(ds.algorithm, DNSSECAlgorithm.RSA_SHA_256)
+        self.assertEqual(ds.algorithm, 8)
+        self.assertEqual(ds.digest_type, DigestTypeEnum.SHA_256)
+        self.assertEqual(ds.digest_type, 2)
+        self.assertEqual(ds.digest, "ABCDEF0123456789")
+        self.assertIsNone(ds.dns_key)
+
     def test_check_uses_parsed_xml_directly(self) -> None:
         """Verify domain.check re-uses result.parsed_xml directly."""
         epp_communicator = MagicMock(EppCommunicator)
@@ -157,6 +268,7 @@ class DomainTest(unittest.TestCase):
         mock_name.text = "test.nz"
         mock_name.get.return_value = "1"
         mock_cd.find.side_effect = lambda tag, *args, **kwargs: mock_name if tag == "name" else None
+        mock_parsed.find.return_value = None
         mock_parsed.find_all.return_value = [mock_cd]
 
         execute_result = EppResultData(
@@ -394,8 +506,8 @@ class DomainTest(unittest.TestCase):
                     status=["inactive"],
                     host=None,
                     registrant="inz-contact-1",
-                    admin="inz-contact-1",
-                    tech="inz-contact-1",
+                    admin=["inz-contact-1"],
+                    tech=["inz-contact-1"],
                     billing=None,
                     create_date="2023-02-23T21:56:22.713Z",
                     create_client_id="933",
@@ -407,40 +519,40 @@ class DomainTest(unittest.TestCase):
                     period=None,
                     dns_sec=[
                         DSRecordData(
-                            key_tag="17600",
-                            algorithm="13",
-                            digest_type="1",
+                            key_tag=17600,
+                            algorithm=DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256,
+                            digest_type=DigestTypeEnum.SHA_1,
                             digest="4ffb0f3f0fb5edbaa0067d1cd94bb545249cfea2",
-                            dns_key={
-                                "algorithm": "13",
-                                "flag": "257",
-                                "protocol": "3",
-                                "public_key": "1fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==",
-                            },
+                            dns_key=DSRecordKeyData(
+                                algorithm=DNSSECAlgorithm.ECDSA_CURVE_P_384_WITH_SHA_384,
+                                flag=DNSKeyFlagEnum.FLAG_257,
+                                protocol=3,
+                                public_key="1fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==",
+                            ),
                         ),
                         DSRecordData(
-                            key_tag="17600",
-                            algorithm="13",
-                            digest_type="2",
+                            key_tag=17600,
+                            algorithm=DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256,
+                            digest_type=DigestTypeEnum.SHA_256,
                             digest="024c96b094aaad3892babb303e02587f7d6f8f749fef9ff642e3bb8bfc2e0dcf",
-                            dns_key={
-                                "algorithm": "13",
-                                "flag": "257",
-                                "protocol": "3",
-                                "public_key": "2fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==",
-                            },
+                            dns_key=DSRecordKeyData(
+                                algorithm=DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256,
+                                flag=DNSKeyFlagEnum.FLAG_257,
+                                protocol=3,
+                                public_key="2fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==",
+                            ),
                         ),
                         DSRecordData(
-                            key_tag="17600",
-                            algorithm="13",
-                            digest_type="4",
+                            key_tag=17600,
+                            algorithm=DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256,
+                            digest_type=DigestTypeEnum.SHA_384,
                             digest="14d92f9f1e82c0906e2003b9e3401de4024f705724ef14d848fc2708d5714d5572db040faa3e317753e6577c7e70cbb8",
-                            dns_key={
-                                "algorithm": "13",
-                                "flag": "257",
-                                "protocol": "3",
-                                "public_key": "3fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==",
-                            },
+                            dns_key=DSRecordKeyData(
+                                algorithm=DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256,
+                                flag=DNSKeyFlagEnum.FLAG_257,
+                                protocol=3,
+                                public_key="3fHiagyGUIxsDmeYaaKOWceffQn7QTaCwM1y6Oy1zYRpndxu/6WAHM99p/X/dM7t+RcGahZ8+GlX5JHkbyaMllg==",
+                            ),
                         ),
                     ],
                 ),
@@ -1160,7 +1272,7 @@ class DomainTest(unittest.TestCase):
             digest_type=DigestTypeEnum.SHA_256,
             digest="8cdb09364147aed879d12c68d615f98af5900b73",
             dns_key=DSRecordKeyData(
-                flag=DNSKeyFlagEnum.FLAG_257,  # type: ignore[arg-type]
+                flag=DNSKeyFlagEnum.FLAG_257,
                 algorithm=DNSSECAlgorithm.RSA_SHA_256,
                 public_key="AwEAAc0x...",
             ),
@@ -1193,7 +1305,7 @@ class DomainTest(unittest.TestCase):
                 "digest_type": DigestTypeEnum.SHA_1,
                 "digest": "abc",
                 "dns_key": DSRecordKeyData(
-                    flag=DNSKeyFlagEnum.FLAG_256,  # type: ignore[arg-type]
+                    flag=DNSKeyFlagEnum.FLAG_256,
                     algorithm=DNSSECAlgorithm.DSA_SHA_1,
                     public_key="pub",
                 ),
@@ -1228,3 +1340,494 @@ class DomainTest(unittest.TestCase):
                 }
             )
         self.assertIn("Expected DSRecordKeyData or dict for dns_key", str(ctx.exception))
+
+    def test_dnssec_enums_are_int_enums(self) -> None:
+        """Verify DNSSECAlgorithm, DigestTypeEnum, and DNSKeyFlagEnum are IntEnums."""
+        self.assertTrue(issubclass(DNSSECAlgorithm, IntEnum))
+        self.assertTrue(issubclass(DNSSECAlgorithm, Enum))
+        self.assertTrue(issubclass(DigestTypeEnum, IntEnum))
+        self.assertTrue(issubclass(DigestTypeEnum, Enum))
+        self.assertTrue(issubclass(DNSKeyFlagEnum, IntEnum))
+        self.assertTrue(issubclass(DNSKeyFlagEnum, Enum))
+
+        # Direct integer equality and casting
+        self.assertEqual(DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256, 13)
+        self.assertEqual(int(DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256), 13)
+        self.assertEqual(DigestTypeEnum.SHA_256, 2)
+        self.assertEqual(int(DigestTypeEnum.SHA_256), 2)
+        self.assertEqual(DNSKeyFlagEnum.FLAG_257, 257)
+        self.assertEqual(int(DNSKeyFlagEnum.FLAG_257), 257)
+
+        # String representations (RFC 4034, Python 3.10+ PEP 663 compatibility)
+        self.assertEqual(str(DNSSECAlgorithm.DSA_SHA_1), "3")
+        self.assertEqual(str(DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256), "13")
+        self.assertEqual(str(DigestTypeEnum.SHA_256), "2")
+        self.assertEqual(str(DNSKeyFlagEnum.FLAG_257), "257")
+
+    def test_ds_record_data_and_key_data_dict_compatibility(self) -> None:
+        """Verify DSRecordKeyData and DSRecordData support dict-like indexing and .get()."""
+        key = DSRecordKeyData(
+            flag=DNSKeyFlagEnum.FLAG_257,
+            algorithm=DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256,
+            public_key="pubkey_base64",
+            protocol=3,
+        )
+        # Attribute access
+        self.assertEqual(key.flag, 257)
+        self.assertEqual(key.algorithm, 13)
+        self.assertEqual(key.public_key, "pubkey_base64")
+        self.assertEqual(key.protocol, 3)
+
+        # Dict indexing
+        self.assertEqual(key["flag"], 257)
+        self.assertEqual(key["algorithm"], 13)
+        self.assertEqual(key["public_key"], "pubkey_base64")
+        self.assertEqual(key["protocol"], 3)
+        with self.assertRaises(KeyError):
+            _ = key["non_existent"]
+
+        # Dict get and membership
+        self.assertEqual(key.get("flag"), 257)
+        self.assertEqual(key.get("non_existent", "default_val"), "default_val")
+        self.assertIn("flag", key)
+        self.assertNotIn("non_existent", key)
+        self.assertIn("public_key", key.keys())
+
+        # Rejection of non-string keys
+        self.assertNotIn(0, key)
+        self.assertEqual(key.get(0, "default_val"), "default_val")
+        with self.assertRaises(KeyError):
+            _ = key[0]
+
+        # Prevention of method/dunder leakage
+        self.assertNotIn("keys", key)
+        self.assertNotIn("get", key)
+        self.assertNotIn("__getitem__", key)
+        self.assertIsNone(key.get("keys"))
+        with self.assertRaises(KeyError):
+            _ = key["keys"]
+
+        ds = DSRecordData(
+            key_tag=17600,
+            algorithm=DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256,
+            digest_type=DigestTypeEnum.SHA_1,
+            digest="4ffb0f3f0fb5edbaa0067d1cd94bb545249cfea2",
+            dns_key=key,
+        )
+        # Attribute access
+        self.assertEqual(ds.key_tag, 17600)
+        self.assertEqual(ds.algorithm, 13)
+        self.assertEqual(ds.digest_type, 1)
+        self.assertEqual(ds.digest, "4ffb0f3f0fb5edbaa0067d1cd94bb545249cfea2")
+        self.assertEqual(ds.dns_key, key)
+
+        # Dict indexing
+        self.assertEqual(ds["key_tag"], 17600)
+        self.assertEqual(ds["algorithm"], 13)
+        self.assertEqual(ds["digest_type"], 1)
+        self.assertEqual(ds["digest"], "4ffb0f3f0fb5edbaa0067d1cd94bb545249cfea2")
+        self.assertEqual(ds["dns_key"], key)
+        with self.assertRaises(KeyError):
+            _ = ds["non_existent"]
+
+        # Dict get and membership
+        self.assertEqual(ds.get("key_tag"), 17600)
+        self.assertEqual(ds.get("non_existent", "default_val"), "default_val")
+        self.assertIn("key_tag", ds)
+        self.assertNotIn("non_existent", ds)
+        self.assertIn("digest", ds.keys())
+
+        # Rejection of non-string keys
+        self.assertNotIn(0, ds)
+        self.assertEqual(ds.get(0, "default_val"), "default_val")
+        with self.assertRaises(KeyError):
+            _ = ds[0]
+
+        # Prevention of method/dunder leakage
+        self.assertNotIn("keys", ds)
+        self.assertNotIn("get", ds)
+        self.assertNotIn("__getitem__", ds)
+        self.assertIsNone(ds.get("keys"))
+        with self.assertRaises(KeyError):
+            _ = ds["keys"]
+
+    def test_domain_info_create_round_trip(self) -> None:
+        """Verify DomainData from domain.info() with DNSSEC can be passed to create() and update()."""
+        epp_communicator = MagicMock(EppCommunicator)
+        domain = Domain(epp_communicator)
+
+        xml = (
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">'
+            '<response><resData>'
+            '<domain:infData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">'
+            '<domain:name>roundtrip.nz</domain:name>'
+            '<domain:status s="ok"/>'
+            '<domain:clID>ClientA</domain:clID>'
+            '</domain:infData>'
+            '</resData>'
+            '<extension>'
+            '<secDNS:infData xmlns:secDNS="urn:ietf:params:xml:ns:secDNS-1.1">'
+            '<secDNS:dsData>'
+            '<secDNS:keyTag>12345</secDNS:keyTag>'
+            '<secDNS:alg>13</secDNS:alg>'
+            '<secDNS:digestType>2</secDNS:digestType>'
+            '<secDNS:digest>ABCDEF0123456789</secDNS:digest>'
+            '<secDNS:keyData>'
+            '<secDNS:flags>257</secDNS:flags>'
+            '<secDNS:protocol>3</secDNS:protocol>'
+            '<secDNS:alg>13</secDNS:alg>'
+            '<secDNS:pubKey>pubkey123</secDNS:pubKey>'
+            '</secDNS:keyData>'
+            '</secDNS:dsData>'
+            '</secDNS:infData>'
+            '</extension>'
+            '</response></epp>'
+        )
+        info_mock_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response=xml,
+            result_data=None,
+            dry_run=False,
+            parsed_xml=BeautifulSoup(xml, "xml"),
+        )
+        epp_communicator.execute.return_value = info_mock_result
+        info_res = domain.info("roundtrip.nz")
+        domain_data = info_res.result_data
+
+        # Verify parsed types
+        ds_rec = domain_data.dns_sec[0]
+        self.assertIsInstance(ds_rec.algorithm, DNSSECAlgorithm)
+        self.assertIsInstance(ds_rec.digest_type, DigestTypeEnum)
+        self.assertIsInstance(ds_rec.dns_key, DSRecordKeyData)
+        self.assertIsInstance(ds_rec.dns_key.flag, DNSKeyFlagEnum)
+        self.assertIsInstance(ds_rec.dns_key.algorithm, DNSSECAlgorithm)
+
+        # Re-use DomainData in domain.create()
+        success_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            reason=None,
+            raw_response="<ok/>",
+            result_data=None,
+        )
+        epp_communicator.execute.return_value = success_result
+        domain.create(domain_data)
+
+        create_xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<secDNS:keyTag>12345</secDNS:keyTag>", create_xml)
+        self.assertIn("<secDNS:alg>13</secDNS:alg>", create_xml)
+        self.assertIn("<secDNS:digestType>2</secDNS:digestType>", create_xml)
+        self.assertIn("<secDNS:flags>257</secDNS:flags>", create_xml)
+        self.assertIn("<secDNS:protocol>3</secDNS:protocol>", create_xml)
+        self.assertIn("<secDNS:pubKey>pubkey123</secDNS:pubKey>", create_xml)
+        self.assertNotIn("DNSSECAlgorithm", create_xml)
+        self.assertNotIn("DigestTypeEnum", create_xml)
+        self.assertNotIn("DNSKeyFlagEnum", create_xml)
+
+        # Re-use in domain.update()
+        domain.update("roundtrip.nz", add_dns_sec=domain_data.dns_sec)
+        update_xml = epp_communicator.execute.call_args[0][0]
+        self.assertIn("<secDNS:keyTag>12345</secDNS:keyTag>", update_xml)
+        self.assertIn("<secDNS:alg>13</secDNS:alg>", update_xml)
+        self.assertIn("<secDNS:digestType>2</secDNS:digestType>", update_xml)
+        self.assertNotIn("DNSSECAlgorithm", update_xml)
+
+    def test_parse_dnssec_fallbacks_for_unknown_and_non_integer_values(self) -> None:
+        """Verify _parse_ds_key_data, _parse_ds_record, and _parse_dnssec_extension handle edge cases and fallbacks."""
+        # Non-existent keyData
+        self.assertIsNone(Domain._parse_ds_key_data(None))
+
+        # Direct test of _parse_int_or_enum helper
+        self.assertIsNone(Domain._parse_int_or_enum(None))
+        self.assertEqual(Domain._parse_int_or_enum(None, default=3), 3)
+
+        empty_el = BeautifulSoup("<el></el>", "xml").find("el")
+        self.assertIsNone(Domain._parse_int_or_enum(empty_el))
+
+        ws_el = BeautifulSoup("<el>   </el>", "xml").find("el")
+        self.assertIsNone(Domain._parse_int_or_enum(ws_el))
+
+        padded_el = BeautifulSoup("<el>  13  </el>", "xml").find("el")
+        self.assertEqual(
+            Domain._parse_int_or_enum(padded_el, enum_cls=DNSSECAlgorithm),
+            DNSSECAlgorithm.ECDSA_CURVE_P_256_WITH_SHA_256,
+        )
+
+        # Unknown enum and non-digit fallbacks in keyData
+        key_xml = BeautifulSoup(
+            "<keyData><flags>999</flags><protocol>4</protocol><alg>999</alg><pubKey>pub</pubKey></keyData>",
+            "xml",
+        ).find("keyData")
+        k_unknown = Domain._parse_ds_key_data(key_xml)
+        self.assertEqual(k_unknown.flag, 999)
+        self.assertEqual(k_unknown.protocol, 4)
+        self.assertEqual(k_unknown.algorithm, 999)
+
+        key_non_digit_xml = BeautifulSoup(
+            "<keyData><flags>flag_str</flags><protocol>proto_str</protocol><alg>alg_str</alg></keyData>",
+            "xml",
+        ).find("keyData")
+        k_non_digit = Domain._parse_ds_key_data(key_non_digit_xml)
+        self.assertEqual(k_non_digit.flag, "flag_str")
+        self.assertEqual(k_non_digit.protocol, "proto_str")
+        self.assertEqual(k_non_digit.algorithm, "alg_str")
+        self.assertIsNone(k_non_digit.public_key)
+
+        # Non-digit and unknown fallbacks in dsData
+        ds_non_digit_xml = BeautifulSoup(
+            "<dsData><keyTag>tag_str</keyTag><alg>alg_str</alg><digestType>type_str</digestType></dsData>",
+            "xml",
+        ).find("dsData")
+        ds_non_digit = Domain._parse_ds_record(ds_non_digit_xml)
+        self.assertEqual(ds_non_digit.key_tag, "tag_str")
+        self.assertEqual(ds_non_digit.algorithm, "alg_str")
+        self.assertEqual(ds_non_digit.digest_type, "type_str")
+
+        ds_unknown_xml = BeautifulSoup(
+            "<dsData><keyTag>123</keyTag><alg>999</alg><digestType>99</digestType></dsData>",
+            "xml",
+        ).find("dsData")
+        ds_unknown = Domain._parse_ds_record(ds_unknown_xml)
+        self.assertEqual(ds_unknown.key_tag, 123)
+        self.assertEqual(ds_unknown.algorithm, 999)
+        self.assertEqual(ds_unknown.digest_type, 99)
+
+        # Empty extension returns None
+        empty_resp = BeautifulSoup("<response><resData/></response>", "xml")
+        self.assertIsNone(Domain._parse_dnssec_extension(empty_resp))
+
+    def test_domain_info_multiple_contacts(self) -> None:
+        """Verify domain.info() preserves multiple admin, tech, and billing contacts per RFC 5731 §3.1.2."""
+        raw_xml = (
+            "<response>\n"
+            '  <result code="1000">\n'
+            "    <msg>Command completed successfully</msg>\n"
+            "  </result>\n"
+            "  <resData>\n"
+            "    <domain:infData>\n"
+            "      <domain:name>multi-contact.nz</domain:name>\n"
+            "      <domain:roid>12345-INZ</domain:roid>\n"
+            '      <domain:status s="ok"/>\n'
+            "      <domain:registrant>reg-contact-1</domain:registrant>\n"
+            '      <domain:contact type="admin">admin-contact-1</domain:contact>\n'
+            '      <domain:contact type="admin">admin-contact-2</domain:contact>\n'
+            '      <domain:contact type="tech">tech-contact-1</domain:contact>\n'
+            '      <domain:contact type="tech">tech-contact-2</domain:contact>\n'
+            '      <domain:contact type="billing">billing-contact-1</domain:contact>\n'
+            '      <domain:contact type="billing">billing-contact-2</domain:contact>\n'
+            "      <domain:clID>client-1</domain:clID>\n"
+            "    </domain:infData>\n"
+            "  </resData>\n"
+            "</response>"
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=raw_xml,
+            result_data=None,
+        )
+        domain = Domain(MagicMock(EppCommunicator))
+        domain.execute = MagicMock(return_value=execute_result)
+
+        result = domain.info("multi-contact.nz")
+        self.assertEqual(
+            result.result_data.admin, ["admin-contact-1", "admin-contact-2"]
+        )
+        self.assertEqual(
+            result.result_data.tech, ["tech-contact-1", "tech-contact-2"]
+        )
+        self.assertEqual(
+            result.result_data.billing,
+            ["billing-contact-1", "billing-contact-2"],
+        )
+
+    def test_domain_create_multiple_contacts_xml(self) -> None:
+        """Verify domain.create() renders multiple contacts without Python list reprs."""
+        epp = EppCommunicator(
+            "localhost",
+            "700",
+            user="user",
+            password="pw",
+            dry_run=True,
+        )
+        domain = Domain(epp)
+        domain_data = DomainData(
+            domain_name="example.nz",
+            registrant="reg-1",
+            admin=["admin-1", "admin-2"],
+            tech=["tech-1", "tech-2"],
+            billing=["bill-1", "bill-2"],
+            period=1,
+            password="testpassword123",
+        )
+        result = domain.create(domain_data)
+        xml = result.raw_response
+        self.assertIn('<domain:contact type="admin">admin-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="admin">admin-2</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-2</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">bill-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">bill-2</domain:contact>', xml)
+        self.assertNotIn("['admin-1'", xml)
+        self.assertNotIn("['bill-1'", xml)
+
+    def test_domain_create_string_contacts_xml(self) -> None:
+        """Verify domain.create() renders single contact string values cleanly."""
+        epp = EppCommunicator(
+            "localhost",
+            "700",
+            user="user",
+            password="pw",
+            dry_run=True,
+        )
+        domain = Domain(epp)
+        domain_data = DomainData(
+            domain_name="single.nz",
+            registrant="reg-1",
+            admin="admin-single",
+            tech="tech-single",
+            billing="bill-single",
+            period=1,
+            password="testpassword123",
+        )
+        result = domain.create(domain_data)
+        xml = result.raw_response
+        self.assertIn('<domain:contact type="admin">admin-single</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-single</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">bill-single</domain:contact>', xml)
+        self.assertNotIn("['", xml)
+
+    def test_domain_info_to_create_round_trip(self) -> None:
+        """Verify DomainData returned by info() can be passed directly to create() without schema errors."""
+        info_xml = (
+            "<response>\n"
+            '  <result code="1000">\n'
+            "    <msg>Command completed successfully</msg>\n"
+            "  </result>\n"
+            "  <resData>\n"
+            "    <domain:infData>\n"
+            "      <domain:name>roundtrip.nz</domain:name>\n"
+            "      <domain:roid>99999-INZ</domain:roid>\n"
+            '      <domain:status s="ok"/>\n'
+            "      <domain:registrant>reg-contact-1</domain:registrant>\n"
+            '      <domain:contact type="admin">admin-1</domain:contact>\n'
+            '      <domain:contact type="tech">tech-1</domain:contact>\n'
+            '      <domain:contact type="billing">billing-1</domain:contact>\n'
+            "      <domain:clID>client-1</domain:clID>\n"
+            "    </domain:infData>\n"
+            "  </resData>\n"
+            "</response>"
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=info_xml,
+            result_data=None,
+        )
+        epp = EppCommunicator(
+            "localhost",
+            "700",
+            user="user",
+            password="pw",
+            dry_run=True,
+        )
+        domain = Domain(epp)
+        domain.execute = MagicMock(return_value=execute_result)
+
+        info_res = domain.info("roundtrip.nz")
+        create_domain = Domain(epp)
+        create_res = create_domain.create(info_res.result_data)
+        xml = create_res.raw_response
+        self.assertIn('<domain:contact type="admin">admin-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">billing-1</domain:contact>', xml)
+        self.assertNotIn("['billing-1']", xml)
+        self.assertNotIn("['admin-1']", xml)
+        # RFC 5731 §3.2.1: When period is None (not returned by info), <domain:period> is omitted
+        self.assertNotIn("<domain:period", xml)
+        self.assertNotIn("<domain:registrant>None", xml)
+
+    def test_domain_info_empty_and_whitespace_contacts(self) -> None:
+        """Verify domain.info() normalizes empty and whitespace contact tags to None."""
+        info_xml = (
+            "<response>\n"
+            '  <result code="1000">\n'
+            "    <msg>Command completed successfully</msg>\n"
+            "  </result>\n"
+            "  <resData>\n"
+            "    <domain:infData>\n"
+            "      <domain:name>empty-contacts.nz</domain:name>\n"
+            '      <domain:status s="ok"/>\n'
+            '      <domain:contact type="admin"></domain:contact>\n'
+            '      <domain:contact type="tech">   </domain:contact>\n'
+            '      <domain:contact type="billing">\n\t</domain:contact>\n'
+            "    </domain:infData>\n"
+            "  </resData>\n"
+            "</response>"
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=info_xml,
+            result_data=None,
+        )
+        epp = MagicMock(EppCommunicator)
+        domain = Domain(epp)
+        domain.execute = MagicMock(return_value=execute_result)
+
+        result = domain.info("empty-contacts.nz")
+        self.assertIsNone(result.result_data.admin)
+        self.assertIsNone(result.result_data.tech)
+        self.assertIsNone(result.result_data.billing)
+
+    def test_domain_update_contact_normalization(self) -> None:
+        """Verify domain.update() normalizes single strings and tuples without character splitting."""
+        epp = EppCommunicator(
+            "localhost",
+            "700",
+            user="user",
+            password="pw",
+            dry_run=True,
+        )
+        domain = Domain(epp)
+        result = domain.update(
+            domain_name="example.nz",
+            add_admins="adm-single",
+            remove_techs=("tech-1", "tech-2"),
+            add_billings="bill-single",
+        )
+        xml = result.raw_response
+        self.assertIn('<domain:contact type="admin">adm-single</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-1</domain:contact>', xml)
+        self.assertIn('<domain:contact type="tech">tech-2</domain:contact>', xml)
+        self.assertIn('<domain:contact type="billing">bill-single</domain:contact>', xml)
+        # Ensure string wasn't iterated into individual characters
+        self.assertNotIn('<domain:contact type="admin">a</domain:contact>', xml)
+        self.assertNotIn('<domain:contact type="admin">d</domain:contact>', xml)
+
+    def test_normalize_contact_list(self) -> None:
+        """Verify Domain._normalize_contact_list handles various input shapes and types."""
+        self.assertIsNone(Domain._normalize_contact_list(None))
+        self.assertIsNone(Domain._normalize_contact_list(""))
+        self.assertIsNone(Domain._normalize_contact_list("   "))
+        self.assertIsNone(Domain._normalize_contact_list([]))
+        self.assertIsNone(Domain._normalize_contact_list(["  ", ""]))
+        self.assertEqual(Domain._normalize_contact_list("c1"), ["c1"])
+        self.assertEqual(Domain._normalize_contact_list("  c1  "), ["c1"])
+        self.assertEqual(Domain._normalize_contact_list(["c1", "c2"]), ["c1", "c2"])
+        self.assertEqual(Domain._normalize_contact_list(("c1", "c2")), ["c1", "c2"])
+        self.assertEqual(Domain._normalize_contact_list(["c1", "  "]), ["c1"])
+
+        with self.assertRaises(TypeError):
+            Domain._normalize_contact_list(123)  # type: ignore[arg-type]
+
+        with self.assertRaises(TypeError):
+            Domain._normalize_contact_list({"admin": "c1"})  # type: ignore[arg-type]
+
+        with self.assertRaises(TypeError):
+            Domain._normalize_contact_list({"c1", "c2"})  # type: ignore[arg-type]
+
+        with self.assertRaises(TypeError):
+            Domain._normalize_contact_list(["c1", 123])  # type: ignore[list-item]

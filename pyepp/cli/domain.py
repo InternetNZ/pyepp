@@ -96,9 +96,21 @@ def domain_transfer(ctx, domain_name, password, period, client_transaction_id) -
 @click.command(name="create")
 @click.argument("domain-name")
 @click.option("--registrant", help="Contact id of the registrant.")
-@click.option("--admin", help="Contact id of the administrator of the domain.")
-@click.option("--tech", help="Contact id of the technical support of the domain.")
-@click.option("--billing", help="Contact id of the billing contact of the domain.")
+@click.option(
+    "--admin",
+    multiple=True,
+    help="Contact id of the administrator of the domain. Can be repeated for multiple admin contacts.",
+)
+@click.option(
+    "--tech",
+    multiple=True,
+    help="Contact id of the technical support of the domain. Can be repeated for multiple tech contacts.",
+)
+@click.option(
+    "--billing",
+    multiple=True,
+    help="Contact id of the billing contact of the domain. Can be repeated for multiple billing contacts.",
+)
 @click.option(
     "--period",
     default=1,
@@ -131,11 +143,11 @@ def domain_create(
     domain_data = DomainData(
         domain_name=domain_name,
         registrant=registrant,
-        admin=admin,
-        tech=tech,
-        billing=billing,
+        admin=list(admin) if admin else None,
+        tech=list(tech) if tech else None,
+        billing=list(billing) if billing else None,
         period=period,
-        host=ns_host,
+        host=list(ns_host) if ns_host else None,
     )
     result = ctx.obj.create(domain_data, client_transaction_id)
     utils.echo(result)

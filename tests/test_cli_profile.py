@@ -104,6 +104,7 @@ server = epp.alpha.net
         self.assertIn("Profile: default", result.output)
         self.assertIn("Port:          700", result.output)
         self.assertIn("Output Format: TABLE", result.output)
+        self.assertIn("Timeout:       None", result.output)
 
     def test_cli_profile_show_named_profile_masks_password(self) -> None:
         """Verify 'pyepp profile show <name>' displays profile details with masked password."""
@@ -127,6 +128,28 @@ server = epp.alpha.net
         )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Password:      ote_secret_password", result.output)
+
+    def test_cli_profile_show_with_configured_timeout(self) -> None:
+        """Verify 'pyepp profile show' displays formatted timeout when configured."""
+        ini_content = """[profile timeout_prof]
+server = epp.timeout.test
+timeout = 15.5
+"""
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            cfg_path = tf.name
+
+        try:
+            result = self.runner.invoke(
+                pyepp_cli,
+                ["-c", cfg_path, "profile", "show", "timeout_prof"],
+            )
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("Profile: timeout_prof", result.output)
+            self.assertIn("Timeout:       15.5", result.output)
+        finally:
+            if os.path.exists(cfg_path):
+                os.remove(cfg_path)
 
     def test_cli_profile_show_non_existent_profile(self) -> None:
         """Verify 'pyepp profile show non_existent' reports an error."""
@@ -538,6 +561,170 @@ no_pretty = false
                 os.remove(cfg_path)
             if os.path.exists(key_path):
                 os.remove(key_path)
+
+    @patch("pyepp.domain.Domain.check")
+    def test_implicit_default_profile_invalid_timeout_fails_without_executing(
+        self, mock_check
+    ) -> None:
+        """Verify implicit [default] validation errors fail instead of dropping dry_run."""
+        ini_content = "[default]\ndry_run = true\ntimeout = not_a_number\n"
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            bad_cfg_path = tf.name
+
+        try:
+            load_config(bad_cfg_path)
+            result = self.runner.invoke(
+                pyepp_cli,
+                [
+                    "--server",
+                    "epp.example.net",
+                    "--user",
+                    "user",
+                    "--password",
+                    "pass",
+                    "domain",
+                    "check",
+                    "example.nz",
+                ],
+            )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("Invalid timeout value in profile 'default'", result.output)
+            mock_check.assert_not_called()
+        finally:
+            load_config()
+            if os.path.exists(bad_cfg_path):
+                os.remove(bad_cfg_path)
+
+    @patch("pyepp.domain.Domain.check")
+    def test_implicit_default_profile_validated_at_invocation_when_config_patched(
+        self, mock_check
+    ) -> None:
+        """Verify implicit [default] is validated at invocation even without load_config()."""
+        ini_content = "[default]\ndry_run = true\ntimeout = not_a_number\n"
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            bad_cfg_path = tf.name
+
+        try:
+            with patch("pyepp.profiles.get_default_config_path", return_value=bad_cfg_path):
+                result = self.runner.invoke(
+                    pyepp_cli,
+                    [
+                        "--server",
+                        "epp.example.net",
+                        "--user",
+                        "user",
+                        "--password",
+                        "pass",
+                        "domain",
+                        "check",
+                        "example.nz",
+                    ],
+                )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("Invalid timeout value in profile 'default'", result.output)
+            mock_check.assert_not_called()
+        finally:
+            if os.path.exists(bad_cfg_path):
+                os.remove(bad_cfg_path)
+
+    def test_profile_subcommand_allowed_when_implicit_default_profile_invalid(
+        self,
+    ) -> None:
+        """Verify `pyepp profile list` still runs when implicit [default] is malformed."""
+        ini_content = (
+            "[default]\ntimeout = not_a_number\n"
+            "[profile ote]\nserver = epp.ote.net\ntimeout = 30\n"
+        )
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            bad_cfg_path = tf.name
+
+        try:
+            load_config(bad_cfg_path)
+            with (
+                patch("pyepp.profiles.get_default_config_path", return_value=bad_cfg_path),
+                patch(
+                    "pyepp.cli.profile.get_default_config_path",
+                    return_value=bad_cfg_path,
+                ),
+            ):
+                result = self.runner.invoke(pyepp_cli, ["profile", "list"])
+            self.assertEqual(result.exit_code, 0)
+            self.assertIn("ote", result.output)
+        finally:
+            load_config()
+            if os.path.exists(bad_cfg_path):
+                os.remove(bad_cfg_path)
+
+    def test_shell_subcommand_fails_when_implicit_default_profile_invalid(self) -> None:
+        """Verify `pyepp shell` fails instead of silently dropping [default] settings."""
+        ini_content = "[default]\ndry_run = true\ntimeout = not_a_number\n"
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            bad_cfg_path = tf.name
+
+        try:
+            load_config(bad_cfg_path)
+            result = self.runner.invoke(
+                pyepp_cli,
+                [
+                    "--server",
+                    "epp.example.net",
+                    "--user",
+                    "user",
+                    "--password",
+                    "pass",
+                    "shell",
+                ],
+            )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("Invalid timeout value in profile 'default'", result.output)
+        finally:
+            load_config()
+            if os.path.exists(bad_cfg_path):
+                os.remove(bad_cfg_path)
+
+    def test_shell_subcommand_with_explicit_config_fails_when_default_invalid(
+        self,
+    ) -> None:
+        """Verify `pyepp -c <cfg> shell` fails when [default] has invalid settings."""
+        ini_content = "[default]\ndry_run = true\ntimeout = not_a_number\n"
+        with tempfile.NamedTemporaryFile("w", delete=False) as tf:
+            tf.write(ini_content)
+            bad_cfg_path = tf.name
+
+        try:
+            result = self.runner.invoke(
+                pyepp_cli,
+                [
+                    "-c",
+                    bad_cfg_path,
+                    "--server",
+                    "epp.example.net",
+                    "--user",
+                    "user",
+                    "--password",
+                    "pass",
+                    "shell",
+                ],
+            )
+            self.assertNotEqual(result.exit_code, 0)
+            self.assertIn("Invalid timeout value in profile 'default'", result.output)
+        finally:
+            if os.path.exists(bad_cfg_path):
+                os.remove(bad_cfg_path)
+
+    def test_cli_rejects_non_finite_timeout(self) -> None:
+        """Verify --timeout and PYEPP_TIMEOUT reject non-finite values like inf and nan."""
+        for args, env in [
+            (["--timeout", "inf", "hello"], None),
+            (["hello"], {"PYEPP_TIMEOUT": "nan"}),
+        ]:
+            result = self.runner.invoke(pyepp_cli, args, env=env)
+            self.assertEqual(result.exit_code, 2)
+            self.assertIn("must be a finite positive number.", result.output)
 
 
 if __name__ == "__main__":
