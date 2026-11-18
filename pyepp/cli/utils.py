@@ -271,14 +271,41 @@ def _format_list_field(field_name: str, val: list) -> str:
     return ", ".join(str(item) for item in val)
 
 
+def _format_nested_dict(data: dict, indent: int = 0) -> str:
+    """Format a nested dictionary into readable indented key: value lines."""
+    lines: list[str] = []
+    prefix = "  " * indent
+    for key, val in data.items():
+        if isinstance(val, dict):
+            lines.append(f"{prefix}{key}:")
+            nested = _format_nested_dict(val, indent + 1)
+            if nested:
+                lines.append(nested)
+        elif isinstance(val, list):
+            lines.append(f"{prefix}{key}:")
+            for item in val:
+                if isinstance(item, dict):
+                    lines.append(f"{prefix}  -")
+                    nested = _format_nested_dict(item, indent + 2)
+                    if nested:
+                        lines.append(nested)
+                else:
+                    lines.append(f"{prefix}  - {item}")
+        else:
+            lines.append(f"{prefix}{key}: {val}")
+    return "\n".join(lines) if lines else "None"
+
+
 def _format_entity_field_value(field_name: str, val: Any) -> str:
     """Format an entity field value into human-readable string for table display."""
     if val is None or val == "":
         return "None"
-    if field_name == "postal_info":
+    if field_name in ("postal_info", "additional_postal_info"):
         return _format_postal_info(val)
     if field_name == "dns_sec":
         return _format_dnssec(val)
+    if field_name == "response_data" and isinstance(val, dict):
+        return _format_nested_dict(val)
     if isinstance(val, list):
         return _format_list_field(field_name, val)
     return str(val)
@@ -337,6 +364,13 @@ def _format_contact_data(data: Any) -> tuple[str, list[str], list[list[str]]]:
     for name in order:
         val = getattr(data, name, None)
         rows.append([name, _format_entity_field_value(name, val)])
+        if name == "postal_info" and getattr(data, "additional_postal_info", None) is not None:
+            rows.append([
+                "additional_postal_info",
+                _format_entity_field_value(
+                    "additional_postal_info", data.additional_postal_info
+                ),
+            ])
     return title, ["Property", "Value"], rows
 
 

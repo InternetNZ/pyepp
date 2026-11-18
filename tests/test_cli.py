@@ -1105,6 +1105,65 @@ class CliFormatOutputTest(unittest.TestCase):
         self.assertIn("No such option", result.output)
         self.assertIn("--o", result.output)
 
+    def test_table_and_tsv_format_contact_with_additional_postal_info(self) -> None:
+        """Verify TABLE and TSV formats include additional_postal_info when populated on ContactData."""
+        contact = ContactData(
+            id="sh8013",
+            email="jdoe@example.nz",
+            postal_info=PostalInfoData(
+                name="Local Doe",
+                type="loc",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            additional_postal_info=PostalInfoData(
+                name="Intl Doe",
+                type="int",
+                address=AddressData(city="New York", country_code="US"),
+            ),
+        )
+        result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response="<raw/>",
+            result_data=contact,
+        )
+        table_output = self.cli_table.format_output(result)
+        self.assertIn("additional_postal_info", table_output)
+        self.assertIn("Local Doe", table_output)
+        self.assertIn("Intl Doe", table_output)
+
+        tsv_output = self.cli_table_raw.format_output(result)
+        self.assertIn("additional_postal_info\t", tsv_output)
+        self.assertIn("Intl Doe", tsv_output)
+
+    def test_table_and_tsv_format_poll_with_response_data(self) -> None:
+        """Verify TABLE and TSV formats render nested response_data on ServiceMessageQueueData."""
+        from pyepp.poll import ServiceMessageQueueData, ServiceMessageData
+
+        queue_data = ServiceMessageQueueData(
+            message_count=1,
+            message_id="MSG-1",
+            queue_date="2024-04-03T22:00:00Z",
+            messages=[ServiceMessageData(language="en", message="Transfer requested.")],
+            response_data={
+                "trnData": {"name": "example.nz", "trStatus": "pending"},
+            },
+        )
+        result = EppResultData(
+            code=1301,
+            message="Command completed successfully; ack to dequeue",
+            raw_response="<raw/>",
+            result_data=queue_data,
+        )
+        table_output = self.cli_table.format_output(result)
+        self.assertIn("response_data", table_output)
+        self.assertIn("trnData:", table_output)
+        self.assertIn("name: example.nz", table_output)
+
+        tsv_output = self.cli_table_raw.format_output(result)
+        self.assertIn("response_data\t", tsv_output)
+        self.assertIn("example.nz", tsv_output)
+
 
 class CliConfigTest(unittest.TestCase):
     """

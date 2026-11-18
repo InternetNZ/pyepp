@@ -113,8 +113,36 @@ class EppResultDataTest(unittest.TestCase):
             raw_response=b'<root><item>bytes_test</item></root>',
             result_data=None,
         )
+        self.assertIsInstance(data.raw_response, str)
+        self.assertEqual(data.raw_response, '<root><item>bytes_test</item></root>')
         self.assertIsNotNone(data.parsed_xml)
         self.assertEqual(data.parsed_xml.find('item').text, 'bytes_test')
+
+    def test_post_init_normalizes_bytearray_and_non_ascii_bytes_to_str(self):
+        """Normalize bytearray and non-ASCII UTF-8 bytes raw_response to str for JSON safety."""
+        utf8_bytes = '<root><item>M\u0101ori</item></root>'.encode('utf-8')
+        data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response=bytearray(utf8_bytes),
+            result_data=None,
+        )
+        self.assertIsInstance(data.raw_response, str)
+        self.assertEqual(data.raw_response, '<root><item>M\u0101ori</item></root>')
+        self.assertEqual(data.parsed_xml.find('item').text, 'M\u0101ori')
+        serialized = json.dumps(data.to_dict())
+        self.assertIn('M\\u0101ori', serialized)
+
+        # Invalid UTF-8 bytes must fall back cleanly with replacement chars rather than crashing
+        invalid_data = EppResultData(
+            code=1000,
+            message='Success',
+            raw_response=b'<root>\xff\xfe</root>',
+            result_data=None,
+        )
+        self.assertIsInstance(invalid_data.raw_response, str)
+        self.assertIn('\ufffd', invalid_data.raw_response)
+        json.dumps(invalid_data.to_dict())
 
     def test_post_init_preserves_explicit_parsed_xml(self):
         from bs4 import BeautifulSoup
@@ -2335,8 +2363,11 @@ class EppClientTransactionIdTest(unittest.TestCase):
 
         res = epp.execute(cmd)
         self.assertEqual(res.code, 1000)
+        self.assertIsInstance(res.raw_response, str)
+        self.assertEqual(res.raw_response, xml_resp)
         self.assertEqual(res.client_transaction_id, "TOP-LEVEL-REQ-TRID")
         self.assertEqual(res.server_transaction_id, "TOP-LEVEL-SERVER-TRID")
+        json.dumps(res.to_dict())
 
     def test_execute_missing_result_code_raises_communicator_exception(self):
         """Raise EppCommunicatorException when response lacks a valid result code."""
