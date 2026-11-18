@@ -28,9 +28,9 @@ Usage example
    from datetime import date
 
    from pyepp import EppCommunicator
-   from pyepp.domain import Domain, DomainData, DSRecordData, DNSSECAlgorithm, DigestTypeEnum
-   from pyepp.contact import Contact, ContactData, PostalInfoData, AddressData
-   from pyepp.host import Host, HostData, IPAddressData
+   from pyepp.domain import DomainData, DSRecordData, DNSSECAlgorithm, DigestTypeEnum
+   from pyepp.contact import ContactData, PostalInfoData, AddressData
+   from pyepp.host import HostData, IPAddressData
 
    config = {
        "server": "epp.test.net.nz",
@@ -40,15 +40,20 @@ Usage example
    }
 
    # Using the Pythonic context manager (recommended):
+   # Sub-clients (domain, contact, host, poll) are exposed directly on the communicator instance:
    with EppCommunicator(**config, user="user_name", password="password") as epp:
        hello = epp.hello()
-       contact = Contact(epp)
-       contact_check = contact.check(['contact-1', 'contact-2'])
+       domain_check = epp.domain.check(['example.nz'])
+       contact_info = epp.contact.info('contact-1')
+       host_check = epp.host.check(['ns1.example.nz'])
+       poll_req = epp.poll.request()
 
    # Or using Configuration Profiles (AWS CLI style, loaded from ~/.pyepp/config.ini):
    with EppCommunicator.from_profile("ote") as epp:
-       contact = Contact(epp)
-       contact_check = contact.check(['contact-1', 'contact-2'])
+       domain_check = epp.domain.check(['example.nz'])
+       contact_check = epp.contact.check(['contact-1', 'contact-2'])
+       host_check = epp.host.check(['ns1.example.nz'])
+       poll_req = epp.poll.request()
 
    # Or using manual sequence management:
    epp = EppCommunicator(**config)
@@ -58,10 +63,9 @@ Usage example
    # Sends a hello request and receive greeting in respond
    hello = epp.hello()
 
-   contact = Contact(epp)
-
-   # Check contacts availability
-   contact_check = contact.check(['contact-1', 'contact-2'])
+   # Sub-clients are accessible directly on the communicator (recommended)
+   # Note: direct instantiation (e.g. Contact(epp), Domain(epp)) remains fully supported for backward compatibility.
+   contact_check = epp.contact.check(['contact-1', 'contact-2'])
 
    # Create a new contact
    contact_create_params = ContactData(
@@ -81,10 +85,10 @@ Usage example
        ),
        phone='+64.111111111'
    )
-   contact_create = contact.create(contact_create_params)
+   contact_create = epp.contact.create(contact_create_params)
 
    # Get contact details
-   contact_info = contact.info('contact-1')
+   contact_info = epp.contact.info('contact-1')
 
    # Update contact details (standard update: omitted streets are not sent)
    contact_update_params = ContactData(
@@ -98,7 +102,7 @@ Usage example
            ),
        ),
    )
-   contact_update = contact.update(contact_update_params)
+   contact_update = epp.contact.update(contact_update_params)
 
    # To explicitly clear secondary street lines in registries requiring empty tags (e.g., CentralNic):
    contact_clear_streets = ContactData(
@@ -114,7 +118,7 @@ Usage example
            ),
        ),
    )
-   contact.update(contact_clear_streets)
+   epp.contact.update(contact_clear_streets)
 
 .. note::
    Street lines in EPP (RFC 5733) are strictly positional and sequential (Line 1, Line 2, Line 3).
@@ -127,9 +131,8 @@ Usage example
 
 .. code:: python
 
-   domain = Domain(epp)
    # Check domains availability
-   domain_check = domain.check(['domain1.nz', 'domain2.nz'])
+   domain_check = epp.domain.check(['domain1.nz', 'domain2.nz'])
 
    # Create a new domain name
    domain_create_params = DomainData(
@@ -147,10 +150,10 @@ Usage example
            digest='8cdb09364147aed879d12c68d615f98af5900b73'
        )],
    )
-   domain_create = domain.create(domain_create_params)
+   domain_create = epp.domain.create(domain_create_params)
 
    # Renew a domain name
-   renew_domain = domain.renew(domain_name='example-1.nz', expiry_date=date(2024, 2, 23), period=2)
+   renew_domain = epp.domain.renew(domain_name='example-1.nz', expiry_date=date(2024, 2, 23), period=2)
 
 PyEPP CLI
 ---------

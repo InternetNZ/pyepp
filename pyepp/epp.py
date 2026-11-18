@@ -13,7 +13,7 @@ import re
 from xml.parsers import expat
 from dataclasses import dataclass, asdict, field, fields, is_dataclass
 from enum import Enum
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, TYPE_CHECKING
 
 from bs4 import BeautifulSoup
 
@@ -23,6 +23,13 @@ from pyepp.command_templates import (
     HELLO_XML,
     get_compiled_template,
 )
+
+if TYPE_CHECKING:
+    # Imported under TYPE_CHECKING for type annotation hints without runtime circular imports
+    from pyepp.contact import Contact
+    from pyepp.domain import Domain
+    from pyepp.host import Host
+    from pyepp.poll import Poll
 
 LENGTH_FIELD_SIZE = 4
 DEFAULT_MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MiB limit to prevent DoS via memory exhaustion
@@ -351,12 +358,19 @@ def _create_connection(
     raise OSError(f"getaddrinfo({host!r}, {port}) returned empty address list")
 
 
+# pylint: disable=too-many-instance-attributes
 class EppCommunicator:
     """
     An EPP client for connecting to EPP server.
     """
 
-    # pylint: disable=too-many-instance-attributes,too-many-arguments,too-many-positional-arguments,too-many-branches
+    # Sub-client backing attributes for unified facade (lazy initialized per instance)
+    _domain: Optional["Domain"] = None
+    _contact: Optional["Contact"] = None
+    _host: Optional["Host"] = None
+    _poll: Optional["Poll"] = None
+
+    # pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-branches
     def __init__(
         self,
         server: Optional[str] = None,
@@ -571,6 +585,66 @@ class EppCommunicator:
     def timeout(self) -> float:
         """Socket connection and transmission timeout in seconds."""
         return self._timeout
+
+    @property
+    def domain(self) -> "Domain":
+        """
+        Lazy-initialized Domain sub-client for domain mapping operations.
+
+        :return: Domain command instance bound to this communicator.
+        """
+        if self._domain is None:
+            # Lazy import to avoid circular dependency:
+            # epp.py -> domain.py -> base_command.py -> epp.py
+            from pyepp.domain import Domain  # pylint: disable=import-outside-toplevel
+
+            self._domain = Domain(self)
+        return self._domain
+
+    @property
+    def contact(self) -> "Contact":
+        """
+        Lazy-initialized Contact sub-client for contact mapping operations.
+
+        :return: Contact command instance bound to this communicator.
+        """
+        if self._contact is None:
+            # Lazy import to avoid circular dependency:
+            # epp.py -> contact.py -> base_command.py -> epp.py
+            from pyepp.contact import Contact  # pylint: disable=import-outside-toplevel
+
+            self._contact = Contact(self)
+        return self._contact
+
+    @property
+    def host(self) -> "Host":
+        """
+        Lazy-initialized Host sub-client for host mapping operations.
+
+        :return: Host command instance bound to this communicator.
+        """
+        if self._host is None:
+            # Lazy import to avoid circular dependency:
+            # epp.py -> host.py -> base_command.py -> epp.py
+            from pyepp.host import Host  # pylint: disable=import-outside-toplevel
+
+            self._host = Host(self)
+        return self._host
+
+    @property
+    def poll(self) -> "Poll":
+        """
+        Lazy-initialized Poll sub-client for service message queue operations.
+
+        :return: Poll command instance bound to this communicator.
+        """
+        if self._poll is None:
+            # Lazy import to avoid circular dependency:
+            # epp.py -> poll.py -> base_command.py -> epp.py
+            from pyepp.poll import Poll  # pylint: disable=import-outside-toplevel
+
+            self._poll = Poll(self)
+        return self._poll
 
     def _unpack_data(self, data: bytes) -> int:
         """Unpack 32-bit unsigned integer data from bytes."""
