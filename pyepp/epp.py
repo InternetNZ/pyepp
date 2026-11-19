@@ -254,7 +254,7 @@ class EppResultData:
 
     code: int
     message: str
-    raw_response: Union[bytes, str]
+    raw_response: str
     result_data: Any
     reason: Optional[str] = None
     client_transaction_id: Optional[str] = None
@@ -264,7 +264,19 @@ class EppResultData:
     parsed_xml: Optional[BeautifulSoup] = field(default=None, compare=False, repr=False)
 
     def __post_init__(self):
-        if self.parsed_xml is None and self.raw_response and not self.dry_run:
+        # Normalize bytes/bytearray payloads to UTF-8 str so raw_response has a consistent
+        # runtime type across live socket responses and dry-run results, and remains
+        # JSON-serializable in to_dict(). Parse BeautifulSoup from raw bytes first so
+        # any byte-level XML encoding declaration is respected before decoding.
+        if isinstance(self.raw_response, (bytes, bytearray)):
+            raw_bytes = bytes(self.raw_response)
+            if self.parsed_xml is None and raw_bytes and not self.dry_run:
+                try:
+                    self.parsed_xml = BeautifulSoup(raw_bytes, "xml")
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    logging.debug("Could not parse XML in EppResultData: %s", exc)
+            self.raw_response = raw_bytes.decode("utf-8", errors="replace")
+        elif self.parsed_xml is None and self.raw_response and not self.dry_run:
             try:
                 self.parsed_xml = BeautifulSoup(self.raw_response, "xml")
             except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -1005,11 +1017,16 @@ class EppCommunicator:
         self._sync_login_state(cmd, code)
         # logging.debug("Command executed:\n%s", mask_sensitive_xml(xml_response))
 
+        # Normalize socket bytes to UTF-8 str so live responses match dry-run string type
         return EppResultData(
             code=code,
             message=message,
             reason=reason,
-            raw_response=raw_response,
+            raw_response=(
+                raw_response.decode("utf-8", errors="replace")
+                if isinstance(raw_response, (bytes, bytearray))
+                else raw_response
+            ),
             client_transaction_id=client_transaction_id,
             server_transaction_id=server_transaction_id,
             repository_object_id=repository_object_id,

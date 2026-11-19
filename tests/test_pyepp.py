@@ -166,6 +166,7 @@ class PyEPPTests(unittest.TestCase):
 
         epp.connect()
         result = epp.execute(HELLO_XML)
+        self.assertIsInstance(result.raw_response, str)
         self.assertEqual(result, expected_result)
 
     def test_execute(self) -> None:
@@ -185,6 +186,7 @@ class PyEPPTests(unittest.TestCase):
 
         epp.connect()
         result = epp.execute(HELLO_XML)
+        self.assertIsInstance(result.raw_response, str)
         self.assertEqual(result, expected_result)
 
     def test_execute_epp_exception(self) -> None:

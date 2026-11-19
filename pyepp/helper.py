@@ -4,6 +4,7 @@ Helper functions
 
 import secrets
 import string
+from typing import Union
 
 from bs4 import BeautifulSoup
 
@@ -23,9 +24,9 @@ def generate_password(length: int = 16) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def xml_pretty(bxml: bytes) -> str:
+def xml_pretty(bxml: Union[bytes, str]) -> str:
     """
-    Convert bytes xml to string and prettify it.
+    Convert bytes or string xml to string and prettify it.
 
     :param bxml: xml content
 
