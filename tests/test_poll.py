@@ -6,8 +6,13 @@ import unittest
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-from pyepp.poll import Poll, ServiceMessageQueueData, ServiceMessageData
-from pyepp.epp import EppCommunicator, EppResultData
+from pyepp.poll import (
+    MAX_RES_DATA_DEPTH,
+    Poll,
+    ServiceMessageData,
+    ServiceMessageQueueData,
+)
+from pyepp.epp import EppCommunicator, EppCommunicatorException, EppResultData
 
 
 class HostTest(unittest.TestCase):
@@ -967,3 +972,51 @@ class HostTest(unittest.TestCase):
         )
         result_empty = poll.request()
         self.assertIsNone(result_empty.result_data.response_data)
+
+    def test_poll_request_res_data_max_depth_guard(self) -> None:
+        """Verify Poll._parse_res_data enforces MAX_RES_DATA_DEPTH to prevent RecursionError."""
+        from bs4 import BeautifulSoup
+
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+
+        # Build XML nested deeper than MAX_RES_DATA_DEPTH (35 levels inside <resData>).
+        depth = MAX_RES_DATA_DEPTH + 3
+        opening = "".join(f"<n{i}>" for i in range(depth))
+        closing = "".join(f"</n{i}>" for i in reversed(range(depth)))
+        raw_deep = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+            "  <response>\n"
+            '    <result code="1301"><msg>Ack to dequeue</msg></result>\n'
+            '    <msgQ count="1" id="DEEP-1"/>\n'
+            f"    <resData>{opening}leaf{closing}</resData>\n"
+            "  </response>\n"
+            "</epp>"
+        )
+        poll.execute = MagicMock(
+            return_value=EppResultData(
+                code=1301,
+                message="Ack to dequeue",
+                raw_response=raw_deep,
+                result_data=None,
+            )
+        )
+        with self.assertRaises(EppCommunicatorException):
+            poll.request()
+
+        # Also verify nested <panData> enforces the depth guard via _parse_pan_data.
+        pan_soup = BeautifulSoup(
+            f"<resData><panData>{opening}leaf{closing}</panData></resData>", "xml"
+        )
+        with self.assertRaises(EppCommunicatorException):
+            Poll._parse_res_data(pan_soup.find("resData"), max_depth=3)
+
+        # Custom max_depth succeeds at or below threshold and raises above it.
+        shallow_soup = BeautifulSoup("<resData><a><b>ok</b></a></resData>", "xml")
+        self.assertEqual(
+            Poll._parse_res_data(shallow_soup.find("resData"), max_depth=2),
+            {"a": {"b": "ok"}},
+        )
+        with self.assertRaises(EppCommunicatorException):
+            Poll._parse_res_data(shallow_soup.find("resData"), max_depth=1)

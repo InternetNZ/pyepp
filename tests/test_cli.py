@@ -1164,6 +1164,58 @@ class CliFormatOutputTest(unittest.TestCase):
         self.assertIn("response_data\t", tsv_output)
         self.assertIn("example.nz", tsv_output)
 
+    def test_table_and_tsv_strip_ansi_and_c1_control_characters(self) -> None:
+        """Verify TABLE and TSV formats strip ANSI/C1 terminal control sequences (CWE-150)."""
+        from pyepp.poll import ServiceMessageQueueData, ServiceMessageData
+
+        queue_data = ServiceMessageQueueData(
+            message_count=1,
+            message_id="MSG-\x1b[31m1",
+            queue_date="2024-04-03T22:00:00Z",
+            messages=[
+                ServiceMessageData(
+                    language="en", message="Alert\x07\x9b32m from registry\r\nline2"
+                )
+            ],
+            response_data={
+                "trn\x1b[31mData": {
+                    "na\x9bme": "example.nz\x1b[2J\x07",
+                    "items": ["first\x1b[33mitem", {"sub\x07key": "val\x1b[0m"}],
+                },
+            },
+        )
+        result = EppResultData(
+            code=1301,
+            message="Command\x1b[31m completed\x07",
+            raw_response="<raw/>",
+            result_data=queue_data,
+        )
+
+        table_output = self.cli_table.format_output(result)
+        # Control bytes (ESC, BEL, C1 0x9B, CR) are stripped so payloads become inert text;
+        # title headers remain ANSI-styled via click.style.
+        self.assertIn("Command[31m completed", table_output)
+        self.assertIn("MSG-[31m1", table_output)
+        self.assertIn("Alert32m from registry", table_output)
+        self.assertIn("trn[31mData:", table_output)
+        self.assertIn("name: example.nz[2J", table_output)
+        self.assertIn("- first[33mitem", table_output)
+        self.assertIn("subkey: val[0m", table_output)
+        self.assertNotIn("\x1b[31m", table_output)
+        self.assertNotIn("\x1b[2J", table_output)
+        self.assertNotIn("\x1b[33m", table_output)
+        self.assertNotIn("\x9b", table_output)
+        self.assertNotIn("\x07", table_output)
+        self.assertNotIn("\r", table_output)
+
+        tsv_output = self.cli_table_raw.format_output(result)
+        self.assertIn("Command[31m completed", tsv_output)
+        self.assertIn("trn[31mData:", tsv_output)
+        self.assertIn("name: example.nz[2J", tsv_output)
+        self.assertNotIn("\x1b", tsv_output)
+        self.assertNotIn("\x9b", tsv_output)
+        self.assertNotIn("\x07", tsv_output)
+
 
 class CliConfigTest(unittest.TestCase):
     """

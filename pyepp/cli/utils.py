@@ -14,6 +14,13 @@ import click
 OUTPUT_FILE = None
 PRE_ECHO_HOOK = None
 
+# Strip ASCII C0 (0x00-0x1F), DEL (0x7F), and C1 (0x80-0x9F) control characters
+# from single-line keys, scalar values, headers, and titles to block CWE-150 terminal escape injection.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# Strip all control characters except LF (\n) in multiline table cells so intentional
+# row line breaks remain intact while terminal escape, CR, and tab sequences are stripped.
+_CELL_CONTROL_CHARS_RE = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
+
 # Fields excluded when displaying the top-level EPP Envelope in table/TSV format
 ENVELOPE_EXCLUDED_FIELDS = {"raw_response", "parsed_xml", "result_data"}
 
@@ -89,7 +96,10 @@ def _calculate_table_widths(
 def _render_ascii_row(row: list[str], col_widths: list[int], num_cols: int) -> list[str]:
     """Render a single logical data row across one or more wrapped lines."""
     cell_lines_per_col = [
-        _wrap_cell(str(row[c]) if row[c] is not None else "None", col_widths[c])
+        _wrap_cell(
+            _CELL_CONTROL_CHARS_RE.sub("", str(row[c])) if row[c] is not None else "None",
+            col_widths[c],
+        )
         for c in range(num_cols)
     ]
     row_height = max(len(lines) for lines in cell_lines_per_col)
@@ -115,10 +125,21 @@ def _render_ascii_table(
     if not headers or not rows:
         return ""
 
+    # Sanitize headers and cells before width computation so stripped escape sequences
+    # cannot inflate column widths or reach terminal output.
+    headers = [_CONTROL_CHARS_RE.sub("", str(h)) for h in headers]
+    rows = [
+        [
+            _CELL_CONTROL_CHARS_RE.sub("", str(cell)) if cell is not None else "None"
+            for cell in row
+        ]
+        for row in rows
+    ]
+
     num_cols = len(headers)
-    overhead = 1 + (3 * num_cols)
-    min_budget = sum(len(h) for h in headers)
-    budget = max(min_budget, max_width - overhead)
+    budget = max(
+        sum(len(h) for h in headers), max_width - (1 + (3 * num_cols))
+    )
     col_widths = _calculate_table_widths(headers, rows, budget)
 
     border = "+-" + "-+-".join("-" * w for w in col_widths) + "-+"
@@ -132,7 +153,9 @@ def _render_ascii_table(
     table_str = "\n".join(table_lines)
     if title:
         # Colorize table section titles (e.g. [ EPP Response ], [ ServiceMessageQueueData ])
-        styled_title = click.style(f"[ {title} ]", fg="cyan", bold=True)
+        styled_title = click.style(
+            f"[ {_CONTROL_CHARS_RE.sub('', str(title))} ]", fg="cyan", bold=True
+        )
         return f"{styled_title}\n{table_str}"
     return table_str
 
@@ -140,7 +163,8 @@ def _render_ascii_table(
 def format_tsv_value(val: Any) -> str:
     """Format a single field value for TSV output.
 
-    Escapes newlines and tabs to guarantee each field is represented on a single row.
+    Escapes newlines and tabs to guarantee each field is represented on a single row,
+    and strips remaining ASCII/C1 control characters to prevent escape injection.
     """
     if val is None:
         val_str = "None"
@@ -151,7 +175,8 @@ def format_tsv_value(val: Any) -> str:
     else:
         val_str = str(val)
 
-    return val_str.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
+    escaped = val_str.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
+    return _CONTROL_CHARS_RE.sub("", escaped)
 
 
 def _render_tsv_section(
@@ -275,14 +300,16 @@ def _format_nested_dict(data: dict, indent: int = 0) -> str:
     """Format a nested dictionary into readable indented key: value lines."""
     lines: list[str] = []
     prefix = "  " * indent
+    # Sanitize untrusted EPP XML tag names, attributes, and text values (CWE-150).
     for key, val in data.items():
+        clean_key = _CONTROL_CHARS_RE.sub("", str(key))
         if isinstance(val, dict):
-            lines.append(f"{prefix}{key}:")
+            lines.append(f"{prefix}{clean_key}:")
             nested = _format_nested_dict(val, indent + 1)
             if nested:
                 lines.append(nested)
         elif isinstance(val, list):
-            lines.append(f"{prefix}{key}:")
+            lines.append(f"{prefix}{clean_key}:")
             for item in val:
                 if isinstance(item, dict):
                     lines.append(f"{prefix}  -")
@@ -290,9 +317,11 @@ def _format_nested_dict(data: dict, indent: int = 0) -> str:
                     if nested:
                         lines.append(nested)
                 else:
-                    lines.append(f"{prefix}  - {item}")
+                    clean_item = _CONTROL_CHARS_RE.sub("", str(item))
+                    lines.append(f"{prefix}  - {clean_item}")
         else:
-            lines.append(f"{prefix}{key}: {val}")
+            clean_val = _CONTROL_CHARS_RE.sub("", str(val))
+            lines.append(f"{prefix}{clean_key}: {clean_val}")
     return "\n".join(lines) if lines else "None"
 
 

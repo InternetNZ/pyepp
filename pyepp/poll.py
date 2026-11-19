@@ -5,9 +5,13 @@ EPP Poll Module
 from dataclasses import asdict, dataclass
 from typing import Any, List, Optional, Union
 
-from pyepp import EppResultCode, EppResultData
+from pyepp import EppCommunicatorException, EppResultCode, EppResultData
 from pyepp.base_command import BaseCommand
 from pyepp.command_templates import POLL_REQUEST_XML, POLL_ACK_XML
+
+# Explicit nesting limit for Poll <resData> XML payloads to prevent RecursionError
+# if parsed_xml is ever built with an alternative parser or huge_tree enabled.
+MAX_RES_DATA_DEPTH = 32
 
 
 @dataclass
@@ -45,7 +49,9 @@ class Poll(BaseCommand):
         }
 
     @classmethod
-    def _parse_pan_data(cls, pan_el: Any) -> dict[str, Any]:
+    def _parse_pan_data(
+        cls, pan_el: Any, max_depth: int = MAX_RES_DATA_DEPTH, _depth: int = 0
+    ) -> dict[str, Any]:
         """Parse RFC 5731/5732/5733 §3.3 <panData> pending action notification payloads.
 
         The object identifier element (e.g. <domain:name paResult="1">) carries the
@@ -53,6 +59,10 @@ class Poll(BaseCommand):
         Extracting 'paResult' as a boolean alongside the identifier text preserves
         both values cleanly.
         """
+        if _depth > max_depth:
+            raise EppCommunicatorException(
+                f"Poll <resData> XML nesting exceeds maximum depth of {max_depth}."
+            )
         pan_dict: dict[str, Any] = {}
         children = [
             c for c in pan_el.find_all(recursive=False) if getattr(c, "name", None)
@@ -65,7 +75,9 @@ class Poll(BaseCommand):
                 pan_dict[local_name] = raw_text.strip() if raw_text else ""
                 pan_dict["paResult"] = str(pa_result).strip().lower() in ("1", "true")
             else:
-                pan_dict[local_name] = cls._element_to_data(child)
+                pan_dict[local_name] = cls._element_to_data(
+                    child, max_depth=max_depth, _depth=_depth + 1
+                )
 
         for key, value in cls._clean_attrs(pan_el).items():
             pan_dict[f"@{key}" if key in pan_dict else key] = value
@@ -73,13 +85,19 @@ class Poll(BaseCommand):
         return pan_dict
 
     @classmethod
-    def _element_to_data(cls, el: Any) -> Any:
+    def _element_to_data(
+        cls, el: Any, max_depth: int = MAX_RES_DATA_DEPTH, _depth: int = 0
+    ) -> Any:
         """Recursively convert an XML element subtree into structured Python dicts/lists/scalars.
 
         Strips XML namespace prefixes to keep keys uniform across registries, preserves
         non-xmlns attributes on leaf and container elements, and promotes repeated
         sibling elements (such as multiple <msg> or <item> tags) to lists.
         """
+        if _depth > max_depth:
+            raise EppCommunicatorException(
+                f"Poll <resData> XML nesting exceeds maximum depth of {max_depth}."
+            )
         attrs = cls._clean_attrs(el)
         children = [
             c for c in el.find_all(recursive=False) if getattr(c, "name", None)
@@ -98,9 +116,9 @@ class Poll(BaseCommand):
         for child in children:
             child_name = child.name.split(":")[-1]
             child_val = (
-                cls._parse_pan_data(child)
+                cls._parse_pan_data(child, max_depth=max_depth, _depth=_depth + 1)
                 if child_name == "panData"
-                else cls._element_to_data(child)
+                else cls._element_to_data(child, max_depth=max_depth, _depth=_depth + 1)
             )
             if child_name in node:
                 if isinstance(node[child_name], list):
@@ -116,7 +134,9 @@ class Poll(BaseCommand):
         return node
 
     @classmethod
-    def _parse_res_data(cls, res_data_el: Any) -> Optional[dict[str, Any]]:
+    def _parse_res_data(
+        cls, res_data_el: Any, max_depth: int = MAX_RES_DATA_DEPTH
+    ) -> Optional[dict[str, Any]]:
         """Parse optional <resData> notification payload from a poll response per RFC 5730 §2.9.2.3.
 
         Handles transfer notifications (<domain:trnData>, <contact:trnData>), pending
@@ -130,7 +150,7 @@ class Poll(BaseCommand):
         ]
         if not containers:
             return None
-        parsed = cls._element_to_data(res_data_el)
+        parsed = cls._element_to_data(res_data_el, max_depth=max_depth)
         return parsed if isinstance(parsed, dict) and parsed else None
 
     def _data_to_dict(self, data: ServiceMessageQueueData) -> dict:
