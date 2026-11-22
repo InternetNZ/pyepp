@@ -350,6 +350,15 @@ class ContactTest(unittest.TestCase):
         self.assertEqual(postal.address.city, "Wellington")
         self.assertEqual(postal.address.country_code, "NZ")
 
+        additional = result.result_data.additional_postal_info
+        self.assertIsNotNone(additional)
+        self.assertEqual(additional.name, "International Person")
+        self.assertEqual(additional.type, "int")
+        self.assertEqual(additional.address.street_1, "456 International Ave")
+        self.assertIsNone(additional.address.street_2)
+        self.assertEqual(additional.address.city, "New York")
+        self.assertEqual(additional.address.country_code, "US")
+
     def test_info_uses_parsed_xml_directly(self) -> None:
         """Verify contact.info re-uses result.parsed_xml directly."""
         epp_communicator = MagicMock(EppCommunicator)
@@ -2064,3 +2073,222 @@ class ContactTest(unittest.TestCase):
         self.assertIn('<contact:addr type="loc"/>', update_xml)
         self.assertIn("<contact:voice/>", update_xml)
         ET.fromstring(update_xml)
+
+    def test_create_with_multiple_postal_info_renders_both_blocks(self) -> None:
+        """contact.create() with postal_info and additional_postal_info renders both <contact:postalInfo> blocks."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        data = ContactData(
+            id="multi-create-1",
+            email="multi@example.com",
+            postal_info=PostalInfoData(
+                name="Local Name",
+                organization="Local Org",
+                type="loc",
+                address=AddressData(
+                    street_1="123 Local St",
+                    city="Wellington",
+                    province="WN",
+                    postal_code="6011",
+                    country_code="NZ",
+                ),
+            ),
+            additional_postal_info=PostalInfoData(
+                name="International Name",
+                organization="Intl Org",
+                type="int",
+                address=AddressData(
+                    street_1="456 Intl Ave",
+                    street_2="Suite 10",
+                    city="New York",
+                    province="NY",
+                    postal_code="10001",
+                    country_code="US",
+                ),
+            ),
+        )
+        contact.create(data)
+        xml = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(xml.count("<contact:postalInfo "), 2)
+        self.assertIn('<contact:postalInfo type="loc">', xml)
+        self.assertIn('<contact:postalInfo type="int">', xml)
+        self.assertIn("<contact:name>Local Name</contact:name>", xml)
+        self.assertIn("<contact:name>International Name</contact:name>", xml)
+        self.assertIn("<contact:street>456 Intl Ave</contact:street>", xml)
+        self.assertIn("<contact:street>Suite 10</contact:street>", xml)
+        ET.fromstring(xml)
+
+    def test_update_with_multiple_postal_info_and_street_clearing(self) -> None:
+        """contact.update() supports both postalInfo blocks, additional-only updates, and blank street clearing."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        # 1. Both primary (loc) and additional (int) updated together
+        both_data = ContactData(
+            id="multi-upd-1",
+            postal_info=PostalInfoData(
+                name="Updated Loc",
+                type="loc",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            additional_postal_info=PostalInfoData(
+                name="Updated Int",
+                type="int",
+                address=AddressData(
+                    street_1="100 Main St",
+                    street_2="",
+                    city="Tokyo",
+                    country_code="JP",
+                ),
+            ),
+        )
+        contact.update(both_data)
+        xml_both = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(xml_both.count("<contact:postalInfo "), 2)
+        self.assertIn('<contact:postalInfo type="loc">', xml_both)
+        self.assertIn('<contact:postalInfo type="int">', xml_both)
+        self.assertIn("<contact:name>Updated Loc</contact:name>", xml_both)
+        self.assertIn("<contact:name>Updated Int</contact:name>", xml_both)
+        self.assertIn("<contact:street></contact:street>", xml_both)
+        ET.fromstring(xml_both)
+
+        # 2. Only additional_postal_info updated (postal_info=None)
+        add_only = ContactData(
+            id="multi-upd-2",
+            postal_info=None,
+            additional_postal_info=PostalInfoData(
+                name="Only Int",
+                type="int",
+                address=AddressData(city="Osaka", country_code="JP"),
+            ),
+        )
+        contact.update(add_only)
+        xml_add_only = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(xml_add_only.count("<contact:postalInfo "), 1)
+        self.assertIn('<contact:postalInfo type="int">', xml_add_only)
+        self.assertIn("<contact:name>Only Int</contact:name>", xml_add_only)
+        ET.fromstring(xml_add_only)
+
+    def test_multiple_postal_info_round_trip_info_to_create_and_update(self) -> None:
+        """Contact.info() with loc + int postalInfo round-trips cleanly into create() and update()."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+        raw_xml = (
+            "<response>\n"
+            '  <result code="1000"><msg>Command completed successfully</msg></result>\n'
+            "  <resData>\n"
+            "    <contact:infData>\n"
+            "      <contact:id>rt-multi</contact:id>\n"
+            '      <contact:status s="ok"/>\n'
+            '      <contact:postalInfo type="loc">\n'
+            "        <contact:name>Loc Person</contact:name>\n"
+            "        <contact:addr>\n"
+            "          <contact:street>1 Loc Rd</contact:street>\n"
+            "          <contact:city>Wellington</contact:city>\n"
+            "          <contact:cc>NZ</contact:cc>\n"
+            "        </contact:addr>\n"
+            "      </contact:postalInfo>\n"
+            '      <contact:postalInfo type="int">\n'
+            "        <contact:name>Int Person</contact:name>\n"
+            "        <contact:addr>\n"
+            "          <contact:street>2 Int Blvd</contact:street>\n"
+            "          <contact:city>Sydney</contact:city>\n"
+            "          <contact:cc>AU</contact:cc>\n"
+            "        </contact:addr>\n"
+            "      </contact:postalInfo>\n"
+            "      <contact:email>rt@example.nz</contact:email>\n"
+            "      <contact:clID>ClientA</contact:clID>\n"
+            "    </contact:infData>\n"
+            "  </resData>\n"
+            "</response>"
+        )
+        execute_result = EppResultData(
+            code=1000,
+            message="Command completed successfully",
+            raw_response=raw_xml,
+            result_data=None,
+        )
+        contact.execute = MagicMock(return_value=execute_result)
+        info_result = contact.info("rt-multi")
+
+        create_contact = Contact(epp_communicator)
+        create_contact.create(info_result.result_data)
+        create_xml = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(create_xml.count("<contact:postalInfo "), 2)
+        self.assertIn("<contact:name>Loc Person</contact:name>", create_xml)
+        self.assertIn("<contact:name>Int Person</contact:name>", create_xml)
+        ET.fromstring(create_xml)
+
+        update_contact = Contact(epp_communicator)
+        update_contact.update(info_result.result_data)
+        update_xml = epp_communicator.execute.call_args[0][0]
+        self.assertEqual(update_xml.count("<contact:postalInfo "), 2)
+        self.assertIn("<contact:name>Loc Person</contact:name>", update_xml)
+        self.assertIn("<contact:name>Int Person</contact:name>", update_xml)
+        ET.fromstring(update_xml)
+
+    def test_multiple_postal_info_validation_errors(self) -> None:
+        """Duplicate postal types, missing required fields, and empty additional_postal_info raise ValueError."""
+        epp_communicator = MagicMock(EppCommunicator)
+        contact = Contact(epp_communicator)
+
+        # Duplicate type ('loc' + 'loc') in create()
+        dup_create = ContactData(
+            id="dup-1",
+            email="dup@example.com",
+            postal_info=PostalInfoData(
+                name="First",
+                type="loc",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            additional_postal_info=PostalInfoData(
+                name="Second",
+                type="loc",
+                address=AddressData(city="Auckland", country_code="NZ"),
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.create(dup_create)
+
+        # Duplicate type ('int' + 'int') in update()
+        dup_update = ContactData(
+            id="dup-2",
+            postal_info=PostalInfoData(
+                name="First",
+                type="int",
+                address=AddressData(city="Tokyo", country_code="JP"),
+            ),
+            additional_postal_info=PostalInfoData(
+                name="Second",
+                type="int",
+                address=AddressData(city="Osaka", country_code="JP"),
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.update(dup_update)
+
+        # Missing required fields in additional_postal_info on create()
+        missing_add_create = ContactData(
+            id="bad-add-1",
+            email="bad@example.com",
+            postal_info=PostalInfoData(
+                name="Primary",
+                type="loc",
+                address=AddressData(city="Wellington", country_code="NZ"),
+            ),
+            additional_postal_info=PostalInfoData(
+                name="Secondary",
+                type="int",
+                address=None,
+            ),
+        )
+        with self.assertRaises(ValueError):
+            contact.create(missing_add_create)
+
+        # Empty additional_postal_info in update()
+        empty_add_update = ContactData(
+            id="bad-add-2",
+            additional_postal_info=PostalInfoData(name=None, organization=None, address=None),
+        )
+        with self.assertRaises(ValueError):
+            contact.update(empty_add_update)

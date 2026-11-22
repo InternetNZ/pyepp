@@ -6,8 +6,13 @@ import unittest
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-from pyepp.poll import Poll, ServiceMessageQueueData, ServiceMessageData
-from pyepp.epp import EppCommunicator, EppResultData
+from pyepp.poll import (
+    MAX_RES_DATA_DEPTH,
+    Poll,
+    ServiceMessageData,
+    ServiceMessageQueueData,
+)
+from pyepp.epp import EppCommunicator, EppCommunicatorException, EppResultData
 
 
 class HostTest(unittest.TestCase):
@@ -708,5 +713,310 @@ class HostTest(unittest.TestCase):
                 "message_id": 123,
                 "queue_date": "2023-01-01T00:00:00.000Z",
                 "messages": [{"language": "en", "message": "Test msg"}],
+                "response_data": None,
             },
         )
+
+    def test_data_to_dict_with_response_data(self) -> None:
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+        data = ServiceMessageQueueData(
+            message_count=1,
+            message_id="MSG-99",
+            queue_date="2023-01-01T00:00:00.000Z",
+            messages=[ServiceMessageData(language="en", message="Transfer requested.")],
+            response_data={"trnData": {"name": "example.nz", "trStatus": "pending"}},
+        )
+        result = poll._data_to_dict(data)
+        self.assertEqual(
+            result["response_data"],
+            {"trnData": {"name": "example.nz", "trStatus": "pending"}},
+        )
+
+    def test_poll_request_domain_transfer_resdata(self) -> None:
+        """Verify Poll.request parses <domain:trnData> inside <resData> (with and without <exDate>)."""
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+        raw_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+            "  <response>\n"
+            '    <result code="1301">\n'
+            "      <msg>Command completed successfully; ack to dequeue</msg>\n"
+            "    </result>\n"
+            '    <msgQ count="2" id="TRN-1">\n'
+            "      <qDate>2024-04-03T22:00:00.0Z</qDate>\n"
+            '      <msg lang="en">Transfer requested.</msg>\n'
+            "    </msgQ>\n"
+            "    <resData>\n"
+            '      <domain:trnData xmlns:domain="urn:ietf:params:xml:ns:domain-1.0">\n'
+            "        <domain:name>example.nz</domain:name>\n"
+            "        <domain:trStatus>pending</domain:trStatus>\n"
+            "        <domain:reID>ClientX</domain:reID>\n"
+            "        <domain:reDate>2024-04-03T22:00:00.0Z</domain:reDate>\n"
+            "        <domain:acID>ClientY</domain:acID>\n"
+            "        <domain:acDate>2024-04-08T22:00:00.0Z</domain:acDate>\n"
+            "        <domain:exDate>2025-04-03T22:00:00.0Z</domain:exDate>\n"
+            "      </domain:trnData>\n"
+            "    </resData>\n"
+            "    <trID><clTRID>ABC-1</clTRID><svTRID>SRV-1</svTRID></trID>\n"
+            "  </response>\n"
+            "</epp>"
+        )
+        poll.execute = MagicMock(
+            return_value=EppResultData(
+                code=1301,
+                message="Command completed successfully; ack to dequeue",
+                raw_response=raw_xml,
+                result_data=None,
+            )
+        )
+        result = poll.request()
+        self.assertEqual(
+            result.result_data.response_data,
+            {
+                "trnData": {
+                    "name": "example.nz",
+                    "trStatus": "pending",
+                    "reID": "ClientX",
+                    "reDate": "2024-04-03T22:00:00.0Z",
+                    "acID": "ClientY",
+                    "acDate": "2024-04-08T22:00:00.0Z",
+                    "exDate": "2025-04-03T22:00:00.0Z",
+                }
+            },
+        )
+
+        # Without optional <exDate>
+        raw_no_ex = raw_xml.replace(
+            "        <domain:exDate>2025-04-03T22:00:00.0Z</domain:exDate>\n", ""
+        )
+        poll.execute = MagicMock(
+            return_value=EppResultData(
+                code=1301,
+                message="Command completed successfully; ack to dequeue",
+                raw_response=raw_no_ex,
+                result_data=None,
+            )
+        )
+        result_no_ex = poll.request()
+        self.assertNotIn("exDate", result_no_ex.result_data.response_data["trnData"])
+        self.assertEqual(
+            result_no_ex.result_data.response_data["trnData"]["name"], "example.nz"
+        )
+
+    def test_poll_request_contact_transfer_resdata(self) -> None:
+        """Verify Poll.request parses <contact:trnData> inside <resData>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+        raw_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+            "  <response>\n"
+            '    <result code="1301"><msg>Ack to dequeue</msg></result>\n'
+            '    <msgQ count="1" id="CTRN-1"/>\n'
+            "    <resData>\n"
+            '      <contact:trnData xmlns:contact="urn:ietf:params:xml:ns:contact-1.0">\n'
+            "        <contact:id>sh8013</contact:id>\n"
+            "        <contact:trStatus>pending</contact:trStatus>\n"
+            "        <contact:reID>ClientX</contact:reID>\n"
+            "        <contact:reDate>2024-04-03T22:00:00.0Z</contact:reDate>\n"
+            "        <contact:acID>ClientY</contact:acID>\n"
+            "        <contact:acDate>2024-04-08T22:00:00.0Z</contact:acDate>\n"
+            "      </contact:trnData>\n"
+            "    </resData>\n"
+            "  </response>\n"
+            "</epp>"
+        )
+        poll.execute = MagicMock(
+            return_value=EppResultData(
+                code=1301,
+                message="Ack to dequeue",
+                raw_response=raw_xml,
+                result_data=None,
+            )
+        )
+        result = poll.request()
+        self.assertEqual(
+            result.result_data.response_data,
+            {
+                "trnData": {
+                    "id": "sh8013",
+                    "trStatus": "pending",
+                    "reID": "ClientX",
+                    "reDate": "2024-04-03T22:00:00.0Z",
+                    "acID": "ClientY",
+                    "acDate": "2024-04-08T22:00:00.0Z",
+                }
+            },
+        )
+
+    def test_poll_request_pandata_variants(self) -> None:
+        """Verify Poll.request parses domain/contact/host <panData> including boolean paResult and optional clTRID."""
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+
+        cases = [
+            ("domain", "name", "example.com", "1", True, True),
+            ("contact", "id", "sh8013", "0", False, False),
+            ("host", "name", "ns1.example.com", "true", True, True),
+            ("domain", "name", "example.org", "false", False, False),
+        ]
+        for ns, tag, obj_val, pa_attr, expected_bool, include_cltrid in cases:
+            cltrid_xml = f"<{ns}:clTRID>CL-1</{ns}:clTRID>" if include_cltrid else ""
+            raw_xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+                "  <response>\n"
+                '    <result code="1301"><msg>Ack to dequeue</msg></result>\n'
+                '    <msgQ count="1" id="PAN-1"/>\n'
+                "    <resData>\n"
+                f'      <{ns}:panData xmlns:{ns}="urn:ietf:params:xml:ns:{ns}-1.0">\n'
+                f'        <{ns}:{tag} paResult="{pa_attr}">{obj_val}</{ns}:{tag}>\n'
+                f"        <{ns}:paTRID>{cltrid_xml}<{ns}:svTRID>SV-1</{ns}:svTRID></{ns}:paTRID>\n"
+                f"        <{ns}:paDate>2024-05-01T00:00:00Z</{ns}:paDate>\n"
+                f"      </{ns}:panData>\n"
+                "    </resData>\n"
+                "  </response>\n"
+                "</epp>"
+            )
+            poll.execute = MagicMock(
+                return_value=EppResultData(
+                    code=1301,
+                    message="Ack to dequeue",
+                    raw_response=raw_xml,
+                    result_data=None,
+                )
+            )
+            result = poll.request()
+            expected_patrid = {"svTRID": "SV-1"}
+            if include_cltrid:
+                expected_patrid = {"clTRID": "CL-1", "svTRID": "SV-1"}
+            self.assertEqual(
+                result.result_data.response_data,
+                {
+                    "panData": {
+                        tag: obj_val,
+                        "paResult": expected_bool,
+                        "paTRID": expected_patrid,
+                        "paDate": "2024-05-01T00:00:00Z",
+                    }
+                },
+            )
+
+    def test_poll_request_generic_and_empty_resdata(self) -> None:
+        """Verify Poll.request parses generic registry <resData> (attrs + repeated tags) and ignores empty <resData/>."""
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+
+        # Generic custom registry payload with leaf attributes, container attributes, and repeated sibling tags
+        raw_generic = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+            "  <response>\n"
+            '    <result code="1301"><msg>Ack to dequeue</msg></result>\n'
+            '    <msgQ count="1" id="BAL-1"/>\n'
+            "    <resData>\n"
+            '      <lowbalance:pollData xmlns:lowbalance="http://www.verisign.com/epp/lowbalance-poll-1.0" status="alert">\n'
+            "        <lowbalance:registrarName>RegistrarCo</lowbalance:registrarName>\n"
+            "        <lowbalance:creditLimit>1000</lowbalance:creditLimit>\n"
+            '        <lowbalance:creditThreshold type="FIXED">100</lowbalance:creditThreshold>\n'
+            "        <lowbalance:item>first</lowbalance:item>\n"
+            "        <lowbalance:item>second</lowbalance:item>\n"
+            "        <lowbalance:item>third</lowbalance:item>\n"
+            "      </lowbalance:pollData>\n"
+            "    </resData>\n"
+            "  </response>\n"
+            "</epp>"
+        )
+        poll.execute = MagicMock(
+            return_value=EppResultData(
+                code=1301,
+                message="Ack to dequeue",
+                raw_response=raw_generic,
+                result_data=None,
+            )
+        )
+        result = poll.request()
+        self.assertEqual(
+            result.result_data.response_data,
+            {
+                "pollData": {
+                    "status": "alert",
+                    "registrarName": "RegistrarCo",
+                    "creditLimit": "1000",
+                    "creditThreshold": {"type": "FIXED", "value": "100"},
+                    "item": ["first", "second", "third"],
+                }
+            },
+        )
+
+        # Empty <resData/> must return response_data=None
+        raw_empty = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+            "  <response>\n"
+            '    <result code="1301"><msg>Ack to dequeue</msg></result>\n'
+            '    <msgQ count="1" id="EMPTY-1"/>\n'
+            "    <resData/>\n"
+            "  </response>\n"
+            "</epp>"
+        )
+        poll.execute = MagicMock(
+            return_value=EppResultData(
+                code=1301,
+                message="Ack to dequeue",
+                raw_response=raw_empty,
+                result_data=None,
+            )
+        )
+        result_empty = poll.request()
+        self.assertIsNone(result_empty.result_data.response_data)
+
+    def test_poll_request_res_data_max_depth_guard(self) -> None:
+        """Verify Poll._parse_res_data enforces MAX_RES_DATA_DEPTH to prevent RecursionError."""
+        from bs4 import BeautifulSoup
+
+        epp_communicator = MagicMock(EppCommunicator)
+        poll = Poll(epp_communicator)
+
+        # Build XML nested deeper than MAX_RES_DATA_DEPTH (35 levels inside <resData>).
+        depth = MAX_RES_DATA_DEPTH + 3
+        opening = "".join(f"<n{i}>" for i in range(depth))
+        closing = "".join(f"</n{i}>" for i in reversed(range(depth)))
+        raw_deep = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<epp xmlns="urn:ietf:params:xml:ns:epp-1.0">\n'
+            "  <response>\n"
+            '    <result code="1301"><msg>Ack to dequeue</msg></result>\n'
+            '    <msgQ count="1" id="DEEP-1"/>\n'
+            f"    <resData>{opening}leaf{closing}</resData>\n"
+            "  </response>\n"
+            "</epp>"
+        )
+        poll.execute = MagicMock(
+            return_value=EppResultData(
+                code=1301,
+                message="Ack to dequeue",
+                raw_response=raw_deep,
+                result_data=None,
+            )
+        )
+        with self.assertRaises(EppCommunicatorException):
+            poll.request()
+
+        # Also verify nested <panData> enforces the depth guard via _parse_pan_data.
+        pan_soup = BeautifulSoup(
+            f"<resData><panData>{opening}leaf{closing}</panData></resData>", "xml"
+        )
+        with self.assertRaises(EppCommunicatorException):
+            Poll._parse_res_data(pan_soup.find("resData"), max_depth=3)
+
+        # Custom max_depth succeeds at or below threshold and raises above it.
+        shallow_soup = BeautifulSoup("<resData><a><b>ok</b></a></resData>", "xml")
+        self.assertEqual(
+            Poll._parse_res_data(shallow_soup.find("resData"), max_depth=2),
+            {"a": {"b": "ok"}},
+        )
+        with self.assertRaises(EppCommunicatorException):
+            Poll._parse_res_data(shallow_soup.find("resData"), max_depth=1)

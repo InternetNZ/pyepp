@@ -97,6 +97,21 @@ CONTACT_CREATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
               <contact:cc>{{ country_code }}</contact:cc>
            </contact:addr>
          </contact:postalInfo>
+         {% if additional_postal_info %}
+          <contact:postalInfo type="{{ additional_postal_info.type or 'loc' }}">
+            <contact:name>{{ additional_postal_info.name }}</contact:name>
+            {% if additional_postal_info.organization %} <contact:org>{{ additional_postal_info.organization }}</contact:org> {% endif %}
+            <contact:addr>
+              {% if additional_postal_info.street_1 %} <contact:street>{{ additional_postal_info.street_1 }}</contact:street> {% endif %}
+              {% if additional_postal_info.street_2 %} <contact:street>{{ additional_postal_info.street_2 }}</contact:street> {% endif %}
+              {% if additional_postal_info.street_3 %} <contact:street>{{ additional_postal_info.street_3 }}</contact:street> {% endif %}
+              <contact:city>{{ additional_postal_info.city }}</contact:city>
+              {% if additional_postal_info.province %} <contact:sp>{{ additional_postal_info.province }}</contact:sp> {% endif %}
+              {% if additional_postal_info.postal_code %} <contact:pc>{{ additional_postal_info.postal_code }}</contact:pc> {% endif %}
+              <contact:cc>{{ additional_postal_info.country_code }}</contact:cc>
+           </contact:addr>
+         </contact:postalInfo>
+         {% endif %}
          {% if phone %} <contact:voice>{{ phone }}</contact:voice> {% endif %}
          {% if fax %} <contact:fax>{{ fax }}</contact:fax> {% endif %}
          <contact:email>{{ email }}</contact:email>
@@ -151,7 +166,7 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
             <contact:status s="{{ remove_status }}"/>
         </contact:rem>
         {% endif %}
-        {% if postalinfo_change or phone or fax or email or password or privacy %}
+        {% if postalinfo_change or additional_postalinfo_change or phone or fax or email or password or privacy %}
         <contact:chg>
          {% if postalinfo_change %}
           <contact:postalInfo type="{{ type or 'loc' }}">
@@ -166,6 +181,23 @@ CONTACT_UPDATE_XML = """<?xml version="1.0" encoding="UTF-8" standalone="no"?>
                 {% if province %} <contact:sp>{{ province }}</contact:sp> {% endif %}
                 {% if postal_code %} <contact:pc>{{ postal_code }}</contact:pc> {% endif %}
                 <contact:cc>{{ country_code }}</contact:cc>
+           </contact:addr>
+           {% endif %}
+         </contact:postalInfo>
+         {% endif %}
+         {% if additional_postalinfo_change and additional_postal_info %}
+          <contact:postalInfo type="{{ additional_postal_info.type or 'loc' }}">
+            {% if additional_postal_info.name %} <contact:name>{{ additional_postal_info.name }}</contact:name> {% endif %}
+            {% if additional_postal_info.organization %} <contact:org>{{ additional_postal_info.organization }}</contact:org> {% endif %}
+            {% if additional_postal_info.address_change %}
+            <contact:addr>
+                {% if additional_postal_info.street_1 is defined and additional_postal_info.street_1 is not none %} <contact:street>{{ additional_postal_info.street_1 }}</contact:street> {% endif %}
+                {% if additional_postal_info.street_2 is defined and additional_postal_info.street_2 is not none %} <contact:street>{{ additional_postal_info.street_2 }}</contact:street> {% endif %}
+                {% if additional_postal_info.street_3 is defined and additional_postal_info.street_3 is not none %} <contact:street>{{ additional_postal_info.street_3 }}</contact:street> {% endif %}
+                <contact:city>{{ additional_postal_info.city }}</contact:city>
+                {% if additional_postal_info.province %} <contact:sp>{{ additional_postal_info.province }}</contact:sp> {% endif %}
+                {% if additional_postal_info.postal_code %} <contact:pc>{{ additional_postal_info.postal_code }}</contact:pc> {% endif %}
+                <contact:cc>{{ additional_postal_info.country_code }}</contact:cc>
            </contact:addr>
            {% endif %}
          </contact:postalInfo>

@@ -3,7 +3,7 @@ Contact Mapping Module. This module is used to manage contact objects in Registr
 """
 
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 from dataclasses import dataclass, asdict
 
 from pyepp import helper
@@ -130,6 +130,8 @@ class ContactData:
     :param update_date: Contact last update date
     :param privacy: Contact elements to redact from disclosure (Whois/RDAP) under RFC 5733 §2.9.
         Valid options: 'name', 'org', 'addr', 'voice', 'fax', 'email'.
+    :param additional_postal_info: Optional secondary contact postal info block (RFC 5733 §3.1.2
+        permits up to two <contact:postalInfo> elements: one 'loc' and one 'int').
     """
 
     # pylint: disable=invalid-name,too-many-instance-attributes
@@ -146,6 +148,7 @@ class ContactData:
     update_client_id: Optional[str] = ""
     update_date: Optional[str] = ""
     privacy: Optional[list[str]] = None
+    additional_postal_info: Optional[PostalInfoData] = None
 
     def __post_init__(self) -> None:
         """Validate privacy elements conform to RFC 5733."""
@@ -249,6 +252,38 @@ class Contact(BaseCommand):
         )
         return disclosure_data
 
+    @staticmethod
+    def _flatten_postal_info(postal_dict: dict[str, Any]) -> dict[str, Any]:
+        """Flatten a PostalInfoData dictionary and validate its address and type.
+
+        :param postal_dict: Dictionary representation of PostalInfoData
+        :return: Flattened dictionary with validated street continuity and postal type
+        :raises ValueError: If postal type or street continuity is invalid
+        """
+        flattened = dict(postal_dict)
+        address = flattened.pop("address", None)
+        if address:
+            AddressData.validate_street_continuity(
+                address.get("street_1"),
+                address.get("street_2"),
+                address.get("street_3"),
+            )
+            flattened.update(address)
+
+        if "type" in flattened:
+            type_val = (
+                flattened["type"].value
+                if isinstance(flattened["type"], Enum)
+                else flattened["type"]
+            )
+            if type_val not in ("loc", "int"):
+                raise ValueError(
+                    f"Invalid postal info type '{type_val}'. Must be 'loc' or 'int'."
+                )
+            flattened["type"] = type_val
+
+        return flattened
+
     def _data_to_dict(self, data: ContactData) -> dict:
         """Convert a contact dataclass to a dictionary.
 
@@ -258,30 +293,29 @@ class Contact(BaseCommand):
         :rtype: dict
         """
         data_dict = asdict(data)
-        postal_info = data_dict.pop("postal_info", {})
-        address = postal_info.pop("address", {}) if postal_info is not None else {}
+        postal_info = data_dict.pop("postal_info", None)
+        # Pop additional_postal_info without reinserting when None to preserve
+        # backward-compatible flat dict output for single-postalInfo contacts.
+        additional_postal_info = data_dict.pop("additional_postal_info", None)
 
-        if address:
-            AddressData.validate_street_continuity(
-                address.get("street_1"),
-                address.get("street_2"),
-                address.get("street_3"),
-            )
-            data_dict.update(address)
+        flattened_primary = None
         if postal_info:
-            data_dict.update(postal_info)
+            flattened_primary = self._flatten_postal_info(postal_info)
+            data_dict.update(flattened_primary)
 
-        if "type" in data_dict:
-            type_val = (
-                data_dict["type"].value
-                if isinstance(data_dict["type"], Enum)
-                else data_dict["type"]
-            )
-            if type_val not in ("loc", "int"):
+        if additional_postal_info is not None:
+            flattened_additional = self._flatten_postal_info(additional_postal_info)
+            # RFC 5733 §3.1.2: A contact may contain at most one 'loc' and one 'int'
+            # postalInfo block; two blocks with the same type violate the EPP schema.
+            if (
+                flattened_primary is not None
+                and flattened_primary.get("type", "loc")
+                == flattened_additional.get("type", "loc")
+            ):
                 raise ValueError(
-                    f"Invalid postal info type '{type_val}'. Must be 'loc' or 'int'."
+                    "Contact cannot have multiple postal_info blocks with the same type."
                 )
-            data_dict["type"] = type_val
+            data_dict["additional_postal_info"] = flattened_additional
 
         if data_dict.get("privacy") is not None:
             intended_postal_type = (
@@ -353,6 +387,41 @@ class Contact(BaseCommand):
 
         return result
 
+    @staticmethod
+    def _parse_postal_info(postal_info_el: Any) -> PostalInfoData:
+        """Parse a single <contact:postalInfo> XML element into a PostalInfoData object.
+
+        Queries child elements strictly within the given <postalInfo> element so
+        localized and internationalized blocks never merge street or city tags.
+        """
+        name_el = postal_info_el.find("name", recursive=False)
+        org_el = postal_info_el.find("org", recursive=False)
+        addr_el = postal_info_el.find("addr", recursive=False)
+
+        address_data = None
+        if addr_el:
+            streets = addr_el.find_all("street")
+            city_el = addr_el.find("city")
+            sp_el = addr_el.find("sp")
+            pc_el = addr_el.find("pc")
+            cc_el = addr_el.find("cc")
+            address_data = AddressData(
+                street_1=streets[0].text if len(streets) >= 1 else None,
+                street_2=streets[1].text if len(streets) >= 2 else None,
+                street_3=streets[2].text if len(streets) >= 3 else None,
+                city=city_el.text if city_el else None,
+                province=sp_el.text if sp_el else None,
+                postal_code=pc_el.text if pc_el else None,
+                country_code=cc_el.text if cc_el else None,
+            )
+
+        return PostalInfoData(
+            name=name_el.text if name_el else None,
+            organization=org_el.text if org_el else None,
+            type=postal_info_el.get("type") or "loc",
+            address=address_data,
+        )
+
     # pylint: disable=too-many-locals
     def info(
         self, contact_id: str, client_transaction_id: Optional[str] = None
@@ -403,41 +472,25 @@ class Contact(BaseCommand):
         fax_el = info_el.find("fax", recursive=False)
         email_el = info_el.find("email", recursive=False)
 
-        # RFC 5733 §3.1.2: Parse postalInfo block scoped strictly to its element.
-        # Under GDPR / redaction policies, <postalInfo> or its sub-elements may be omitted.
-        # Furthermore, scoping street/city queries strictly within <addr> inside the
-        # specific <postalInfo> element prevents merging street lines across multiple
-        # localized and international postalInfo elements.
-        postal_info_el = info_el.find("postalInfo", recursive=False)
-        postal_info_data = None
-        if postal_info_el:
-            name_el = postal_info_el.find("name", recursive=False)
-            org_el = postal_info_el.find("org", recursive=False)
-            addr_el = postal_info_el.find("addr", recursive=False)
+        # RFC 5733 §3.1.2 allows up to two <contact:postalInfo> blocks (e.g. 'loc' and 'int').
+        # Parse all direct child blocks in document order; fall back to .find() when
+        # find_all() returns empty so mocked parsed_xml objects defining only .find() work.
+        postal_info_els = info_el.find_all("postalInfo", recursive=False)
+        if not postal_info_els:
+            first_postal = info_el.find("postalInfo", recursive=False)
+            if first_postal is not None:
+                postal_info_els = [first_postal]
 
-            address_data = None
-            if addr_el:
-                streets = addr_el.find_all("street")
-                city_el = addr_el.find("city")
-                sp_el = addr_el.find("sp")
-                pc_el = addr_el.find("pc")
-                cc_el = addr_el.find("cc")
-                address_data = AddressData(
-                    street_1=streets[0].text if len(streets) >= 1 else None,
-                    street_2=streets[1].text if len(streets) >= 2 else None,
-                    street_3=streets[2].text if len(streets) >= 3 else None,
-                    city=city_el.text if city_el else None,
-                    province=sp_el.text if sp_el else None,
-                    postal_code=pc_el.text if pc_el else None,
-                    country_code=cc_el.text if cc_el else None,
-                )
-
-            postal_info_data = PostalInfoData(
-                name=name_el.text if name_el else None,
-                organization=org_el.text if org_el else None,
-                type=postal_info_el.get("type") or "loc",
-                address=address_data,
-            )
+        postal_info_data = (
+            self._parse_postal_info(postal_info_els[0])
+            if len(postal_info_els) >= 1
+            else None
+        )
+        additional_postal_info_data = (
+            self._parse_postal_info(postal_info_els[1])
+            if len(postal_info_els) >= 2
+            else None
+        )
 
         result_data = {
             "id": id_el.text if id_el else "",
@@ -453,6 +506,7 @@ class Contact(BaseCommand):
             "update_client_id": up_id_el.text if up_id_el else None,
             "update_date": up_date_el.text if up_date_el else None,
             "postal_info": postal_info_data,
+            "additional_postal_info": additional_postal_info_data,
             "phone": voice_el.text if voice_el else None,
             "fax": fax_el.text if fax_el else None,
             "email": email_el.text if email_el else None,
@@ -489,6 +543,30 @@ class Contact(BaseCommand):
 
         return result
 
+    @staticmethod
+    def _validate_create_postal_info(postal: Optional[PostalInfoData]) -> None:
+        """Validate required fields and street continuity on a PostalInfoData for contact creation."""
+        if not postal or not postal.name:
+            raise ValueError("Contact creation requires postal info with 'name'.")
+        if (
+            not postal.address
+            or not postal.address.city
+            or not postal.address.country_code
+        ):
+            raise ValueError(
+                "Contact creation requires postal info address with 'city' and 'country_code'."
+            )
+
+        addr = postal.address
+        if addr.street_1 == "" and (addr.street_2 or addr.street_3):
+            raise ValueError(
+                "Cannot specify 'street_2' or 'street_3' when 'street_1' is empty."
+            )
+        if addr.street_2 == "" and addr.street_3:
+            raise ValueError(
+                "Cannot specify 'street_3' when 'street_2' is empty."
+            )
+
     def create(
         self, contact: ContactData, client_transaction_id: Optional[str] = None
     ) -> EppResultData:
@@ -502,28 +580,18 @@ class Contact(BaseCommand):
         :return: Result object
         :rtype: EppResultData
         """
-        if not contact.postal_info or not contact.postal_info.name:
-            raise ValueError("Contact creation requires postal info with 'name'.")
-        if (
-            not contact.postal_info.address
-            or not contact.postal_info.address.city
-            or not contact.postal_info.address.country_code
-        ):
-            raise ValueError(
-                "Contact creation requires postal info address with 'city' and 'country_code'."
-            )
+        self._validate_create_postal_info(contact.postal_info)
+        if contact.additional_postal_info is not None:
+            self._validate_create_postal_info(contact.additional_postal_info)
+            if (contact.postal_info.type or "loc") == (
+                contact.additional_postal_info.type or "loc"
+            ):
+                raise ValueError(
+                    "Contact cannot have multiple postal_info blocks with the same type."
+                )
+
         if not contact.email or not contact.email.strip():
             raise ValueError("Contact creation requires 'email'.")
-
-        addr = contact.postal_info.address
-        if addr.street_1 == "" and (addr.street_2 or addr.street_3):
-            raise ValueError(
-                "Cannot specify 'street_2' or 'street_3' when 'street_1' is empty."
-            )
-        if addr.street_2 == "" and addr.street_3:
-            raise ValueError(
-                "Cannot specify 'street_3' when 'street_2' is empty."
-            )
 
         params = self._data_to_dict(contact)
         params["client_transaction_id"] = client_transaction_id
@@ -553,6 +621,34 @@ class Contact(BaseCommand):
 
         return result
 
+    @staticmethod
+    def _has_postal_change(postal: Optional[PostalInfoData]) -> bool:
+        """Return True when a PostalInfoData instance specifies actual postal changes."""
+        return bool(
+            postal and (postal.name or postal.organization or postal.address)
+        )
+
+    @staticmethod
+    def _validate_update_postal_info(postal: PostalInfoData) -> None:
+        """Validate a PostalInfoData block for contact update per RFC 5733 §3.2.5."""
+        if postal.type == "int":
+            if (
+                not postal.name
+                or not postal.address
+                or not postal.address.city
+                or not postal.address.country_code
+            ):
+                raise ValueError(
+                    "Postal info update with type 'int' requires complete 'name', 'city', and 'country_code'."
+                )
+        elif postal.address:
+            if not postal.address.city or not postal.address.country_code:
+                raise ValueError(
+                    "Postal info address update requires both 'city' and 'country_code'."
+                )
+        elif not postal.name and not postal.organization:
+            raise ValueError("Postal info update cannot be empty.")
+
     def update(
         self,
         contact: ContactData,
@@ -574,16 +670,19 @@ class Contact(BaseCommand):
         # Check if actual postal information (name, org, address) is being modified.
         # If postal_info only specifies type (e.g. type="int" to convey disclosure postal type
         # for a privacy-only update), do not trigger postalinfo_change or validation errors.
-        has_postal_change = bool(
-            contact.postal_info
-            and (
-                contact.postal_info.name
-                or contact.postal_info.organization
-                or contact.postal_info.address
-            )
+        has_postal_change = self._has_postal_change(contact.postal_info)
+        has_additional_postal_change = self._has_postal_change(
+            contact.additional_postal_info
         )
+        if (
+            contact.additional_postal_info is not None
+            and not has_additional_postal_change
+        ):
+            raise ValueError("Postal info update cannot be empty.")
+
         has_chg = bool(
             has_postal_change
+            or has_additional_postal_change
             or contact.phone
             or contact.fax
             or contact.email
@@ -597,29 +696,17 @@ class Contact(BaseCommand):
             )
 
         if contact.postal_info and has_postal_change:
-            if contact.postal_info.type == "int":
-                if (
-                    not contact.postal_info.name
-                    or not contact.postal_info.address
-                    or not contact.postal_info.address.city
-                    or not contact.postal_info.address.country_code
-                ):
-                    raise ValueError(
-                        "Postal info update with type 'int' requires complete 'name', 'city', and 'country_code'."
-                    )
-            elif contact.postal_info.address:
-                if (
-                    not contact.postal_info.address.city
-                    or not contact.postal_info.address.country_code
-                ):
-                    raise ValueError(
-                        "Postal info address update requires both 'city' and 'country_code'."
-                    )
-            elif (
-                not contact.postal_info.name
-                and not contact.postal_info.organization
+            self._validate_update_postal_info(contact.postal_info)
+        if contact.additional_postal_info and has_additional_postal_change:
+            self._validate_update_postal_info(contact.additional_postal_info)
+            if (
+                has_postal_change
+                and (contact.postal_info.type or "loc")
+                == (contact.additional_postal_info.type or "loc")
             ):
-                raise ValueError("Postal info update cannot be empty.")
+                raise ValueError(
+                    "Contact cannot have multiple postal_info blocks with the same type."
+                )
 
         params = self._data_to_dict(contact)
 
@@ -627,6 +714,14 @@ class Contact(BaseCommand):
         params["remove_status"] = remove_status
 
         params["postalinfo_change"] = has_postal_change
+        params["additional_postalinfo_change"] = has_additional_postal_change
+        if has_additional_postal_change and "additional_postal_info" in params:
+            params["additional_postal_info"]["address_change"] = bool(
+                contact.additional_postal_info
+                and contact.additional_postal_info.address
+            )
+        else:
+            params.pop("additional_postal_info", None)
         params["address_change"] = bool(
             contact.postal_info and contact.postal_info.address
         )
