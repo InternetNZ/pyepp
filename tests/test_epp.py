@@ -2388,7 +2388,170 @@ class EppClientTransactionIdTest(unittest.TestCase):
         self.assertIn("Could not get result code", str(ctx.exception))
 
 
+class EppCommunicatorFacadeTest(unittest.TestCase):
+    """
+    Unit tests for the unified client facade on EppCommunicator.
+    """
 
+    def setUp(self):
+        self.epp = EppCommunicator("localhost", "700")
 
+    def test_lazy_initialization(self):
+        """Sub-clients are lazily initialized on first access, remaining None until accessed."""
+        # Initial internal state must be None and not yet instantiated in instance dict
+        self.assertIsNone(self.epp._domain)
+        self.assertIsNone(self.epp._contact)
+        self.assertIsNone(self.epp._host)
+        self.assertIsNone(self.epp._poll)
+        self.assertNotIn("_domain", self.epp.__dict__)
+        self.assertNotIn("_contact", self.epp.__dict__)
+        self.assertNotIn("_host", self.epp.__dict__)
+        self.assertNotIn("_poll", self.epp.__dict__)
 
+        from pyepp.domain import Domain
+        from pyepp.contact import Contact
+        from pyepp.host import Host
+        from pyepp.poll import Poll
 
+        domain_client = self.epp.domain
+        self.assertIsInstance(domain_client, Domain)
+        self.assertIn("_domain", self.epp.__dict__)
+
+        contact_client = self.epp.contact
+        self.assertIsInstance(contact_client, Contact)
+        self.assertIn("_contact", self.epp.__dict__)
+
+        host_client = self.epp.host
+        self.assertIsInstance(host_client, Host)
+        self.assertIn("_host", self.epp.__dict__)
+
+        poll_client = self.epp.poll
+        self.assertIsInstance(poll_client, Poll)
+        self.assertIn("_poll", self.epp.__dict__)
+
+    def test_cached_instance_identity(self):
+        """Repeated property access returns the same cached instance (identity equality)."""
+        self.assertIs(self.epp.domain, self.epp.domain)
+        self.assertIs(self.epp.contact, self.epp.contact)
+        self.assertIs(self.epp.host, self.epp.host)
+        self.assertIs(self.epp.poll, self.epp.poll)
+
+    def test_communicator_binding(self):
+        """Sub-clients are bound to the parent EppCommunicator instance."""
+        self.assertIs(self.epp.domain._epp_communicator, self.epp)
+        self.assertIs(self.epp.contact._epp_communicator, self.epp)
+        self.assertIs(self.epp.host._epp_communicator, self.epp)
+        self.assertIs(self.epp.poll._epp_communicator, self.epp)
+
+    def test_read_only_properties(self):
+        """Facade sub-client properties are read-only and raise AttributeError on reassignment."""
+        with self.assertRaises(AttributeError):
+            self.epp.domain = None
+        with self.assertRaises(AttributeError):
+            self.epp.contact = None
+        with self.assertRaises(AttributeError):
+            self.epp.host = None
+        with self.assertRaises(AttributeError):
+            self.epp.poll = None
+
+    def test_facade_domain_command_execution(self):
+        """Commands dispatched via epp.domain execute through communicator."""
+        mock_result = EppResultData(code=1000, message="Success", raw_response="raw", result_data=None, dry_run=True)
+        self.epp.execute = MagicMock(return_value=mock_result)
+
+        res = self.epp.domain.check(["example.nz"])
+        self.assertIs(res, mock_result)
+        self.epp.execute.assert_called_once()
+
+    def test_facade_contact_command_execution(self):
+        """Commands dispatched via epp.contact execute through communicator."""
+        mock_result = EppResultData(code=1000, message="Success", raw_response="raw", result_data=None, dry_run=True)
+        self.epp.execute = MagicMock(return_value=mock_result)
+
+        res = self.epp.contact.check(["contact-1"])
+        self.assertIs(res, mock_result)
+        self.epp.execute.assert_called_once()
+
+    def test_facade_host_command_execution(self):
+        """Commands dispatched via epp.host execute through communicator."""
+        mock_result = EppResultData(code=1000, message="Success", raw_response="raw", result_data=None, dry_run=True)
+        self.epp.execute = MagicMock(return_value=mock_result)
+
+        res = self.epp.host.check(["ns1.example.com"])
+        self.assertIs(res, mock_result)
+        self.epp.execute.assert_called_once()
+
+    def test_facade_poll_command_execution(self):
+        """Commands dispatched via epp.poll execute through communicator."""
+        mock_result = EppResultData(code=1000, message="Success", raw_response="raw", result_data=None, dry_run=True)
+        self.epp.execute = MagicMock(return_value=mock_result)
+
+        res = self.epp.poll.request()
+        self.assertIs(res, mock_result)
+        self.epp.execute.assert_called_once()
+
+    def test_facade_context_manager_and_reconnect_lifecycle(self):
+        """Facade sub-clients remain functional across context manager entry, exit, and re-entry."""
+        epp = EppCommunicator("localhost", "700", dry_run=True, user="test_user", password="test_password")
+
+        # Prior to context entry, sub-client can be referenced
+        domain_sub = epp.domain
+        self.assertIs(domain_sub._epp_communicator, epp)
+
+        # Enter context
+        with epp as client:
+            self.assertTrue(client.is_connected)
+            self.assertTrue(client.is_logged_in)
+            self.assertIs(client.domain, domain_sub)
+            res = client.domain.check(["example.nz"])
+            self.assertTrue(res.dry_run)
+
+        # On exit, connection state is cleared
+        self.assertFalse(epp.is_connected)
+        self.assertFalse(epp.is_logged_in)
+
+        # Re-enter context manager (reconnect & re-login)
+        with epp as client_reconnect:
+            self.assertTrue(client_reconnect.is_connected)
+            self.assertTrue(client_reconnect.is_logged_in)
+            self.assertIs(client_reconnect.domain, domain_sub)
+            res_reconnect = client_reconnect.domain.check(["example.nz"])
+            self.assertTrue(res_reconnect.dry_run)
+
+    def test_facade_reconnect_after_disconnect(self):
+        """Facade sub-clients remain bound to the communicator when disconnect and manual reconnect occur."""
+        epp = EppCommunicator("localhost", "700", dry_run=True)
+        epp.connect()
+        self.assertTrue(epp.is_connected)
+
+        contact_sub = epp.contact
+        res = contact_sub.check(["contact-1"])
+        self.assertTrue(res.dry_run)
+
+        # Explicit disconnect
+        epp.disconnect()
+        self.assertFalse(epp.is_connected)
+
+        # Reconnect
+        epp.connect()
+        self.assertTrue(epp.is_connected)
+        self.assertIs(epp.contact, contact_sub)
+        res2 = epp.contact.check(["contact-1"])
+        self.assertTrue(res2.dry_run)
+
+    def test_backward_compatibility_direct_instantiation(self):
+        """Direct instantiation of Domain(epp), Contact(epp), etc. remains 100% backward compatible."""
+        from pyepp.domain import Domain
+        from pyepp.contact import Contact
+        from pyepp.host import Host
+        from pyepp.poll import Poll
+
+        domain = Domain(self.epp)
+        contact = Contact(self.epp)
+        host = Host(self.epp)
+        poll = Poll(self.epp)
+
+        self.assertIs(domain._epp_communicator, self.epp)
+        self.assertIs(contact._epp_communicator, self.epp)
+        self.assertIs(host._epp_communicator, self.epp)
+        self.assertIs(poll._epp_communicator, self.epp)
